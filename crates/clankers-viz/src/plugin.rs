@@ -4,7 +4,7 @@
 //! mode-aware simulation stepping, and keyboard teleop to a Bevy app.
 
 use bevy::prelude::*;
-use bevy_egui::EguiPlugin;
+use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
 use clankers_core::ClankersSet;
@@ -72,10 +72,7 @@ impl Plugin for ClankersVizPlugin {
                 .before(clankers_teleop::systems::apply_teleop_commands),
         );
 
-        // UI: runs after Communicate so it sees latest data.
-        app.add_systems(
-            Update,
-            ui::side_panel_system.after(ClankersSet::Communicate),
-        );
+        // UI: runs in EguiPrimaryContextPass (required by bevy_egui 0.38).
+        app.add_systems(EguiPrimaryContextPass, ui::side_panel_system);
     }
 }

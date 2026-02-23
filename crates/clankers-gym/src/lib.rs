@@ -15,6 +15,7 @@ pub mod env;
 pub mod framing;
 pub mod protocol;
 pub mod server;
+pub mod state_machine;
 
 // ---------------------------------------------------------------------------
 // Re-exports

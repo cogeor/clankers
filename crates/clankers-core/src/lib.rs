@@ -76,7 +76,10 @@ pub mod prelude {
         // Errors
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
         // Physics
-        physics::{ContactData, ExternalForce, ImuData, Mass, RaycastResult, SurfaceFriction},
+        physics::{
+            ContactData, EndEffectorState, ExternalForce, ImuData, Mass, RaycastResult,
+            SurfaceFriction,
+        },
         // Seeds
         seed::{SeedHierarchy, derive_seed, derive_seed_indexed},
         // Time

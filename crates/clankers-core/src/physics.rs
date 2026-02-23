@@ -236,6 +236,43 @@ impl RaycastResult {
 }
 
 // ---------------------------------------------------------------------------
+// EndEffectorState
+// ---------------------------------------------------------------------------
+
+/// World-space pose of an end-effector link.
+///
+/// Stores position (meters) and orientation (unit quaternion) of a
+/// tagged link. The kinematics/physics layer populates this each step;
+/// [`EndEffectorPoseSensor`](crate) reads it.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct EndEffectorState {
+    /// World-space position (meters).
+    pub position: Vec3,
+    /// World-space orientation (unit quaternion).
+    pub orientation: Quat,
+}
+
+impl EndEffectorState {
+    /// Create with explicit position and orientation.
+    #[must_use]
+    pub const fn new(position: Vec3, orientation: Quat) -> Self {
+        Self {
+            position,
+            orientation,
+        }
+    }
+}
+
+impl Default for EndEffectorState {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            orientation: Quat::IDENTITY,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -321,6 +358,22 @@ mod tests {
         assert!(c.in_contact());
     }
 
+    // -- EndEffectorState --
+
+    #[test]
+    fn end_effector_state_default() {
+        let ee = EndEffectorState::default();
+        assert_eq!(ee.position, Vec3::ZERO);
+        assert_eq!(ee.orientation, Quat::IDENTITY);
+    }
+
+    #[test]
+    fn end_effector_state_new() {
+        let ee = EndEffectorState::new(Vec3::new(1.0, 2.0, 3.0), Quat::from_rotation_z(1.0));
+        assert_eq!(ee.position, Vec3::new(1.0, 2.0, 3.0));
+        assert!((ee.orientation.z - Quat::from_rotation_z(1.0).z).abs() < f32::EPSILON);
+    }
+
     // -- RaycastResult --
 
     #[test]
@@ -351,5 +404,6 @@ mod tests {
         assert_send_sync::<ImuData>();
         assert_send_sync::<ContactData>();
         assert_send_sync::<RaycastResult>();
+        assert_send_sync::<EndEffectorState>();
     }
 }

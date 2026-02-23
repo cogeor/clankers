@@ -5,7 +5,7 @@
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
-    physics::{ContactData, ImuData, RaycastResult},
+    physics::{ContactData, EndEffectorState, ImuData, RaycastResult},
     traits::{ObservationSensor, Sensor},
     types::{Observation, RobotId},
 };
@@ -542,6 +542,108 @@ impl ObservationSensor for RobotRaycastSensor {
 }
 
 // ---------------------------------------------------------------------------
+// EndEffectorPoseSensor
+// ---------------------------------------------------------------------------
+
+/// Reads world-space position and orientation from all [`EndEffectorState`] entities.
+///
+/// Produces `7 × n_effectors` values:
+/// `[x_0, y_0, z_0, qx_0, qy_0, qz_0, qw_0, ...]`.
+pub struct EndEffectorPoseSensor {
+    /// Expected number of end-effector entities.
+    n_effectors: usize,
+}
+
+impl EndEffectorPoseSensor {
+    pub const fn new(n_effectors: usize) -> Self {
+        Self { n_effectors }
+    }
+}
+
+impl Sensor for EndEffectorPoseSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_effectors * 7);
+        let mut query = world.query::<&EndEffectorState>();
+        for ee in query.iter(world) {
+            data.push(ee.position.x);
+            data.push(ee.position.y);
+            data.push(ee.position.z);
+            data.push(ee.orientation.x);
+            data.push(ee.orientation.y);
+            data.push(ee.orientation.z);
+            data.push(ee.orientation.w);
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "EndEffectorPoseSensor"
+    }
+}
+
+impl ObservationSensor for EndEffectorPoseSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_effectors * 7
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RobotEndEffectorPoseSensor
+// ---------------------------------------------------------------------------
+
+/// Reads end-effector pose only from entities belonging to a specific robot.
+///
+/// Like [`EndEffectorPoseSensor`] but filtered by [`RobotId`].
+pub struct RobotEndEffectorPoseSensor {
+    robot_id: RobotId,
+    n_effectors: usize,
+}
+
+impl RobotEndEffectorPoseSensor {
+    pub const fn new(robot_id: RobotId, n_effectors: usize) -> Self {
+        Self {
+            robot_id,
+            n_effectors,
+        }
+    }
+}
+
+impl Sensor for RobotEndEffectorPoseSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_effectors * 7);
+        let mut query = world.query::<(&EndEffectorState, &RobotId)>();
+        for (ee, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(ee.position.x);
+                data.push(ee.position.y);
+                data.push(ee.position.z);
+                data.push(ee.orientation.x);
+                data.push(ee.orientation.y);
+                data.push(ee.orientation.z);
+                data.push(ee.orientation.w);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotEndEffectorPoseSensor"
+    }
+}
+
+impl ObservationSensor for RobotEndEffectorPoseSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_effectors * 7
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NoisySensor
 // ---------------------------------------------------------------------------
 
@@ -953,6 +1055,88 @@ mod tests {
         assert_eq!(sensor.observation_dim(), 8);
     }
 
+    // -- EndEffectorPoseSensor --
+
+    #[test]
+    fn end_effector_pose_sensor_reads_correctly() {
+        let mut world = World::new();
+        let ee = EndEffectorState::new(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
+        world.spawn(ee);
+
+        let sensor = EndEffectorPoseSensor::new(1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 7);
+        assert!((obs[0] - 1.0).abs() < f32::EPSILON);
+        assert!((obs[1] - 2.0).abs() < f32::EPSILON);
+        assert!((obs[2] - 3.0).abs() < f32::EPSILON);
+        // Quat::IDENTITY = (0, 0, 0, 1)
+        assert!((obs[3] - 0.0).abs() < f32::EPSILON);
+        assert!((obs[6] - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn end_effector_pose_sensor_multiple() {
+        let mut world = World::new();
+        world.spawn(EndEffectorState::default());
+        world.spawn(EndEffectorState::default());
+
+        let sensor = EndEffectorPoseSensor::new(2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 14);
+    }
+
+    #[test]
+    fn end_effector_pose_sensor_empty_world() {
+        let mut world = World::new();
+        let sensor = EndEffectorPoseSensor::new(0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn end_effector_pose_sensor_dim_and_name() {
+        let sensor = EndEffectorPoseSensor::new(2);
+        assert_eq!(sensor.observation_dim(), 14);
+        assert_eq!(sensor.name(), "EndEffectorPoseSensor");
+    }
+
+    // -- RobotEndEffectorPoseSensor --
+
+    #[test]
+    fn robot_end_effector_pose_sensor_filters_by_id() {
+        let mut world = World::new();
+        world.spawn((
+            EndEffectorState::new(Vec3::new(1.0, 0.0, 0.0), Quat::IDENTITY),
+            RobotId(0),
+        ));
+        world.spawn((
+            EndEffectorState::new(Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY),
+            RobotId(1),
+        ));
+
+        let sensor = RobotEndEffectorPoseSensor::new(RobotId(0), 1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 7);
+        assert!((obs[0] - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn robot_end_effector_pose_sensor_empty_when_no_match() {
+        let mut world = World::new();
+        world.spawn((EndEffectorState::default(), RobotId(0)));
+
+        let sensor = RobotEndEffectorPoseSensor::new(RobotId(99), 0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn robot_end_effector_pose_sensor_name_and_dim() {
+        let sensor = RobotEndEffectorPoseSensor::new(RobotId(0), 2);
+        assert_eq!(sensor.name(), "RobotEndEffectorPoseSensor");
+        assert_eq!(sensor.observation_dim(), 14);
+    }
+
     // -- NoisySensor --
 
     #[test]
@@ -1100,11 +1284,13 @@ mod tests {
         assert_send_sync::<ImuSensor>();
         assert_send_sync::<ContactSensor>();
         assert_send_sync::<RaycastSensor>();
+        assert_send_sync::<EndEffectorPoseSensor>();
         assert_send_sync::<RobotJointStateSensor>();
         assert_send_sync::<RobotJointCommandSensor>();
         assert_send_sync::<RobotJointTorqueSensor>();
         assert_send_sync::<RobotImuSensor>();
         assert_send_sync::<RobotContactSensor>();
         assert_send_sync::<RobotRaycastSensor>();
+        assert_send_sync::<RobotEndEffectorPoseSensor>();
     }
 }

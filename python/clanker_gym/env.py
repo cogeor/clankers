@@ -46,9 +46,7 @@ class ClankerEnv:
         self._connected = True
         return resp
 
-    def reset(
-        self, seed: int | None = None
-    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+    def reset(self, seed: int | None = None) -> tuple[NDArray[np.float32], dict[str, Any]]:
         """Reset the environment.
 
         Returns

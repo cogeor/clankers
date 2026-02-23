@@ -13,7 +13,6 @@ from clanker_gym.terminations import (
     TimeoutTermination,
 )
 
-
 # ---------------------------------------------------------------------------
 # SuccessTermination
 # ---------------------------------------------------------------------------
@@ -22,48 +21,34 @@ from clanker_gym.terminations import (
 class TestSuccessTermination:
     def test_fires_when_close(self):
         obs = np.array([0.0, 0.0, 0.01, 0.0], dtype=np.float32)
-        term = SuccessTermination(
-            pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1
-        )
+        term = SuccessTermination(pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1)
         assert term.is_terminated(obs)
 
     def test_does_not_fire_when_far(self):
         obs = np.array([0.0, 0.0, 5.0, 0.0], dtype=np.float32)
-        term = SuccessTermination(
-            pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1
-        )
+        term = SuccessTermination(pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1)
         assert not term.is_terminated(obs)
 
     def test_exact_boundary_does_not_fire(self):
         obs = np.array([0.0, 0.1], dtype=np.float32)
-        term = SuccessTermination(
-            pos_a_indices=[0], pos_b_indices=[1], threshold=0.1
-        )
+        term = SuccessTermination(pos_a_indices=[0], pos_b_indices=[1], threshold=0.1)
         assert not term.is_terminated(obs)
 
     def test_name(self):
-        term = SuccessTermination(
-            pos_a_indices=[0], pos_b_indices=[1], threshold=0.5
-        )
+        term = SuccessTermination(pos_a_indices=[0], pos_b_indices=[1], threshold=0.5)
         assert term.name == "SuccessTermination"
 
     def test_is_termination_fn(self):
-        term = SuccessTermination(
-            pos_a_indices=[0], pos_b_indices=[1], threshold=0.1
-        )
+        term = SuccessTermination(pos_a_indices=[0], pos_b_indices=[1], threshold=0.1)
         assert isinstance(term, TerminationFn)
 
     def test_mismatched_indices_raises(self):
         with pytest.raises(ValueError, match="must match"):
-            SuccessTermination(
-                pos_a_indices=[0, 1], pos_b_indices=[2], threshold=0.1
-            )
+            SuccessTermination(pos_a_indices=[0, 1], pos_b_indices=[2], threshold=0.1)
 
     def test_3d_positions(self):
         obs = np.array([0.0, 0.0, 0.0, 0.005, 0.005, 0.005], dtype=np.float32)
-        term = SuccessTermination(
-            pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1
-        )
+        term = SuccessTermination(pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1)
         # distance = sqrt(0.005^2 * 3) = ~0.0087 < 0.1
         assert term.is_terminated(obs)
 
@@ -194,9 +179,7 @@ class TestCompositeTermination:
         term = (
             CompositeTermination()
             .add(
-                SuccessTermination(
-                    pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1
-                )
+                SuccessTermination(pos_a_indices=[0, 1], pos_b_indices=[2, 3], threshold=0.1)
             )  # false: distance > 0.1
             .add(FailureTermination(obs_index=1, min_value=0.0))  # true: -1.0 < 0.0
         )

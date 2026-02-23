@@ -45,9 +45,7 @@ class Box:
     def contains(self, x: NDArray[np.float32]) -> bool:
         arr = np.asarray(x, dtype=np.float32)
         return bool(
-            arr.shape == self.shape
-            and np.all(arr >= self.low)
-            and np.all(arr <= self.high)
+            arr.shape == self.shape and np.all(arr >= self.low) and np.all(arr <= self.high)
         )
 
     def sample(self, rng: np.random.Generator | None = None) -> NDArray[np.float32]:

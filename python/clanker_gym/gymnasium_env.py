@@ -9,7 +9,7 @@ Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,8 +19,7 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for ClankerGymnasiumEnv. "
-        "Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for ClankerGymnasiumEnv. Install with: pip install clanker-gym[sb3]"
     ) from exc
 
 from clanker_gym.client import GymClient
@@ -56,7 +55,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         Reward function computing scalar reward each step.
     """
 
-    metadata: dict[str, Any] = {"render_modes": []}
+    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
 
     def __init__(
         self,
@@ -125,7 +124,8 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         return obs, info
 
     def step(
-        self, action: NDArray[np.float32] | int,
+        self,
+        action: NDArray[np.float32] | int,
     ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         """Take one step.
 
@@ -142,9 +142,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         if isinstance(action, (int, np.integer)):
             action_payload: dict[str, Any] = {"Discrete": int(action)}
         else:
-            action_payload = {
-                "Continuous": np.asarray(action, dtype=np.float32).tolist()
-            }
+            action_payload = {"Continuous": np.asarray(action, dtype=np.float32).tolist()}
 
         resp = self._client.send({"type": "step", "action": action_payload})
         obs = np.asarray(resp["observation"]["data"], dtype=np.float32)

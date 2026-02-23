@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -25,7 +25,7 @@ class TestClankerEnv:
             },
         }
 
-        resp = env.connect()
+        env.connect()
         assert env.observation_space is not None
         assert env.action_space is not None
         assert env.is_connected
@@ -59,9 +59,7 @@ class TestClankerEnv:
             "info": {"episode_length": 10},
         }
 
-        obs, terminated, truncated, info = env.step(
-            np.array([0.5, -0.3])
-        )
+        obs, terminated, truncated, info = env.step(np.array([0.5, -0.3]))
         assert obs.shape == (2,)
         assert not terminated
         assert truncated

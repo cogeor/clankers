@@ -13,7 +13,6 @@ from clanker_gym.rewards import (
     SparseReward,
 )
 
-
 # ---------------------------------------------------------------------------
 # DistanceReward
 # ---------------------------------------------------------------------------
@@ -69,16 +68,12 @@ class TestDistanceReward:
 class TestSparseReward:
     def test_success_within_threshold(self):
         obs = np.array([0.0, 0.01, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-        reward = SparseReward(
-            pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1
-        )
+        reward = SparseReward(pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1)
         assert reward.compute(obs) == 1.0
 
     def test_failure_outside_threshold(self):
         obs = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
-        reward = SparseReward(
-            pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1
-        )
+        reward = SparseReward(pos_a_indices=[0, 1, 2], pos_b_indices=[3, 4, 5], threshold=0.1)
         assert reward.compute(obs) == 0.0
 
     def test_exact_boundary(self):

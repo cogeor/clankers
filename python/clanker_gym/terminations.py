@@ -75,8 +75,7 @@ class SuccessTermination(TerminationFn):
     ) -> None:
         if len(pos_a_indices) != len(pos_b_indices):
             raise ValueError(
-                f"Position index lengths must match: "
-                f"{len(pos_a_indices)} != {len(pos_b_indices)}"
+                f"Position index lengths must match: {len(pos_a_indices)} != {len(pos_b_indices)}"
             )
         self._pos_a = pos_a_indices
         self._pos_b = pos_b_indices
@@ -165,9 +164,7 @@ class CompositeTermination(TerminationFn):
         Initial list of termination conditions.
     """
 
-    def __init__(
-        self, conditions: list[TerminationFn] | None = None
-    ) -> None:
+    def __init__(self, conditions: list[TerminationFn] | None = None) -> None:
         self._conditions: list[TerminationFn] = conditions or []
 
     def add(self, condition: TerminationFn) -> CompositeTermination:

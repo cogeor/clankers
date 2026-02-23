@@ -1,23 +1,23 @@
 """Clanker Gym: Python client for Clankers simulation training."""
 
-from clanker_gym.spaces import Box, Discrete
 from clanker_gym.client import GymClient
 from clanker_gym.env import ClankerEnv
-from clanker_gym.vec_env import ClankerVecEnv
 from clanker_gym.rewards import (
-    RewardFunction,
-    DistanceReward,
-    SparseReward,
     ActionPenaltyReward,
     CompositeReward,
+    DistanceReward,
+    RewardFunction,
+    SparseReward,
 )
+from clanker_gym.spaces import Box, Discrete
 from clanker_gym.terminations import (
-    TerminationFn,
-    SuccessTermination,
-    TimeoutTermination,
-    FailureTermination,
     CompositeTermination,
+    FailureTermination,
+    SuccessTermination,
+    TerminationFn,
+    TimeoutTermination,
 )
+from clanker_gym.vec_env import ClankerVecEnv
 
 __all__ = [
     "Box",
@@ -41,7 +41,7 @@ __all__ = [
 
 # Optional Gymnasium integration (requires `pip install clanker-gym[sb3]`).
 try:
-    from clanker_gym.gymnasium_env import ClankerGymnasiumEnv
+    from clanker_gym.gymnasium_env import ClankerGymnasiumEnv  # noqa: F401
 
     __all__.append("ClankerGymnasiumEnv")
 except ImportError:

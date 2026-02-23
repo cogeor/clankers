@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -10,9 +10,9 @@ import pytest
 # Skip entire module if gymnasium is not installed.
 gymnasium = pytest.importorskip("gymnasium")
 
-from clanker_gym.gymnasium_env import ClankerGymnasiumEnv, _to_gymnasium_space
-from clanker_gym.rewards import DistanceReward
-from clanker_gym.spaces import Box, Discrete
+from clanker_gym.gymnasium_env import ClankerGymnasiumEnv, _to_gymnasium_space  # noqa: E402
+from clanker_gym.rewards import DistanceReward  # noqa: E402
+from clanker_gym.spaces import Box, Discrete  # noqa: E402
 
 
 class TestToGymnasiumSpace:
@@ -43,9 +43,7 @@ class TestClankerGymnasiumEnv:
         env.observation_space = gymnasium.spaces.Box(
             low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32
         )
-        env.action_space = gymnasium.spaces.Box(
-            low=-1.0, high=1.0, shape=(2,), dtype=np.float32
-        )
+        env.action_space = gymnasium.spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         env.np_random = np.random.default_rng(0)
         return env
 
@@ -75,9 +73,7 @@ class TestClankerGymnasiumEnv:
             "info": {},
         }
 
-        obs, reward, terminated, truncated, info = env.step(
-            np.array([0.5, -0.3])
-        )
+        obs, reward, terminated, truncated, info = env.step(np.array([0.5, -0.3]))
         assert obs.shape == (4,)
         assert isinstance(reward, float)
         assert not terminated
@@ -85,9 +81,7 @@ class TestClankerGymnasiumEnv:
         assert env._step_count == 1
 
     def test_step_uses_reward_fn(self):
-        reward_fn = DistanceReward(
-            pos_a_indices=[0, 1], pos_b_indices=[2, 3]
-        )
+        reward_fn = DistanceReward(pos_a_indices=[0, 1], pos_b_indices=[2, 3])
         env = self._make_env(reward_fn=reward_fn)
         env._last_obs = np.array([0.0, 0.0, 1.0, 0.0], dtype=np.float32)
 
@@ -99,9 +93,7 @@ class TestClankerGymnasiumEnv:
             "info": {},
         }
 
-        obs, reward, terminated, truncated, info = env.step(
-            np.array([0.1, 0.2])
-        )
+        obs, reward, terminated, truncated, info = env.step(np.array([0.1, 0.2]))
         # DistanceReward returns -distance between positions in _last_obs
         # pos_a=[0,0], pos_b=[1,0] -> dist=1.0, reward=-1.0
         assert reward == pytest.approx(-1.0)

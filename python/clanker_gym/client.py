@@ -7,6 +7,7 @@ request/response dictionaries.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
 import struct
@@ -153,7 +154,5 @@ class GymClient:
 
     def __del__(self) -> None:
         if self._sock is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.close()
-            except OSError:
-                pass

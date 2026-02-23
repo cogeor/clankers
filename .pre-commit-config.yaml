@@ -1,0 +1,36 @@
+repos:
+  - repo: local
+    hooks:
+      # Rust
+      - id: rustfmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        types: [rust]
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      # Python
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check python/
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format --check python/
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: mypy python/clanker_gym/
+        language: system
+        pass_filenames: false
+        types: [python]

@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use crate::env::GymEnv;
 use crate::framing::{read_message, write_message};
 use crate::protocol::{
-    EnvInfo, ProtocolError, ProtocolState, Request, Response, negotiate_version, PROTOCOL_VERSION,
+    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
 };
 use crate::state_machine::ProtocolStateMachine;
 
@@ -183,6 +183,10 @@ fn dispatch(
         Request::Reset { seed } => Response::from_reset(env.reset(*seed)),
         Request::Step { action } => Response::from_step(env.step(action)),
         Request::Close => Response::Close,
+        Request::BatchReset { .. } | Request::BatchStep { .. } => {
+            // Batch operations require a VecEnv server (not single-env GymServer)
+            Response::error("batch operations not supported on single-env server")
+        }
         Request::Ping { timestamp } => Response::Pong {
             timestamp: *timestamp,
             server_time: 0,

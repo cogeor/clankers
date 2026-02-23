@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use clankers_core::types::{
-    Action, ActionSpace, Observation, ObservationSpace, ResetInfo, ResetResult, StepInfo,
-    StepResult,
+    Action, ActionSpace, BatchResetResult, BatchStepResult, Observation, ObservationSpace,
+    ResetInfo, ResetResult, StepInfo, StepResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,23 @@ pub enum Request {
     },
     /// Close the environment and disconnect.
     Close,
+    /// Reset multiple environments in a `VecEnv` batch.
+    ///
+    /// Requires the `batch_step` capability to be negotiated.
+    BatchReset {
+        /// Environment indices to reset.
+        env_ids: Vec<u16>,
+        /// Optional per-env seeds (must be same length as `env_ids` if present).
+        #[serde(default)]
+        seeds: Option<Vec<Option<u64>>>,
+    },
+    /// Step all environments in a `VecEnv` batch.
+    ///
+    /// Requires the `batch_step` capability to be negotiated.
+    BatchStep {
+        /// Actions for each environment. Length must equal `num_envs`.
+        actions: Vec<Action>,
+    },
     /// Keepalive probe.
     Ping {
         /// Client-side timestamp (epoch milliseconds).
@@ -147,6 +164,26 @@ pub enum Response {
         truncated: bool,
         info: StepInfo,
     },
+    /// Batched reset results for multiple environments.
+    BatchReset {
+        /// Per-env observations after reset.
+        observations: Vec<Observation>,
+        /// Per-env reset info.
+        infos: Vec<ResetInfo>,
+    },
+    /// Batched step results for all environments.
+    BatchStep {
+        /// Per-env observations.
+        observations: Vec<Observation>,
+        /// Per-env rewards.
+        rewards: Vec<f32>,
+        /// Per-env terminated flags.
+        terminated: Vec<bool>,
+        /// Per-env truncated flags.
+        truncated: Vec<bool>,
+        /// Per-env step info.
+        infos: Vec<StepInfo>,
+    },
     /// Acknowledgement of close.
     Close,
     /// Error response.
@@ -179,6 +216,27 @@ impl Response {
             terminated: result.terminated,
             truncated: result.truncated,
             info: result.info,
+        }
+    }
+
+    /// Create a batch reset response from a [`BatchResetResult`].
+    #[must_use]
+    pub fn from_batch_reset(result: BatchResetResult) -> Self {
+        Self::BatchReset {
+            observations: result.observations,
+            infos: result.infos,
+        }
+    }
+
+    /// Create a batch step response from a [`BatchStepResult`].
+    #[must_use]
+    pub fn from_batch_step(result: BatchStepResult) -> Self {
+        Self::BatchStep {
+            observations: result.observations,
+            rewards: result.rewards,
+            terminated: result.terminated,
+            truncated: result.truncated,
+            infos: result.infos,
         }
     }
 
@@ -235,10 +293,12 @@ pub fn negotiate_version(client: &str, server: &str) -> Result<String, ProtocolE
         Some((major, minor, patch))
     };
 
-    let (c_major, c_minor, _c_patch) =
-        parse(client).ok_or_else(|| ProtocolError::InvalidMessage(format!("invalid client version: {client}")))?;
-    let (s_major, s_minor, s_patch) =
-        parse(server).ok_or_else(|| ProtocolError::InvalidMessage(format!("invalid server version: {server}")))?;
+    let (c_major, c_minor, _c_patch) = parse(client).ok_or_else(|| {
+        ProtocolError::InvalidMessage(format!("invalid client version: {client}"))
+    })?;
+    let (s_major, s_minor, s_patch) = parse(server).ok_or_else(|| {
+        ProtocolError::InvalidMessage(format!("invalid server version: {server}"))
+    })?;
 
     if c_major != s_major {
         return Err(ProtocolError::VersionMismatch {
@@ -355,9 +415,7 @@ pub enum ProtocolError {
     UnknownMessageType(String),
 
     /// Message received in wrong protocol state (103).
-    #[error(
-        "unexpected message '{got}' in state {current_state} (expected: {expected:?})"
-    )]
+    #[error("unexpected message '{got}' in state {current_state} (expected: {expected:?})")]
     UnexpectedMessage {
         /// Current protocol state.
         current_state: ProtocolState,
@@ -385,7 +443,6 @@ pub enum ProtocolError {
     CapabilityUnsupported(String),
 
     // --- Validation (2xx) ---
-
     /// Action format is invalid (200).
     #[error("invalid action: {0}")]
     InvalidAction(String),
@@ -430,7 +487,6 @@ pub enum ProtocolError {
     ActionContainsInf(Vec<usize>),
 
     // --- Simulation (3xx) ---
-
     /// Environment not initialized (300).
     #[error("environment not initialized")]
     EnvNotInitialized,
@@ -456,7 +512,6 @@ pub enum ProtocolError {
     PhysicsUnstable,
 
     // --- Internal (4xx) ---
-
     /// Internal server error (400).
     #[error("internal error: {0}")]
     InternalError(String),
@@ -478,7 +533,6 @@ pub enum ProtocolError {
     ConnectionLost,
 
     // --- I/O ---
-
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -908,6 +962,134 @@ mod tests {
         } else {
             panic!("expected Step");
         }
+    }
+
+    // ---- Batch protocol ----
+
+    #[test]
+    fn request_batch_reset_roundtrip() {
+        let req = Request::BatchReset {
+            env_ids: vec![0, 2, 4],
+            seeds: Some(vec![Some(42), None, Some(7)]),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let req2: Request = serde_json::from_str(&json).unwrap();
+        if let Request::BatchReset { env_ids, seeds } = req2 {
+            assert_eq!(env_ids, vec![0, 2, 4]);
+            let seeds = seeds.unwrap();
+            assert_eq!(seeds[0], Some(42));
+            assert_eq!(seeds[1], None);
+        } else {
+            panic!("expected BatchReset");
+        }
+    }
+
+    #[test]
+    fn request_batch_reset_no_seeds() {
+        let json = r#"{"type":"batch_reset","env_ids":[0,1]}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        if let Request::BatchReset { env_ids, seeds } = req {
+            assert_eq!(env_ids, vec![0, 1]);
+            assert!(seeds.is_none());
+        } else {
+            panic!("expected BatchReset");
+        }
+    }
+
+    #[test]
+    fn request_batch_step_roundtrip() {
+        let req = Request::BatchStep {
+            actions: vec![Action::Continuous(vec![0.5, -0.3]), Action::Discrete(2)],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let req2: Request = serde_json::from_str(&json).unwrap();
+        if let Request::BatchStep { actions } = req2 {
+            assert_eq!(actions.len(), 2);
+            assert_eq!(actions[0], Action::Continuous(vec![0.5, -0.3]));
+            assert_eq!(actions[1], Action::Discrete(2));
+        } else {
+            panic!("expected BatchStep");
+        }
+    }
+
+    #[test]
+    fn response_batch_reset_roundtrip() {
+        let resp = Response::BatchReset {
+            observations: vec![
+                Observation::new(vec![1.0, 2.0]),
+                Observation::new(vec![3.0, 4.0]),
+            ],
+            infos: vec![
+                ResetInfo {
+                    seed: Some(42),
+                    custom: HashMap::new(),
+                },
+                ResetInfo::default(),
+            ],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::BatchReset {
+            observations,
+            infos,
+        } = resp2
+        {
+            assert_eq!(observations.len(), 2);
+            assert_eq!(observations[0].as_slice(), &[1.0, 2.0]);
+            assert_eq!(infos[0].seed, Some(42));
+        } else {
+            panic!("expected BatchReset");
+        }
+    }
+
+    #[test]
+    fn response_batch_step_roundtrip() {
+        let resp = Response::BatchStep {
+            observations: vec![Observation::zeros(2), Observation::zeros(2)],
+            rewards: vec![1.0, -0.5],
+            terminated: vec![false, true],
+            truncated: vec![false, false],
+            infos: vec![StepInfo::default(), StepInfo::default()],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::BatchStep {
+            rewards,
+            terminated,
+            ..
+        } = resp2
+        {
+            assert_eq!(rewards.len(), 2);
+            assert!((rewards[0] - 1.0).abs() < f32::EPSILON);
+            assert!(terminated[1]);
+        } else {
+            panic!("expected BatchStep");
+        }
+    }
+
+    #[test]
+    fn response_from_batch_reset() {
+        use clankers_core::types::BatchResetResult;
+        let result = BatchResetResult {
+            observations: vec![Observation::zeros(2)],
+            infos: vec![ResetInfo::default()],
+        };
+        let resp = Response::from_batch_reset(result);
+        assert!(matches!(resp, Response::BatchReset { .. }));
+    }
+
+    #[test]
+    fn response_from_batch_step() {
+        use clankers_core::types::BatchStepResult;
+        let result = BatchStepResult {
+            observations: vec![Observation::zeros(2)],
+            rewards: vec![1.0],
+            terminated: vec![false],
+            truncated: vec![false],
+            infos: vec![StepInfo::default()],
+        };
+        let resp = Response::from_batch_step(result);
+        assert!(matches!(resp, Response::BatchStep { .. }));
     }
 
     // ---- Protocol version & constants ----

@@ -27,7 +27,7 @@ pub mod state_machine;
 
 pub use env::GymEnv;
 pub use protocol::{
-    EnvInfo, ProtocolError, ProtocolState, Request, Response, negotiate_version, PROTOCOL_VERSION,
+    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
 };
 pub use server::{GymServer, ServerConfig};
 pub use state_machine::ProtocolStateMachine;
@@ -40,8 +40,8 @@ pub mod prelude {
     pub use crate::{
         GymEnv, GymServer, ProtocolStateMachine, ServerConfig,
         protocol::{
-            EnvInfo, ProtocolError, ProtocolState, Request, Response, negotiate_version,
-            PROTOCOL_VERSION,
+            EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
+            negotiate_version,
         },
     };
 }

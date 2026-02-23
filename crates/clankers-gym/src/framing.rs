@@ -14,10 +14,10 @@
 
 use std::io::{Read, Write};
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-use crate::protocol::{ProtocolError, MAX_MESSAGE_SIZE};
+use crate::protocol::{MAX_MESSAGE_SIZE, ProtocolError};
 
 /// Read a length-prefixed JSON message from a stream.
 ///
@@ -25,7 +25,9 @@ use crate::protocol::{ProtocolError, MAX_MESSAGE_SIZE};
 /// (clean disconnect). Returns an error if the length prefix or payload
 /// cannot be read, the payload exceeds [`MAX_MESSAGE_SIZE`], or the JSON
 /// is invalid.
-pub fn read_message<T: DeserializeOwned>(reader: &mut impl Read) -> Result<Option<T>, ProtocolError> {
+pub fn read_message<T: DeserializeOwned>(
+    reader: &mut impl Read,
+) -> Result<Option<T>, ProtocolError> {
     let mut len_buf = [0u8; 4];
     match reader.read_exact(&mut len_buf) {
         Ok(()) => {}

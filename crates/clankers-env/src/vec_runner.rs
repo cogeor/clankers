@@ -1,6 +1,6 @@
 //! `VecEnvRunner`: sequential multi-environment step/reset driver.
 //!
-//! Manages a vector of [`GymEnv`]-like closures (environment factories),
+//! Manages a vector of `GymEnv`-like closures (environment factories),
 //! stepping and resetting them independently. Observations, rewards, and
 //! done flags are stored in [`SoA`](super::vec_buffer) buffers for
 //! efficient batched access.
@@ -142,7 +142,8 @@ impl VecEnvRunner {
         for (i, env) in self.envs.iter_mut().enumerate() {
             let result = env.reset(seed);
             self.obs_buf.set(i, &result.observation);
-            self.episodes.reset(EnvId(u16::try_from(i).expect("env index overflow")), seed);
+            self.episodes
+                .reset(EnvId(u16::try_from(i).expect("env index overflow")), seed);
         }
         self.reward_buf.clear();
         self.done_buf.clear();

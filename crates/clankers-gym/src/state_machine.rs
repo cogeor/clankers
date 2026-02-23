@@ -59,12 +59,20 @@ impl ProtocolStateMachine {
         self.state = match (&self.state, request) {
             (ProtocolState::Connected, Request::Init { .. }) => ProtocolState::Handshaking,
             (_, Request::Close) => ProtocolState::Closing,
-            // Ping, Reset, Spaces, Step — stay in current state
+            // Ping, Reset, Spaces, Step, BatchReset, BatchStep — stay in current state
             (_, Request::Ping { .. })
-            | (ProtocolState::Ready, Request::Reset { .. } | Request::Spaces)
-            | (ProtocolState::EpisodeRunning, Request::Reset { .. } | Request::Step { .. } | Request::Spaces) => {
-                self.state
-            }
+            | (
+                ProtocolState::Ready,
+                Request::Reset { .. } | Request::BatchReset { .. } | Request::Spaces,
+            )
+            | (
+                ProtocolState::EpisodeRunning,
+                Request::Reset { .. }
+                | Request::BatchReset { .. }
+                | Request::Step { .. }
+                | Request::BatchStep { .. }
+                | Request::Spaces,
+            ) => self.state,
             _ => {
                 return Err(ProtocolError::UnexpectedMessage {
                     current_state: self.state,
@@ -81,7 +89,7 @@ impl ProtocolStateMachine {
     ///
     /// Some responses cause state transitions (e.g. a successful
     /// `InitResponse` moves from `Handshaking` to `Ready`).
-    pub const fn on_response(&mut self, response: &Response) {
+    pub fn on_response(&mut self, response: &Response) {
         match (&self.state, response) {
             (ProtocolState::Handshaking, Response::InitResponse { .. }) => {
                 self.state = ProtocolState::Ready;
@@ -89,12 +97,29 @@ impl ProtocolStateMachine {
             (ProtocolState::Handshaking, Response::Error { .. }) => {
                 self.state = ProtocolState::Error;
             }
-            (ProtocolState::Ready, Response::Reset { .. }) => {
+            (ProtocolState::Ready, Response::Reset { .. } | Response::BatchReset { .. }) => {
                 self.state = ProtocolState::EpisodeRunning;
             }
-            (ProtocolState::EpisodeRunning, Response::Step { terminated, truncated, .. })
-                if *terminated || *truncated =>
-            {
+            (
+                ProtocolState::EpisodeRunning,
+                Response::Step {
+                    terminated,
+                    truncated,
+                    ..
+                },
+            ) if *terminated || *truncated => {
+                self.state = ProtocolState::Ready;
+            }
+            (
+                ProtocolState::EpisodeRunning,
+                Response::BatchStep {
+                    terminated,
+                    truncated,
+                    ..
+                },
+            ) if terminated.iter().any(|t| *t) || truncated.iter().any(|t| *t) => {
+                // If any env terminated/truncated, transition to Ready
+                // (caller should handle per-env auto-reset)
                 self.state = ProtocolState::Ready;
             }
             (ProtocolState::Closing, Response::Close) => {
@@ -113,8 +138,16 @@ impl ProtocolStateMachine {
     const fn allowed_request_types(&self) -> &'static [&'static str] {
         match self.state {
             ProtocolState::Connected => &["init"],
-            ProtocolState::Ready => &["reset", "spaces", "close", "ping"],
-            ProtocolState::EpisodeRunning => &["step", "reset", "spaces", "close", "ping"],
+            ProtocolState::Ready => &["reset", "batch_reset", "spaces", "close", "ping"],
+            ProtocolState::EpisodeRunning => &[
+                "step",
+                "batch_step",
+                "reset",
+                "batch_reset",
+                "spaces",
+                "close",
+                "ping",
+            ],
             ProtocolState::Handshaking
             | ProtocolState::Closing
             | ProtocolState::Disconnected
@@ -135,7 +168,9 @@ const fn request_type_name(request: &Request) -> &'static str {
         Request::Init { .. } => "init",
         Request::Spaces => "spaces",
         Request::Reset { .. } => "reset",
+        Request::BatchReset { .. } => "batch_reset",
         Request::Step { .. } => "step",
+        Request::BatchStep { .. } => "batch_step",
         Request::Close => "close",
         Request::Ping { .. } => "ping",
     }
@@ -312,16 +347,14 @@ mod tests {
         sm.on_request(&init_request()).unwrap();
         sm.on_response(&make_init_response());
 
-        sm.on_request(&Request::Ping { timestamp: 123 })
-            .unwrap();
+        sm.on_request(&Request::Ping { timestamp: 123 }).unwrap();
         assert_eq!(sm.state(), ProtocolState::Ready);
     }
 
     #[test]
     fn ping_in_episode() {
         let mut sm = ready_episode_sm();
-        sm.on_request(&Request::Ping { timestamp: 123 })
-            .unwrap();
+        sm.on_request(&Request::Ping { timestamp: 123 }).unwrap();
         assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
     }
 
@@ -369,6 +402,111 @@ mod tests {
             message: "version mismatch".into(),
         });
         assert_eq!(sm.state(), ProtocolState::Error);
+    }
+
+    // --- Batch protocol ---
+
+    #[test]
+    fn batch_reset_allowed_in_ready() {
+        let mut sm = ProtocolStateMachine::new();
+        sm.on_request(&init_request()).unwrap();
+        sm.on_response(&make_init_response());
+
+        sm.on_request(&Request::BatchReset {
+            env_ids: vec![0, 1],
+            seeds: None,
+        })
+        .unwrap();
+        assert_eq!(sm.state(), ProtocolState::Ready);
+    }
+
+    #[test]
+    fn batch_reset_response_transitions_to_episode() {
+        let mut sm = ProtocolStateMachine::new();
+        sm.on_request(&init_request()).unwrap();
+        sm.on_response(&make_init_response());
+
+        sm.on_request(&Request::BatchReset {
+            env_ids: vec![0],
+            seeds: None,
+        })
+        .unwrap();
+        sm.on_response(&Response::BatchReset {
+            observations: vec![clankers_core::types::Observation::zeros(1)],
+            infos: vec![clankers_core::types::ResetInfo::default()],
+        });
+        assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
+    }
+
+    #[test]
+    fn batch_step_allowed_in_episode() {
+        let mut sm = ready_episode_sm();
+        sm.on_request(&Request::BatchStep {
+            actions: vec![Action::Discrete(0), Action::Discrete(1)],
+        })
+        .unwrap();
+        assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
+    }
+
+    #[test]
+    fn batch_step_not_allowed_in_ready() {
+        let mut sm = ProtocolStateMachine::new();
+        sm.on_request(&init_request()).unwrap();
+        sm.on_response(&make_init_response());
+
+        let err = sm
+            .on_request(&Request::BatchStep {
+                actions: vec![Action::Discrete(0)],
+            })
+            .unwrap_err();
+        assert!(matches!(err, ProtocolError::UnexpectedMessage { .. }));
+    }
+
+    #[test]
+    fn batch_step_any_terminated_returns_to_ready() {
+        let mut sm = ready_episode_sm();
+        sm.on_request(&Request::BatchStep {
+            actions: vec![Action::Discrete(0)],
+        })
+        .unwrap();
+
+        sm.on_response(&Response::BatchStep {
+            observations: vec![clankers_core::types::Observation::zeros(1)],
+            rewards: vec![0.0],
+            terminated: vec![true],
+            truncated: vec![false],
+            infos: vec![clankers_core::types::StepInfo::default()],
+        });
+        assert_eq!(sm.state(), ProtocolState::Ready);
+    }
+
+    #[test]
+    fn batch_step_none_done_stays_in_episode() {
+        let mut sm = ready_episode_sm();
+        sm.on_request(&Request::BatchStep {
+            actions: vec![Action::Discrete(0)],
+        })
+        .unwrap();
+
+        sm.on_response(&Response::BatchStep {
+            observations: vec![clankers_core::types::Observation::zeros(1)],
+            rewards: vec![1.0],
+            terminated: vec![false],
+            truncated: vec![false],
+            infos: vec![clankers_core::types::StepInfo::default()],
+        });
+        assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
+    }
+
+    #[test]
+    fn batch_reset_in_episode_stays_in_episode() {
+        let mut sm = ready_episode_sm();
+        sm.on_request(&Request::BatchReset {
+            env_ids: vec![0],
+            seeds: None,
+        })
+        .unwrap();
+        assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
     }
 
     // --- Helpers ---

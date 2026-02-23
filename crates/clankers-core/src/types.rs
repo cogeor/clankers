@@ -383,6 +383,154 @@ pub struct ResetInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Batch Results
+// ---------------------------------------------------------------------------
+
+/// Batched step results for `VecEnv` — `SoA` layout.
+///
+/// Stores per-environment step results as separate vectors, matching the
+/// `SoA` buffer layout used by `VecEnvRunner` for efficient training access.
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::{BatchStepResult, Observation, StepInfo};
+///
+/// let result = BatchStepResult {
+///     observations: vec![Observation::zeros(2), Observation::zeros(2)],
+///     rewards: vec![1.0, 0.5],
+///     terminated: vec![false, true],
+///     truncated: vec![false, false],
+///     infos: vec![StepInfo::default(), StepInfo::default()],
+/// };
+/// assert_eq!(result.num_envs(), 2);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStepResult {
+    /// Observations per environment.
+    pub observations: Vec<Observation>,
+    /// Rewards per environment.
+    pub rewards: Vec<f32>,
+    /// Terminated flags per environment.
+    pub terminated: Vec<bool>,
+    /// Truncated flags per environment.
+    pub truncated: Vec<bool>,
+    /// Step info per environment.
+    pub infos: Vec<StepInfo>,
+}
+
+impl BatchStepResult {
+    /// Number of environments in the batch.
+    #[must_use]
+    pub const fn num_envs(&self) -> usize {
+        self.observations.len()
+    }
+
+    /// Extract the result for a single environment by index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx >= num_envs()`.
+    #[must_use]
+    pub fn get(&self, idx: usize) -> StepResult {
+        StepResult {
+            observation: self.observations[idx].clone(),
+            reward: self.rewards[idx],
+            terminated: self.terminated[idx],
+            truncated: self.truncated[idx],
+            info: self.infos[idx].clone(),
+        }
+    }
+
+    /// Build from a vector of individual step results.
+    #[must_use]
+    pub fn from_results(results: Vec<StepResult>) -> Self {
+        let n = results.len();
+        let mut observations = Vec::with_capacity(n);
+        let mut rewards = Vec::with_capacity(n);
+        let mut terminated = Vec::with_capacity(n);
+        let mut truncated = Vec::with_capacity(n);
+        let mut infos = Vec::with_capacity(n);
+
+        for r in results {
+            observations.push(r.observation);
+            rewards.push(r.reward);
+            terminated.push(r.terminated);
+            truncated.push(r.truncated);
+            infos.push(r.info);
+        }
+
+        Self {
+            observations,
+            rewards,
+            terminated,
+            truncated,
+            infos,
+        }
+    }
+}
+
+/// Batched reset results for `VecEnv` — Structure-of-Arrays layout.
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::{BatchResetResult, Observation, ResetInfo};
+///
+/// let result = BatchResetResult {
+///     observations: vec![Observation::zeros(3)],
+///     infos: vec![ResetInfo::default()],
+/// };
+/// assert_eq!(result.num_envs(), 1);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchResetResult {
+    /// Observations per environment.
+    pub observations: Vec<Observation>,
+    /// Reset info per environment.
+    pub infos: Vec<ResetInfo>,
+}
+
+impl BatchResetResult {
+    /// Number of environments in the batch.
+    #[must_use]
+    pub const fn num_envs(&self) -> usize {
+        self.observations.len()
+    }
+
+    /// Extract the result for a single environment by index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx >= num_envs()`.
+    #[must_use]
+    pub fn get(&self, idx: usize) -> ResetResult {
+        ResetResult {
+            observation: self.observations[idx].clone(),
+            info: self.infos[idx].clone(),
+        }
+    }
+
+    /// Build from a vector of individual reset results.
+    #[must_use]
+    pub fn from_results(results: Vec<ResetResult>) -> Self {
+        let n = results.len();
+        let mut observations = Vec::with_capacity(n);
+        let mut infos = Vec::with_capacity(n);
+
+        for r in results {
+            observations.push(r.observation);
+            infos.push(r.info);
+        }
+
+        Self {
+            observations,
+            infos,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entity Handles
 // ---------------------------------------------------------------------------
 
@@ -1194,6 +1342,115 @@ mod tests {
         set.insert(a);
         set.insert(b);
         assert_eq!(set.len(), 1);
+    }
+
+    // ---- BatchStepResult ----
+
+    #[test]
+    fn batch_step_result_from_results() {
+        let results = vec![
+            StepResult {
+                observation: Observation::new(vec![1.0, 2.0]),
+                reward: 1.5,
+                terminated: false,
+                truncated: false,
+                info: StepInfo::default(),
+            },
+            StepResult {
+                observation: Observation::new(vec![3.0, 4.0]),
+                reward: -0.5,
+                terminated: true,
+                truncated: false,
+                info: StepInfo {
+                    episode_length: 10,
+                    episode_reward: 5.0,
+                    custom: HashMap::new(),
+                },
+            },
+        ];
+        let batch = BatchStepResult::from_results(results);
+        assert_eq!(batch.num_envs(), 2);
+        assert_eq!(batch.observations.len(), 2);
+        assert_eq!(batch.rewards.len(), 2);
+        assert!((batch.rewards[0] - 1.5).abs() < f32::EPSILON);
+        assert!(batch.terminated[1]);
+    }
+
+    #[test]
+    fn batch_step_result_get() {
+        let batch = BatchStepResult {
+            observations: vec![Observation::new(vec![1.0]), Observation::new(vec![2.0])],
+            rewards: vec![0.5, 1.0],
+            terminated: vec![false, true],
+            truncated: vec![false, false],
+            infos: vec![StepInfo::default(), StepInfo::default()],
+        };
+        let r = batch.get(1);
+        assert_eq!(r.observation, Observation::new(vec![2.0]));
+        assert!((r.reward - 1.0).abs() < f32::EPSILON);
+        assert!(r.terminated);
+    }
+
+    #[test]
+    fn batch_step_result_serialize_roundtrip() {
+        let batch = BatchStepResult {
+            observations: vec![Observation::zeros(2)],
+            rewards: vec![1.0],
+            terminated: vec![false],
+            truncated: vec![true],
+            infos: vec![StepInfo::default()],
+        };
+        let json = serde_json::to_string(&batch).unwrap();
+        let batch2: BatchStepResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(batch2.num_envs(), 1);
+        assert!(batch2.truncated[0]);
+    }
+
+    // ---- BatchResetResult ----
+
+    #[test]
+    fn batch_reset_result_from_results() {
+        let results = vec![
+            ResetResult {
+                observation: Observation::zeros(3),
+                info: ResetInfo {
+                    seed: Some(42),
+                    custom: HashMap::new(),
+                },
+            },
+            ResetResult {
+                observation: Observation::zeros(3),
+                info: ResetInfo::default(),
+            },
+        ];
+        let batch = BatchResetResult::from_results(results);
+        assert_eq!(batch.num_envs(), 2);
+        assert_eq!(batch.infos[0].seed, Some(42));
+    }
+
+    #[test]
+    fn batch_reset_result_get() {
+        let batch = BatchResetResult {
+            observations: vec![Observation::new(vec![1.0, 2.0])],
+            infos: vec![ResetInfo {
+                seed: Some(7),
+                custom: HashMap::new(),
+            }],
+        };
+        let r = batch.get(0);
+        assert_eq!(r.observation, Observation::new(vec![1.0, 2.0]));
+        assert_eq!(r.info.seed, Some(7));
+    }
+
+    #[test]
+    fn batch_reset_result_serialize_roundtrip() {
+        let batch = BatchResetResult {
+            observations: vec![Observation::zeros(2), Observation::zeros(2)],
+            infos: vec![ResetInfo::default(), ResetInfo::default()],
+        };
+        let json = serde_json::to_string(&batch).unwrap();
+        let batch2: BatchResetResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(batch2.num_envs(), 2);
     }
 
     // ---- CompositeHandle ----

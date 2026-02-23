@@ -4,6 +4,7 @@
 //! The [`Episode`] resource tracks state, step count, and accumulated reward.
 
 use bevy::prelude::*;
+use clankers_core::seed::SeedHierarchy;
 
 // ---------------------------------------------------------------------------
 // EpisodeState
@@ -151,6 +152,20 @@ impl Episode {
     /// Whether the episode is actively running.
     pub const fn is_running(&self) -> bool {
         self.state.is_running()
+    }
+
+    /// Reset with a seed derived from the [`SeedHierarchy`].
+    ///
+    /// The episode seed is derived as
+    /// `hierarchy.episode_seed(env_index, episode_number)` where
+    /// `episode_number` is the *next* episode number (after increment).
+    pub fn reset_from_hierarchy(&mut self, hierarchy: &SeedHierarchy, env_index: u16) {
+        self.episode_number += 1;
+        let seed = hierarchy.episode_seed(env_index, u64::from(self.episode_number));
+        self.state = EpisodeState::Running;
+        self.step_count = 0;
+        self.total_reward = 0.0;
+        self.seed = Some(seed);
     }
 }
 
@@ -318,5 +333,37 @@ mod tests {
         assert_send_sync::<EpisodeState>();
         assert_send_sync::<EpisodeConfig>();
         assert_send_sync::<Episode>();
+    }
+
+    // -- SeedHierarchy integration --
+
+    #[test]
+    fn reset_from_hierarchy_derives_seed() {
+        let hierarchy = SeedHierarchy::new(42);
+        let mut ep = Episode::default();
+        ep.reset_from_hierarchy(&hierarchy, 0);
+        assert_eq!(ep.state, EpisodeState::Running);
+        assert_eq!(ep.episode_number, 1);
+        assert!(ep.seed.is_some());
+        let seed1 = ep.seed.unwrap();
+
+        ep.reset_from_hierarchy(&hierarchy, 0);
+        assert_eq!(ep.episode_number, 2);
+        let seed2 = ep.seed.unwrap();
+        assert_ne!(seed1, seed2); // different episodes, different seeds
+    }
+
+    #[test]
+    fn reset_from_hierarchy_deterministic() {
+        let h = SeedHierarchy::new(100);
+        let mut ep1 = Episode::default();
+        ep1.reset_from_hierarchy(&h, 0);
+        let seed_a = ep1.seed.unwrap();
+
+        let mut ep2 = Episode::default();
+        ep2.reset_from_hierarchy(&h, 0);
+        let seed_b = ep2.seed.unwrap();
+
+        assert_eq!(seed_a, seed_b); // same hierarchy + same state = same seed
     }
 }

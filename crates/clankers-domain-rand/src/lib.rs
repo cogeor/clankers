@@ -21,6 +21,7 @@ pub mod ranges;
 use bevy::prelude::*;
 use clankers_actuator::components::Actuator;
 use clankers_core::ClankersSet;
+use clankers_core::seed::SeedHierarchy;
 use clankers_env::episode::{Episode, EpisodeState};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -98,6 +99,7 @@ fn randomize_on_reset_system(
     config: Res<DomainRandConfig>,
     episode: Res<Episode>,
     mut state: ResMut<DomainRandState>,
+    seed_hierarchy: Option<Res<SeedHierarchy>>,
     mut actuators: Query<&mut Actuator>,
 ) {
     if !config.enabled {
@@ -114,8 +116,14 @@ fn randomize_on_reset_system(
 
     state.last_randomized_episode = episode.episode_number;
 
-    // Derive RNG from config seed + episode number for determinism
-    let episode_seed = config.seed.wrapping_add(u64::from(episode.episode_number));
+    // Derive RNG seed: use SeedHierarchy when available and non-default,
+    // otherwise fall back to config.seed + episode_number.
+    let episode_seed = match &seed_hierarchy {
+        Some(hierarchy) if hierarchy.root() != 0 => {
+            hierarchy.subsystem_seed(0, u64::from(episode.episode_number), "domain_rand")
+        }
+        _ => config.seed.wrapping_add(u64::from(episode.episode_number)),
+    };
     let mut rng = ChaCha8Rng::seed_from_u64(episode_seed);
 
     for mut actuator in &mut actuators {

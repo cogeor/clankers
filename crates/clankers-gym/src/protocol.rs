@@ -207,6 +207,50 @@ pub const MAX_OBSERVATION_SIZE: usize = 8 * 1024 * 1024;
 /// Maximum action data size in bytes (1 MiB).
 pub const MAX_ACTION_SIZE: usize = 1024 * 1024;
 
+/// Negotiate a compatible protocol version per `PROTOCOL_SPEC.md` Section 2.5.
+///
+/// - Major versions **must** match.
+/// - Minor version is the minimum of client and server.
+/// - Patch version is the server's.
+///
+/// Returns the negotiated version string on success, or a
+/// [`ProtocolError::VersionMismatch`] on incompatible major versions.
+///
+/// # Example
+///
+/// ```
+/// use clankers_gym::protocol::negotiate_version;
+///
+/// let v = negotiate_version("1.0.0", "1.2.1").unwrap();
+/// assert_eq!(v, "1.0.1");
+///
+/// assert!(negotiate_version("2.0.0", "1.0.0").is_err());
+/// ```
+pub fn negotiate_version(client: &str, server: &str) -> Result<String, ProtocolError> {
+    let parse = |v: &str| -> Option<(u32, u32, u32)> {
+        let mut parts = v.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch = parts.next()?.parse().ok()?;
+        Some((major, minor, patch))
+    };
+
+    let (c_major, c_minor, _c_patch) =
+        parse(client).ok_or_else(|| ProtocolError::InvalidMessage(format!("invalid client version: {client}")))?;
+    let (s_major, s_minor, s_patch) =
+        parse(server).ok_or_else(|| ProtocolError::InvalidMessage(format!("invalid server version: {server}")))?;
+
+    if c_major != s_major {
+        return Err(ProtocolError::VersionMismatch {
+            client: client.into(),
+            server: server.into(),
+        });
+    }
+
+    let negotiated_minor = c_minor.min(s_minor);
+    Ok(format!("{c_major}.{negotiated_minor}.{s_patch}"))
+}
+
 /// Protocol timeout durations per `PROTOCOL_SPEC.md`.
 pub mod timeouts {
     use std::time::Duration;
@@ -513,6 +557,38 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    // ---- Version negotiation ----
+
+    #[test]
+    fn negotiate_same_version() {
+        let v = negotiate_version("1.0.0", "1.0.0").unwrap();
+        assert_eq!(v, "1.0.0");
+    }
+
+    #[test]
+    fn negotiate_client_higher_minor() {
+        let v = negotiate_version("1.2.0", "1.0.3").unwrap();
+        assert_eq!(v, "1.0.3");
+    }
+
+    #[test]
+    fn negotiate_server_higher_minor() {
+        let v = negotiate_version("1.0.0", "1.2.1").unwrap();
+        assert_eq!(v, "1.0.1");
+    }
+
+    #[test]
+    fn negotiate_major_mismatch() {
+        let err = negotiate_version("2.0.0", "1.0.0").unwrap_err();
+        assert!(matches!(err, ProtocolError::VersionMismatch { .. }));
+    }
+
+    #[test]
+    fn negotiate_invalid_version_string() {
+        let err = negotiate_version("bad", "1.0.0").unwrap_err();
+        assert!(matches!(err, ProtocolError::InvalidMessage(_)));
+    }
 
     // ---- Init / Handshake ----
 

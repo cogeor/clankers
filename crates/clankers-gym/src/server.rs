@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use crate::env::GymEnv;
 use crate::framing::{read_message, write_message};
 use crate::protocol::{
-    EnvInfo, ProtocolError, ProtocolState, Request, Response, PROTOCOL_VERSION,
+    EnvInfo, ProtocolError, ProtocolState, Request, Response, negotiate_version, PROTOCOL_VERSION,
 };
 use crate::state_machine::ProtocolStateMachine;
 
@@ -141,7 +141,18 @@ fn dispatch(
     _sm: &ProtocolStateMachine,
 ) -> Response {
     match request {
-        Request::Init { capabilities, seed, .. } => {
+        Request::Init {
+            protocol_version,
+            capabilities,
+            seed,
+            ..
+        } => {
+            // Negotiate protocol version
+            let negotiated_version = match negotiate_version(protocol_version, PROTOCOL_VERSION) {
+                Ok(v) => v,
+                Err(e) => return e.into_response(),
+            };
+
             // Negotiate capabilities (logical AND)
             let negotiated: HashMap<String, bool> = capabilities
                 .iter()
@@ -152,7 +163,7 @@ fn dispatch(
                 .collect();
 
             Response::InitResponse {
-                protocol_version: PROTOCOL_VERSION.into(),
+                protocol_version: negotiated_version,
                 env_name: config.env_name.clone(),
                 env_version: config.env_version.clone(),
                 env_info: EnvInfo {

@@ -1,6 +1,6 @@
 [package]
-name = "clankers-app"
-description = "Example Clankers robotics simulation application"
+name = "clankers-viz"
+description = "Interactive visualization, teleoperation, and policy inspection for Clankers"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,14 +9,14 @@ rust-version.workspace = true
 
 [dependencies]
 clankers-core.workspace = true
-clankers-sim.workspace = true
 clankers-actuator.workspace = true
 clankers-env.workspace = true
-clankers-gym.workspace = true
+clankers-sim.workspace = true
+clankers-policy.workspace = true
 clankers-teleop.workspace = true
-clankers-viz.workspace = true
 bevy = { workspace = true, features = ["default"] }
-clap.workspace = true
+bevy_egui.workspace = true
+bevy_panorbit_camera.workspace = true
 
 [lints]
 workspace = true

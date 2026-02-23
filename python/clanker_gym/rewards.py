@@ -69,13 +69,10 @@ class DistanceReward(RewardFunction):
         Indices into the observation vector for entity B's position.
     """
 
-    def __init__(
-        self, pos_a_indices: list[int], pos_b_indices: list[int]
-    ) -> None:
+    def __init__(self, pos_a_indices: list[int], pos_b_indices: list[int]) -> None:
         if len(pos_a_indices) != len(pos_b_indices):
             raise ValueError(
-                f"Position index lengths must match: "
-                f"{len(pos_a_indices)} != {len(pos_b_indices)}"
+                f"Position index lengths must match: {len(pos_a_indices)} != {len(pos_b_indices)}"
             )
         self._pos_a = pos_a_indices
         self._pos_b = pos_b_indices
@@ -118,8 +115,7 @@ class SparseReward(RewardFunction):
     ) -> None:
         if len(pos_a_indices) != len(pos_b_indices):
             raise ValueError(
-                f"Position index lengths must match: "
-                f"{len(pos_a_indices)} != {len(pos_b_indices)}"
+                f"Position index lengths must match: {len(pos_a_indices)} != {len(pos_b_indices)}"
             )
         self._pos_a = pos_a_indices
         self._pos_b = pos_b_indices
@@ -219,10 +215,7 @@ class CompositeReward(RewardFunction):
         info: dict[str, Any] | None = None,
     ) -> list[tuple[str, float]]:
         """Compute each component and return (name, weighted_value) pairs."""
-        return [
-            (r.name, r.compute(obs, action, next_obs, info) * w)
-            for r, w in self._rewards
-        ]
+        return [(r.name, r.compute(obs, action, next_obs, info) * w) for r, w in self._rewards]
 
     @property
     def name(self) -> str:

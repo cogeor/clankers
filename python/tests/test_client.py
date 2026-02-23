@@ -15,7 +15,7 @@ class TestFraming:
         """Verify that _send_raw encoding matches _recv_raw decoding."""
         import io
         import socket
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         msg = {"type": "ping", "timestamp": 12345}
         payload = json.dumps(msg).encode("utf-8")

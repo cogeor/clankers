@@ -31,9 +31,7 @@ class ClankerVecEnv:
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 9876) -> None:
-        self._client = GymClient(
-            host=host, port=port, capabilities={"batch_step": True}
-        )
+        self._client = GymClient(host=host, port=port, capabilities={"batch_step": True})
         self.num_envs: int = 0
         self.observation_space: Box | Discrete | None = None
         self.action_space: Box | Discrete | None = None
@@ -83,9 +81,7 @@ class ClankerVecEnv:
             req["seeds"] = seeds
 
         resp = self._client.send(req)
-        observations = np.array(
-            [obs["data"] for obs in resp["observations"]], dtype=np.float32
-        )
+        observations = np.array([obs["data"] for obs in resp["observations"]], dtype=np.float32)
         infos = resp.get("infos", [{} for _ in env_ids])
         return observations, infos
 
@@ -127,9 +123,7 @@ class ClankerVecEnv:
                 action_list.append({"Continuous": np.asarray(a, dtype=np.float32).tolist()})
 
         resp = self._client.send({"type": "batch_step", "actions": action_list})
-        observations = np.array(
-            [obs["data"] for obs in resp["observations"]], dtype=np.float32
-        )
+        observations = np.array([obs["data"] for obs in resp["observations"]], dtype=np.float32)
         terminated = np.array(resp["terminated"], dtype=np.bool_)
         truncated = np.array(resp["truncated"], dtype=np.bool_)
         infos = resp.get("infos", [{} for _ in range(self.num_envs)])

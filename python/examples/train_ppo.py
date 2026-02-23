@@ -121,8 +121,7 @@ def train(
         from stable_baselines3 import PPO
     except ImportError:
         print(
-            "stable-baselines3 is required. Install with: "
-            "pip install clanker-gym[sb3]",
+            "stable-baselines3 is required. Install with: pip install clanker-gym[sb3]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -154,9 +153,7 @@ def train(
 
 def main() -> None:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Train a PPO agent on a Clankers environment."
-    )
+    parser = argparse.ArgumentParser(description="Train a PPO agent on a Clankers environment.")
     parser.add_argument("--host", default="127.0.0.1", help="Server address")
     parser.add_argument("--port", type=int, default=9876, help="Server port")
     parser.add_argument(
@@ -172,9 +169,7 @@ def main() -> None:
         help="Total training timesteps",
     )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument(
-        "--save", default=None, help="Path to save trained model"
-    )
+    parser.add_argument("--save", default=None, help="Path to save trained model")
 
     args = parser.parse_args()
 

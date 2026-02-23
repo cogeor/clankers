@@ -1,6 +1,6 @@
 [package]
 name = "clankers-policy"
-description = "ONNX policy inference for deployment without Python"
+description = "Policy implementations and inference runner for Clankers"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,6 +8,12 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+clankers-core.workspace = true
+clankers-env.workspace = true
+clankers-actuator.workspace = true
+bevy.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
 
 [lints]
 workspace = true

@@ -549,6 +549,13 @@ dependencies = [
 [[package]]
 name = "clankers-teleop"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-env",
+ "clankers-test-utils",
+]
 
 [[package]]
 name = "clankers-test-utils"

@@ -39,4 +39,12 @@ __all__ = [
     "CompositeTermination",
 ]
 
+# Optional Gymnasium integration (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.gymnasium_env import ClankerGymnasiumEnv
+
+    __all__.append("ClankerGymnasiumEnv")
+except ImportError:
+    pass
+
 __version__ = "0.1.0"

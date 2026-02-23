@@ -12,6 +12,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sb3 = [
+    "gymnasium>=0.29",
+    "stable-baselines3>=2.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-timeout>=2.0",

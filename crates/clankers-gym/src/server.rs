@@ -13,6 +13,7 @@ use crate::protocol::{
     EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
 };
 use crate::state_machine::ProtocolStateMachine;
+use crate::vec_env::GymVecEnv;
 
 // ---------------------------------------------------------------------------
 // ServerConfig
@@ -98,7 +99,62 @@ impl GymServer {
 }
 
 // ---------------------------------------------------------------------------
-// Connection handler
+// VecGymServer
+// ---------------------------------------------------------------------------
+
+/// TCP server that exposes a [`GymVecEnv`] over the network.
+///
+/// Like [`GymServer`] but supports batched operations (`batch_step`,
+/// `batch_reset`) in addition to single-env commands. The `batch_step`
+/// capability is automatically advertised.
+pub struct VecGymServer {
+    listener: TcpListener,
+    config: ServerConfig,
+}
+
+impl VecGymServer {
+    /// Bind to the given address.
+    ///
+    /// Automatically enables the `batch_step` capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if the address cannot be bound.
+    pub fn bind(addr: &str) -> std::io::Result<Self> {
+        Self::bind_with_config(addr, ServerConfig::default())
+    }
+
+    /// Bind with a custom server configuration.
+    ///
+    /// The `batch_step` capability is always enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if the address cannot be bound.
+    pub fn bind_with_config(addr: &str, mut config: ServerConfig) -> std::io::Result<Self> {
+        config.capabilities.insert("batch_step".into(), true);
+        let listener = TcpListener::bind(addr)?;
+        Ok(Self { listener, config })
+    }
+
+    /// The local address the server is bound to.
+    pub fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        self.listener.local_addr()
+    }
+
+    /// Accept one client connection and run the request-response loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProtocolError`] if communication or protocol validation fails.
+    pub fn serve_one(&self, vec_env: &mut GymVecEnv) -> Result<(), ProtocolError> {
+        let (stream, _addr) = self.listener.accept()?;
+        handle_vec_connection(stream, vec_env, &self.config)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Connection handlers
 // ---------------------------------------------------------------------------
 
 fn handle_connection(
@@ -187,6 +243,101 @@ fn dispatch(
             // Batch operations require a VecEnv server (not single-env GymServer)
             Response::error("batch operations not supported on single-env server")
         }
+        Request::Ping { timestamp } => Response::Pong {
+            timestamp: *timestamp,
+            server_time: 0,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vec connection handler
+// ---------------------------------------------------------------------------
+
+fn handle_vec_connection(
+    stream: TcpStream,
+    vec_env: &mut GymVecEnv,
+    config: &ServerConfig,
+) -> Result<(), ProtocolError> {
+    let mut reader = stream.try_clone().map_err(ProtocolError::Io)?;
+    let mut writer = stream;
+    let mut sm = ProtocolStateMachine::new();
+
+    loop {
+        let request: Option<Request> = read_message(&mut reader)?;
+        let Some(request) = request else {
+            break;
+        };
+
+        let response = match sm.on_request(&request) {
+            Ok(()) => dispatch_vec(vec_env, &request, config),
+            Err(e) => e.into_response(),
+        };
+
+        sm.on_response(&response);
+        write_message(&mut writer, &response)?;
+
+        if sm.state() == ProtocolState::Disconnected {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfig) -> Response {
+    match request {
+        Request::Init {
+            protocol_version,
+            capabilities,
+            seed,
+            ..
+        } => {
+            let negotiated_version = match negotiate_version(protocol_version, PROTOCOL_VERSION) {
+                Ok(v) => v,
+                Err(e) => return e.into_response(),
+            };
+
+            let negotiated: HashMap<String, bool> = capabilities
+                .iter()
+                .map(|(k, v)| {
+                    let server_has = config.capabilities.get(k).copied().unwrap_or(false);
+                    (k.clone(), *v && server_has)
+                })
+                .collect();
+
+            Response::InitResponse {
+                protocol_version: negotiated_version,
+                env_name: config.env_name.clone(),
+                env_version: config.env_version.clone(),
+                env_info: vec_env.env_info(),
+                capabilities: negotiated,
+                seed_accepted: seed.is_some(),
+            }
+        }
+        Request::Spaces => Response::Spaces {
+            observation_space: vec_env.observation_space().clone(),
+            action_space: vec_env.action_space().clone(),
+        },
+        Request::Reset { seed } => {
+            let result = vec_env.reset_all(*seed);
+            Response::from_batch_reset(result)
+        }
+        Request::Step { action } => {
+            // Single-step: apply to all envs (broadcast same action)
+            let actions: Vec<_> = (0..vec_env.num_envs()).map(|_| action.clone()).collect();
+            let result = vec_env.step_all(&actions);
+            Response::from_batch_step(result)
+        }
+        Request::BatchReset { env_ids, seeds } => {
+            let result = vec_env.reset_envs(env_ids, seeds.as_deref());
+            Response::from_batch_reset(result)
+        }
+        Request::BatchStep { actions } => {
+            let result = vec_env.step_all(actions);
+            Response::from_batch_step(result)
+        }
+        Request::Close => Response::Close,
         Request::Ping { timestamp } => Response::Pong {
             timestamp: *timestamp,
             server_time: 0,

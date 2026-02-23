@@ -88,7 +88,6 @@ impl SensorRegistry {
 /// Adds:
 /// - [`Episode`](episode::Episode) and [`EpisodeConfig`](episode::EpisodeConfig) resources
 /// - [`ObservationBuffer`](buffer::ObservationBuffer) and [`SensorRegistry`] resources
-/// - [`StepReward`](systems::StepReward) resource
 /// - [`observe_system`](systems::observe_system) in [`ClankersSet::Observe`]
 /// - [`episode_step_system`](systems::episode_step_system) in [`ClankersSet::Evaluate`]
 pub struct ClankersEnvPlugin;
@@ -99,7 +98,6 @@ impl Plugin for ClankersEnvPlugin {
             .init_resource::<episode::EpisodeConfig>()
             .init_resource::<buffer::ObservationBuffer>()
             .init_resource::<SensorRegistry>()
-            .init_resource::<systems::StepReward>()
             .add_systems(Update, systems::observe_system.in_set(ClankersSet::Observe))
             .add_systems(
                 Update,
@@ -121,8 +119,8 @@ pub mod prelude {
             JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor,
             RobotJointCommandSensor, RobotJointStateSensor, RobotJointTorqueSensor,
         },
-        systems::{StepReward, episode_step_system, observe_system},
-        vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer},
+        systems::{episode_step_system, observe_system},
+        vec_buffer::{VecDoneBuffer, VecObsBuffer},
         vec_env::VecEnvConfig,
         vec_episode::{AutoResetMode, EnvEpisodeMap},
         vec_runner::{VecEnvInstance, VecEnvRunner},
@@ -159,7 +157,6 @@ mod tests {
                 .is_some()
         );
         assert!(app.world().get_resource::<SensorRegistry>().is_some());
-        assert!(app.world().get_resource::<systems::StepReward>().is_some());
     }
 
     #[test]

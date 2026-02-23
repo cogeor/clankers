@@ -226,7 +226,6 @@ fn dispatch(
                     n_agents: 1,
                     observation_space: env.observation_space().clone(),
                     action_space: env.action_space().clone(),
-                    reward_range: None,
                 },
                 capabilities: negotiated,
                 seed_accepted: seed.is_some(),
@@ -629,7 +628,6 @@ mod tests {
             StepResult {
                 #[allow(clippy::cast_precision_loss)]
                 observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
-                reward: 1.0,
                 terminated: false,
                 truncated: false,
                 info: StepInfo::default(),
@@ -751,14 +749,12 @@ mod tests {
         );
         if let Response::BatchStep {
             observations,
-            rewards,
             terminated,
             ..
         } = &resp
         {
             assert_eq!(observations.len(), 2);
             assert_eq!(observations[0].as_slice(), &[1.0, 1.0]);
-            assert!((rewards[0] - 1.0).abs() < f32::EPSILON);
             assert!(!terminated[0]);
         } else {
             panic!("expected BatchStep response, got {resp:?}");

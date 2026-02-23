@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::policies::{ConstantPolicy, ZeroPolicy};
+    use crate::runner::PolicyRunner;
     use bevy::prelude::*;
     use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
     use clankers_actuator::prelude::MotorType;
@@ -12,10 +14,6 @@ mod tests {
     use clankers_env::buffer::ObservationBuffer;
     use clankers_env::episode::{Episode, EpisodeConfig, EpisodeState};
     use clankers_env::sensors::JointStateSensor;
-    use clankers_env::systems::StepReward;
-
-    use crate::policies::{ConstantPolicy, ZeroPolicy};
-    use crate::runner::PolicyRunner;
 
     /// Build a full-stack test app with all plugins.
     fn full_app(runner: PolicyRunner) -> App {
@@ -71,7 +69,6 @@ mod tests {
 
         // Start episode
         app.world_mut().resource_mut::<Episode>().reset(None);
-        app.world_mut().resource_mut::<StepReward>().0 = 1.0;
 
         // Step the simulation
         app.update();
@@ -89,7 +86,6 @@ mod tests {
         // Verify episode advanced
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 1);
-        assert!((ep.total_reward - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -173,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn reward_accumulates_across_steps() {
+    fn steps_accumulate_across_updates() {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(1)), 1);
         let mut app = full_app(runner);
 
@@ -182,16 +178,12 @@ mod tests {
 
         app.world_mut().resource_mut::<Episode>().reset(None);
 
-        for i in 1..=3 {
-            #[allow(clippy::cast_precision_loss)]
-            let r = i as f32;
-            app.world_mut().resource_mut::<StepReward>().0 = r;
+        for _ in 0..3 {
             app.update();
         }
 
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 3);
-        assert!((ep.total_reward - 6.0).abs() < f32::EPSILON); // 1+2+3
     }
 
     #[test]
@@ -204,7 +196,6 @@ mod tests {
 
         // First episode
         app.world_mut().resource_mut::<Episode>().reset(Some(42));
-        app.world_mut().resource_mut::<StepReward>().0 = 10.0;
         app.update();
         app.update();
 
@@ -217,7 +208,6 @@ mod tests {
 
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 0);
-        assert!(ep.total_reward.abs() < f32::EPSILON);
         assert_eq!(ep.seed, Some(99));
         assert_eq!(ep.episode_number, 2);
     }

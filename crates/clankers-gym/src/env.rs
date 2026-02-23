@@ -117,12 +117,10 @@ impl GymEnv {
 
         StepResult {
             observation,
-            reward: episode.total_reward,
             terminated,
             truncated,
             info: StepInfo {
                 episode_length: episode.step_count,
-                episode_reward: episode.total_reward,
                 ..Default::default()
             },
         }

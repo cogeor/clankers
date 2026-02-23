@@ -354,7 +354,6 @@ impl ActionSpace {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     pub observation: Observation,
-    pub reward: f32,
     /// Episode ended due to task success/failure.
     pub terminated: bool,
     /// Episode ended due to time limit.
@@ -365,7 +364,6 @@ pub struct StepResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StepInfo {
     pub episode_length: u32,
-    pub episode_reward: f32,
     pub custom: HashMap<String, f32>,
 }
 
@@ -398,7 +396,6 @@ pub struct ResetInfo {
 ///
 /// let result = BatchStepResult {
 ///     observations: vec![Observation::zeros(2), Observation::zeros(2)],
-///     rewards: vec![1.0, 0.5],
 ///     terminated: vec![false, true],
 ///     truncated: vec![false, false],
 ///     infos: vec![StepInfo::default(), StepInfo::default()],
@@ -409,8 +406,6 @@ pub struct ResetInfo {
 pub struct BatchStepResult {
     /// Observations per environment.
     pub observations: Vec<Observation>,
-    /// Rewards per environment.
-    pub rewards: Vec<f32>,
     /// Terminated flags per environment.
     pub terminated: Vec<bool>,
     /// Truncated flags per environment.
@@ -435,7 +430,6 @@ impl BatchStepResult {
     pub fn get(&self, idx: usize) -> StepResult {
         StepResult {
             observation: self.observations[idx].clone(),
-            reward: self.rewards[idx],
             terminated: self.terminated[idx],
             truncated: self.truncated[idx],
             info: self.infos[idx].clone(),
@@ -447,14 +441,12 @@ impl BatchStepResult {
     pub fn from_results(results: Vec<StepResult>) -> Self {
         let n = results.len();
         let mut observations = Vec::with_capacity(n);
-        let mut rewards = Vec::with_capacity(n);
         let mut terminated = Vec::with_capacity(n);
         let mut truncated = Vec::with_capacity(n);
         let mut infos = Vec::with_capacity(n);
 
         for r in results {
             observations.push(r.observation);
-            rewards.push(r.reward);
             terminated.push(r.terminated);
             truncated.push(r.truncated);
             infos.push(r.info);
@@ -462,7 +454,6 @@ impl BatchStepResult {
 
         Self {
             observations,
-            rewards,
             terminated,
             truncated,
             infos,
@@ -1298,16 +1289,13 @@ mod tests {
     fn step_result_construction() {
         let result = StepResult {
             observation: Observation::new(vec![1.0, 2.0]),
-            reward: 1.5,
             terminated: false,
             truncated: true,
             info: StepInfo {
                 episode_length: 100,
-                episode_reward: 50.0,
                 custom: HashMap::new(),
             },
         };
-        assert!((result.reward - 1.5).abs() < f32::EPSILON);
         assert!(!result.terminated);
         assert!(result.truncated);
         assert_eq!(result.info.episode_length, 100);
@@ -1319,19 +1307,16 @@ mod tests {
         custom.insert("distance".to_string(), 0.42);
         let result = StepResult {
             observation: Observation::new(vec![1.0]),
-            reward: 0.5,
             terminated: true,
             truncated: false,
             info: StepInfo {
                 episode_length: 50,
-                episode_reward: 25.0,
                 custom,
             },
         };
         let json = serde_json::to_string(&result).unwrap();
         let result2: StepResult = serde_json::from_str(&json).unwrap();
         assert_eq!(result.observation, result2.observation);
-        assert!((result.reward - result2.reward).abs() < f32::EPSILON);
         assert_eq!(result.terminated, result2.terminated);
         assert_eq!(result.truncated, result2.truncated);
         assert_eq!(result.info.episode_length, result2.info.episode_length);
@@ -1369,7 +1354,6 @@ mod tests {
     fn step_info_default() {
         let info = StepInfo::default();
         assert_eq!(info.episode_length, 0);
-        assert!((info.episode_reward - 0.0).abs() < f32::EPSILON);
         assert!(info.custom.is_empty());
     }
 
@@ -1467,19 +1451,16 @@ mod tests {
         let results = vec![
             StepResult {
                 observation: Observation::new(vec![1.0, 2.0]),
-                reward: 1.5,
                 terminated: false,
                 truncated: false,
                 info: StepInfo::default(),
             },
             StepResult {
                 observation: Observation::new(vec![3.0, 4.0]),
-                reward: -0.5,
                 terminated: true,
                 truncated: false,
                 info: StepInfo {
                     episode_length: 10,
-                    episode_reward: 5.0,
                     custom: HashMap::new(),
                 },
             },
@@ -1487,8 +1468,6 @@ mod tests {
         let batch = BatchStepResult::from_results(results);
         assert_eq!(batch.num_envs(), 2);
         assert_eq!(batch.observations.len(), 2);
-        assert_eq!(batch.rewards.len(), 2);
-        assert!((batch.rewards[0] - 1.5).abs() < f32::EPSILON);
         assert!(batch.terminated[1]);
     }
 
@@ -1496,14 +1475,12 @@ mod tests {
     fn batch_step_result_get() {
         let batch = BatchStepResult {
             observations: vec![Observation::new(vec![1.0]), Observation::new(vec![2.0])],
-            rewards: vec![0.5, 1.0],
             terminated: vec![false, true],
             truncated: vec![false, false],
             infos: vec![StepInfo::default(), StepInfo::default()],
         };
         let r = batch.get(1);
         assert_eq!(r.observation, Observation::new(vec![2.0]));
-        assert!((r.reward - 1.0).abs() < f32::EPSILON);
         assert!(r.terminated);
     }
 
@@ -1511,7 +1488,6 @@ mod tests {
     fn batch_step_result_serialize_roundtrip() {
         let batch = BatchStepResult {
             observations: vec![Observation::zeros(2)],
-            rewards: vec![1.0],
             terminated: vec![false],
             truncated: vec![true],
             infos: vec![StepInfo::default()],

@@ -19,8 +19,8 @@ from clanker_gym.spaces import Box, Discrete, space_from_dict
 class ClankerVecEnv:
     """Vectorized environment connected to a Clankers VecGymServer.
 
-    All observations and rewards are returned as batched numpy arrays
-    of shape ``(num_envs, obs_dim)`` and ``(num_envs,)`` respectively.
+    Observations are returned as batched numpy arrays of shape
+    ``(num_envs, obs_dim)``.
 
     Parameters
     ----------
@@ -93,12 +93,14 @@ class ClankerVecEnv:
         self, actions: NDArray[np.float32] | list[Any]
     ) -> tuple[
         NDArray[np.float32],
-        NDArray[np.float32],
         NDArray[np.bool_],
         NDArray[np.bool_],
         list[dict[str, Any]],
     ]:
         """Step all environments.
+
+        Rewards are not included in the server response — compute them
+        Python-side using :mod:`clanker_gym.rewards`.
 
         Parameters
         ----------
@@ -110,8 +112,6 @@ class ClankerVecEnv:
         -------
         observations : np.ndarray
             Shape ``(num_envs, obs_dim)``.
-        rewards : np.ndarray
-            Shape ``(num_envs,)``.
         terminated : np.ndarray of bool
             Shape ``(num_envs,)``.
         truncated : np.ndarray of bool
@@ -130,11 +130,10 @@ class ClankerVecEnv:
         observations = np.array(
             [obs["data"] for obs in resp["observations"]], dtype=np.float32
         )
-        rewards = np.array(resp["rewards"], dtype=np.float32)
         terminated = np.array(resp["terminated"], dtype=np.bool_)
         truncated = np.array(resp["truncated"], dtype=np.bool_)
         infos = resp.get("infos", [{} for _ in range(self.num_envs)])
-        return observations, rewards, terminated, truncated, infos
+        return observations, terminated, truncated, infos
 
     def close(self) -> None:
         """Close the connection."""

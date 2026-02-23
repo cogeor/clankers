@@ -1,8 +1,8 @@
 //! Structure-of-Arrays (`SoA`) buffers for batched `VecEnv` data.
 //!
-//! Stores observations, rewards, and done flags in flat column-major layout
+//! Stores observations and done flags in flat column-major layout
 //! for efficient batched training: `[num_envs, dim]` for observations,
-//! `[num_envs]` for scalars.
+//! `[num_envs]` for flags.
 
 use clankers_core::types::Observation;
 
@@ -91,48 +91,6 @@ impl VecObsBuffer {
     }
 
     /// Zero out all observations.
-    pub fn clear(&mut self) {
-        self.data.fill(0.0);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// VecRewardBuffer
-// ---------------------------------------------------------------------------
-
-/// Batched reward buffer with shape `[num_envs]`.
-#[derive(Debug, Clone)]
-pub struct VecRewardBuffer {
-    data: Vec<f32>,
-}
-
-impl VecRewardBuffer {
-    /// Create a zeroed reward buffer.
-    #[must_use]
-    pub fn new(num_envs: usize) -> Self {
-        Self {
-            data: vec![0.0; num_envs],
-        }
-    }
-
-    /// Set reward for environment `env_idx`.
-    pub fn set(&mut self, env_idx: usize, reward: f32) {
-        self.data[env_idx] = reward;
-    }
-
-    /// Get reward for environment `env_idx`.
-    #[must_use]
-    pub fn get(&self, env_idx: usize) -> f32 {
-        self.data[env_idx]
-    }
-
-    /// Raw flat buffer.
-    #[must_use]
-    pub fn as_flat(&self) -> &[f32] {
-        &self.data
-    }
-
-    /// Zero all rewards.
     pub fn clear(&mut self) {
         self.data.fill(0.0);
     }
@@ -247,28 +205,6 @@ mod tests {
         let buf = VecObsBuffer::new(4, 10);
         assert_eq!(buf.num_envs(), 4);
         assert_eq!(buf.obs_dim(), 10);
-    }
-
-    // ---- VecRewardBuffer ----
-
-    #[test]
-    fn reward_buffer_set_get() {
-        let mut buf = VecRewardBuffer::new(3);
-        buf.set(0, 1.5);
-        buf.set(1, -0.5);
-        buf.set(2, 0.0);
-
-        assert!((buf.get(0) - 1.5).abs() < f32::EPSILON);
-        assert!((buf.get(1) - (-0.5)).abs() < f32::EPSILON);
-        assert!((buf.get(2)).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn reward_buffer_clear() {
-        let mut buf = VecRewardBuffer::new(2);
-        buf.set(0, 5.0);
-        buf.clear();
-        assert!((buf.get(0)).abs() < f32::EPSILON);
     }
 
     // ---- VecDoneBuffer ----

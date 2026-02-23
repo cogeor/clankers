@@ -195,12 +195,11 @@ mod tests {
     }
 
     #[test]
-    fn advance_accumulates_reward() {
+    fn advance_increments_step_count() {
         let mut map = EnvEpisodeMap::new(1);
         map.reset(EnvId(0), None);
-        map.get_mut(EnvId(0)).advance(1.5);
-        map.get_mut(EnvId(0)).advance(2.0);
-        assert!((map.get(EnvId(0)).total_reward - 3.5).abs() < f32::EPSILON);
+        map.get_mut(EnvId(0)).advance();
+        map.get_mut(EnvId(0)).advance();
         assert_eq!(map.get(EnvId(0)).step_count, 2);
     }
 

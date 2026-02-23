@@ -68,13 +68,15 @@ class ClankerEnv:
 
     def step(
         self, action: NDArray[np.float32] | int
-    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+    ) -> tuple[NDArray[np.float32], bool, bool, dict[str, Any]]:
         """Take one step.
+
+        Reward is not included in the server response — compute it
+        Python-side using :mod:`clanker_gym.rewards`.
 
         Returns
         -------
         observation : np.ndarray
-        reward : float
         terminated : bool
         truncated : bool
         info : dict
@@ -86,11 +88,10 @@ class ClankerEnv:
 
         resp = self._client.send({"type": "step", "action": action_payload})
         obs = np.asarray(resp["observation"]["data"], dtype=np.float32)
-        reward = float(resp["reward"])
         terminated = bool(resp["terminated"])
         truncated = bool(resp["truncated"])
         info = resp.get("info", {})
-        return obs, reward, terminated, truncated, info
+        return obs, terminated, truncated, info
 
     def close(self) -> None:
         """Close the connection."""

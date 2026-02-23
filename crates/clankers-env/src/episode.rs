@@ -83,8 +83,6 @@ pub struct Episode {
     pub state: EpisodeState,
     /// Number of steps taken this episode.
     pub step_count: u32,
-    /// Total accumulated reward this episode.
-    pub total_reward: f32,
     /// Seed used for this episode (set on reset).
     pub seed: Option<u64>,
     /// Number of completed episodes since app start.
@@ -96,7 +94,6 @@ impl Default for Episode {
         Self {
             state: EpisodeState::Idle,
             step_count: 0,
-            total_reward: 0.0,
             seed: None,
             episode_number: 0,
         }
@@ -108,19 +105,16 @@ impl Episode {
     pub const fn reset(&mut self, seed: Option<u64>) {
         self.state = EpisodeState::Running;
         self.step_count = 0;
-        self.total_reward = 0.0;
         self.seed = seed;
         self.episode_number += 1;
     }
 
-    /// Advance one step, accumulating reward.  Returns `false` if the
-    /// episode is not running.
-    pub fn advance(&mut self, reward: f32) -> bool {
+    /// Advance one step. Returns `false` if the episode is not running.
+    pub fn advance(&mut self) -> bool {
         if self.state != EpisodeState::Running {
             return false;
         }
         self.step_count += 1;
-        self.total_reward += reward;
         true
     }
 
@@ -164,7 +158,6 @@ impl Episode {
         let seed = hierarchy.episode_seed(env_index, u64::from(self.episode_number));
         self.state = EpisodeState::Running;
         self.step_count = 0;
-        self.total_reward = 0.0;
         self.seed = Some(seed);
     }
 }
@@ -225,7 +218,6 @@ mod tests {
         let ep = Episode::default();
         assert_eq!(ep.state, EpisodeState::Idle);
         assert_eq!(ep.step_count, 0);
-        assert!(ep.total_reward.abs() < f32::EPSILON);
         assert!(ep.seed.is_none());
         assert_eq!(ep.episode_number, 0);
     }
@@ -241,22 +233,21 @@ mod tests {
     }
 
     #[test]
-    fn episode_advance_accumulates() {
+    fn episode_advance_increments_steps() {
         let mut ep = Episode::default();
         ep.reset(None);
-        assert!(ep.advance(1.5));
-        assert!(ep.advance(2.0));
+        assert!(ep.advance());
+        assert!(ep.advance());
         assert_eq!(ep.step_count, 2);
-        assert!((ep.total_reward - 3.5).abs() < f32::EPSILON);
     }
 
     #[test]
     fn episode_advance_fails_when_not_running() {
         let mut ep = Episode::default();
-        assert!(!ep.advance(1.0)); // Idle
+        assert!(!ep.advance()); // Idle
         ep.reset(None);
         ep.terminate();
-        assert!(!ep.advance(1.0)); // Done
+        assert!(!ep.advance()); // Done
     }
 
     #[test]
@@ -283,11 +274,11 @@ mod tests {
         let mut ep = Episode::default();
         ep.reset(None);
         for _ in 0..5 {
-            ep.advance(1.0);
+            ep.advance();
         }
         assert!(!ep.check_truncation(10)); // not yet
         for _ in 0..5 {
-            ep.advance(1.0);
+            ep.advance();
         }
         assert!(ep.check_truncation(10)); // now at 10
         assert_eq!(ep.state, EpisodeState::Truncated);
@@ -298,7 +289,7 @@ mod tests {
         let mut ep = Episode::default();
         ep.reset(None);
         for _ in 0..1000 {
-            ep.advance(1.0);
+            ep.advance();
         }
         assert!(!ep.check_truncation(0));
         assert!(ep.is_running());
@@ -316,12 +307,13 @@ mod tests {
     }
 
     #[test]
-    fn episode_reset_clears_reward() {
+    fn episode_reset_clears_step_count() {
         let mut ep = Episode::default();
         ep.reset(None);
-        ep.advance(100.0);
+        ep.advance();
+        ep.advance();
         ep.reset(None);
-        assert!(ep.total_reward.abs() < f32::EPSILON);
+        assert_eq!(ep.step_count, 0);
     }
 
     // -- Send + Sync --

@@ -1,14 +1,14 @@
 //! `VecEnvRunner`: sequential multi-environment step/reset driver.
 //!
 //! Manages a vector of `GymEnv`-like closures (environment factories),
-//! stepping and resetting them independently. Observations, rewards, and
-//! done flags are stored in [`SoA`](super::vec_buffer) buffers for
-//! efficient batched access.
+//! stepping and resetting them independently. Observations and done flags
+//! are stored in [`SoA`](super::vec_buffer) buffers for efficient batched
+//! access.
 
 use clankers_core::seed::SeedHierarchy;
 use clankers_core::types::{Action, EnvId, Observation, ResetResult, StepResult};
 
-use crate::vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer};
+use crate::vec_buffer::{VecDoneBuffer, VecObsBuffer};
 use crate::vec_env::VecEnvConfig;
 use crate::vec_episode::{AutoResetMode, EnvEpisodeMap};
 
@@ -48,7 +48,7 @@ pub trait VecEnvInstance {
 ///     }
 ///     fn step(&mut self, _action: &Action) -> StepResult {
 ///         StepResult {
-///             observation: Observation::zeros(2), reward: 1.0,
+///             observation: Observation::zeros(2),
 ///             terminated: false, truncated: false, info: StepInfo::default(),
 ///         }
 ///     }
@@ -66,7 +66,6 @@ pub struct VecEnvRunner {
     config: VecEnvConfig,
     episodes: EnvEpisodeMap,
     obs_buf: VecObsBuffer,
-    reward_buf: VecRewardBuffer,
     done_buf: VecDoneBuffer,
 }
 
@@ -103,7 +102,6 @@ impl VecEnvRunner {
             config,
             episodes: EnvEpisodeMap::new(num_envs),
             obs_buf: VecObsBuffer::new(n, obs_dim),
-            reward_buf: VecRewardBuffer::new(n),
             done_buf: VecDoneBuffer::new(n),
         }
     }
@@ -118,12 +116,6 @@ impl VecEnvRunner {
     #[must_use]
     pub const fn obs_buffer(&self) -> &VecObsBuffer {
         &self.obs_buf
-    }
-
-    /// Reward buffer (read-only).
-    #[must_use]
-    pub const fn reward_buffer(&self) -> &VecRewardBuffer {
-        &self.reward_buf
     }
 
     /// Done buffer (read-only).
@@ -146,7 +138,6 @@ impl VecEnvRunner {
             self.episodes
                 .reset(EnvId(u16::try_from(i).expect("env index overflow")), seed);
         }
-        self.reward_buf.clear();
         self.done_buf.clear();
     }
 
@@ -163,7 +154,6 @@ impl VecEnvRunner {
             self.obs_buf.set(i, &result.observation);
             self.episodes.reset(env_id, Some(seed));
         }
-        self.reward_buf.clear();
         self.done_buf.clear();
     }
 
@@ -174,7 +164,6 @@ impl VecEnvRunner {
             let result = self.envs[idx].reset(seed);
             self.obs_buf.set(idx, &result.observation);
             self.episodes.reset(env_id, seed);
-            self.reward_buf.set(idx, 0.0);
             self.done_buf.set(idx, false, false);
         }
     }
@@ -194,12 +183,11 @@ impl VecEnvRunner {
         for (i, (env, action)) in self.envs.iter_mut().zip(actions.iter()).enumerate() {
             let result = env.step(action);
             self.obs_buf.set(i, &result.observation);
-            self.reward_buf.set(i, result.reward);
             self.done_buf.set(i, result.terminated, result.truncated);
 
             let env_id = EnvId(u16::try_from(i).expect("env index overflow"));
             let ep = self.episodes.get_mut(env_id);
-            ep.advance(result.reward);
+            ep.advance();
 
             if result.terminated {
                 ep.terminate();
@@ -283,7 +271,6 @@ mod tests {
             StepResult {
                 #[allow(clippy::cast_precision_loss)]
                 observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
-                reward: 1.0,
                 terminated,
                 truncated: false,
                 info: StepInfo::default(),
@@ -326,7 +313,6 @@ mod tests {
 
         // After one step, obs should be [1.0, 1.0] (step_count=1)
         assert_eq!(runner.get_obs(0).as_slice(), &[1.0, 1.0]);
-        assert!((runner.reward_buffer().get(0) - 1.0).abs() < f32::EPSILON);
         assert!(!runner.done_buffer().is_done(0));
     }
 

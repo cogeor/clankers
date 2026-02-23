@@ -108,9 +108,6 @@ pub struct EnvInfo {
     pub observation_space: ObservationSpace,
     /// Action space descriptor.
     pub action_space: ActionSpace,
-    /// Optional reward range `(min, max)`.
-    #[serde(default)]
-    pub reward_range: Option<(f32, f32)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +156,6 @@ pub enum Response {
     /// Result of a step operation.
     Step {
         observation: Observation,
-        reward: f32,
         terminated: bool,
         truncated: bool,
         info: StepInfo,
@@ -175,8 +171,6 @@ pub enum Response {
     BatchStep {
         /// Per-env observations.
         observations: Vec<Observation>,
-        /// Per-env rewards.
-        rewards: Vec<f32>,
         /// Per-env terminated flags.
         terminated: Vec<bool>,
         /// Per-env truncated flags.
@@ -212,7 +206,6 @@ impl Response {
     pub fn from_step(result: StepResult) -> Self {
         Self::Step {
             observation: result.observation,
-            reward: result.reward,
             terminated: result.terminated,
             truncated: result.truncated,
             info: result.info,
@@ -233,7 +226,6 @@ impl Response {
     pub fn from_batch_step(result: BatchStepResult) -> Self {
         Self::BatchStep {
             observations: result.observations,
-            rewards: result.rewards,
             terminated: result.terminated,
             truncated: result.truncated,
             infos: result.infos,
@@ -698,7 +690,6 @@ mod tests {
                 high: vec![1.0; 3],
             },
             action_space: ActionSpace::Discrete { n: 4 },
-            reward_range: Some((-1.0, 1.0)),
         };
         let resp = Response::InitResponse {
             protocol_version: "1.0.0".into(),
@@ -775,12 +766,10 @@ mod tests {
                 low: vec![-1.0; 2],
                 high: vec![1.0; 2],
             },
-            reward_range: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         let info2: EnvInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(info2.n_agents, 2);
-        assert!(info2.reward_range.is_none());
     }
 
     // ---- Request serialisation ----
@@ -900,23 +889,17 @@ mod tests {
     fn response_step_roundtrip() {
         let result = StepResult {
             observation: Observation::new(vec![0.5]),
-            reward: 1.5,
             terminated: false,
             truncated: true,
             info: StepInfo {
                 episode_length: 10,
-                episode_reward: 5.0,
                 custom: HashMap::new(),
             },
         };
         let resp = Response::from_step(result);
         let json = serde_json::to_string(&resp).unwrap();
         let resp2: Response = serde_json::from_str(&json).unwrap();
-        if let Response::Step {
-            reward, truncated, ..
-        } = resp2
-        {
-            assert!((reward - 1.5).abs() < f32::EPSILON);
+        if let Response::Step { truncated, .. } = resp2 {
             assert!(truncated);
         } else {
             panic!("expected Step");
@@ -1046,21 +1029,13 @@ mod tests {
     fn response_batch_step_roundtrip() {
         let resp = Response::BatchStep {
             observations: vec![Observation::zeros(2), Observation::zeros(2)],
-            rewards: vec![1.0, -0.5],
             terminated: vec![false, true],
             truncated: vec![false, false],
             infos: vec![StepInfo::default(), StepInfo::default()],
         };
         let json = serde_json::to_string(&resp).unwrap();
         let resp2: Response = serde_json::from_str(&json).unwrap();
-        if let Response::BatchStep {
-            rewards,
-            terminated,
-            ..
-        } = resp2
-        {
-            assert_eq!(rewards.len(), 2);
-            assert!((rewards[0] - 1.0).abs() < f32::EPSILON);
+        if let Response::BatchStep { terminated, .. } = resp2 {
             assert!(terminated[1]);
         } else {
             panic!("expected BatchStep");
@@ -1083,7 +1058,6 @@ mod tests {
         use clankers_core::types::BatchStepResult;
         let result = BatchStepResult {
             observations: vec![Observation::zeros(2)],
-            rewards: vec![1.0],
             terminated: vec![false],
             truncated: vec![false],
             infos: vec![StepInfo::default()],

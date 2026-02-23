@@ -81,17 +81,15 @@ class TestClankerVecEnv:
         env._client.send.return_value = {
             "type": "batch_step",
             "observations": [{"data": [1.0, 2.0]}, {"data": [3.0, 4.0]}],
-            "rewards": [1.0, 0.5],
             "terminated": [False, True],
             "truncated": [False, False],
             "infos": [{}, {}],
         }
 
         actions = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
-        obs, rewards, terminated, truncated, infos = env.step(actions)
+        obs, terminated, truncated, infos = env.step(actions)
 
         assert obs.shape == (2, 2)
-        assert rewards.shape == (2,)
         assert terminated.shape == (2,)
         assert not terminated[0]
         assert terminated[1]
@@ -109,13 +107,12 @@ class TestClankerVecEnv:
         env._client.send.return_value = {
             "type": "batch_step",
             "observations": [{"data": [0.0]}, {"data": [0.0]}],
-            "rewards": [0.0, 0.0],
             "terminated": [False, False],
             "truncated": [False, False],
             "infos": [{}, {}],
         }
 
-        obs, rewards, terminated, truncated, infos = env.step([0, 3])
+        obs, terminated, truncated, infos = env.step([0, 3])
         sent = env._client.send.call_args[0][0]
         assert sent["actions"][0] == {"Discrete": 0}
         assert sent["actions"][1] == {"Discrete": 3}

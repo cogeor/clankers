@@ -242,7 +242,6 @@ mod tests {
                     high: vec![1.0],
                 },
                 action_space: clankers_core::types::ActionSpace::Discrete { n: 2 },
-                reward_range: None,
             },
             capabilities: HashMap::new(),
             seed_accepted: false,
@@ -295,7 +294,6 @@ mod tests {
 
         sm.on_response(&Response::Step {
             observation: clankers_core::types::Observation::zeros(1),
-            reward: 0.0,
             terminated: true,
             truncated: false,
             info: clankers_core::types::StepInfo::default(),
@@ -313,7 +311,6 @@ mod tests {
 
         sm.on_response(&Response::Step {
             observation: clankers_core::types::Observation::zeros(1),
-            reward: 0.0,
             terminated: false,
             truncated: true,
             info: clankers_core::types::StepInfo::default(),
@@ -472,7 +469,6 @@ mod tests {
 
         sm.on_response(&Response::BatchStep {
             observations: vec![clankers_core::types::Observation::zeros(1)],
-            rewards: vec![0.0],
             terminated: vec![true],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],
@@ -490,7 +486,6 @@ mod tests {
 
         sm.on_response(&Response::BatchStep {
             observations: vec![clankers_core::types::Observation::zeros(1)],
-            rewards: vec![1.0],
             terminated: vec![false],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],
@@ -523,7 +518,6 @@ mod tests {
                     high: vec![1.0],
                 },
                 action_space: clankers_core::types::ActionSpace::Discrete { n: 2 },
-                reward_range: None,
             },
             capabilities: HashMap::new(),
             seed_accepted: false,

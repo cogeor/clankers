@@ -307,18 +307,6 @@ impl Default for ActionConfig {
 }
 
 // ---------------------------------------------------------------------------
-// RewardConfig
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RewardConfig {
-    #[serde(default)]
-    pub reward_type: String,
-    #[serde(default)]
-    pub weights: HashMap<String, f32>,
-}
-
-// ---------------------------------------------------------------------------
 // TaskConfig
 // ---------------------------------------------------------------------------
 
@@ -332,8 +320,6 @@ pub struct TaskConfig {
     pub observation: ObservationConfig,
     #[serde(default)]
     pub action: ActionConfig,
-    #[serde(default)]
-    pub reward: RewardConfig,
 }
 
 impl Default for TaskConfig {
@@ -344,7 +330,6 @@ impl Default for TaskConfig {
             params: HashMap::default(),
             observation: ObservationConfig::default(),
             action: ActionConfig::default(),
-            reward: RewardConfig::default(),
         }
     }
 }
@@ -825,12 +810,6 @@ mod tests {
             joints = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
             limits = [-1.0, 1.0]
 
-            [task.reward]
-            reward_type = "distance"
-
-            [task.reward.weights]
-            distance = -1.0
-            action_penalty = -0.01
         "#;
         let scene: SceneConfig = toml::from_str(toml_str).unwrap();
 
@@ -878,10 +857,6 @@ mod tests {
         assert!(scene.task.observation.normalize);
         assert_eq!(scene.task.action.action_type, "velocity");
         assert_eq!(scene.task.action.joints.len(), 7);
-        assert_eq!(scene.task.reward.reward_type, "distance");
-        assert_eq!(scene.task.reward.weights.len(), 2);
-        assert!((scene.task.reward.weights["distance"] - (-1.0)).abs() < f32::EPSILON);
-        assert!((scene.task.reward.weights["action_penalty"] - (-0.01)).abs() < f32::EPSILON);
     }
 
     // ---- TaskConfig defaults ----
@@ -899,8 +874,6 @@ mod tests {
         assert!(cfg.action.joints.is_empty());
         assert!((cfg.action.limits[0] - (-1.0)).abs() < f32::EPSILON);
         assert!((cfg.action.limits[1] - 1.0).abs() < f32::EPSILON);
-        assert!(cfg.reward.reward_type.is_empty());
-        assert!(cfg.reward.weights.is_empty());
     }
 
     // ---- ActionConfig defaults ----

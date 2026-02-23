@@ -36,7 +36,7 @@ use crate::protocol::EnvInfo;
 ///     }
 ///     fn step(&mut self, _action: &Action) -> StepResult {
 ///         StepResult {
-///             observation: Observation::zeros(2), reward: 0.0,
+///             observation: Observation::zeros(2),
 ///             terminated: false, truncated: false, info: StepInfo::default(),
 ///         }
 ///     }
@@ -102,7 +102,6 @@ impl GymVecEnv {
             n_agents: self.runner.num_envs(),
             observation_space: self.obs_space.clone(),
             action_space: self.act_space.clone(),
-            reward_range: None,
         }
     }
 
@@ -185,19 +184,16 @@ impl GymVecEnv {
     fn collect_step_results(&self) -> BatchStepResult {
         let n = self.runner.num_envs();
         let obs_buf = self.runner.obs_buffer();
-        let reward_buf = self.runner.reward_buffer();
         let done_buf = self.runner.done_buffer();
         let episodes = self.runner.episodes();
 
         let mut observations = Vec::with_capacity(n);
-        let mut rewards = Vec::with_capacity(n);
         let mut terminated = Vec::with_capacity(n);
         let mut truncated = Vec::with_capacity(n);
         let mut infos = Vec::with_capacity(n);
 
         for i in 0..n {
             observations.push(obs_buf.get(i));
-            rewards.push(reward_buf.get(i));
             terminated.push(done_buf.terminated(i));
             truncated.push(done_buf.truncated(i));
 
@@ -205,14 +201,12 @@ impl GymVecEnv {
             let ep = episodes.get(env_id);
             infos.push(clankers_core::types::StepInfo {
                 episode_length: ep.step_count,
-                episode_reward: ep.total_reward,
                 ..Default::default()
             });
         }
 
         BatchStepResult {
             observations,
-            rewards,
             terminated,
             truncated,
             infos,
@@ -268,7 +262,6 @@ mod tests {
             StepResult {
                 #[allow(clippy::cast_precision_loss)]
                 observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
-                reward: 1.0,
                 terminated,
                 truncated: false,
                 info: StepInfo::default(),
@@ -315,7 +308,6 @@ mod tests {
         let result = env.step_all(&actions);
         assert_eq!(result.num_envs(), 2);
         assert_eq!(result.observations[0].as_slice(), &[1.0, 1.0]);
-        assert!((result.rewards[0] - 1.0).abs() < f32::EPSILON);
         assert!(!result.terminated[0]);
     }
 

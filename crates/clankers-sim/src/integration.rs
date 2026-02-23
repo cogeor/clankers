@@ -448,30 +448,25 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn stats_mean_reward_after_episodes() {
+    fn stats_mean_episode_length_after_episodes() {
         let mut scene = SceneBuilder::new()
             .with_max_episode_steps(3)
             .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
             .unwrap()
             .build();
 
-        // Run 2 episodes with manual reward setting
+        // Run 2 episodes
         for _ in 0..2 {
             scene.app.world_mut().resource_mut::<Episode>().reset(None);
-
             for _ in 0..3 {
-                // Add some reward each step
-                scene.app.world_mut().resource_mut::<Episode>().advance(1.0);
+                scene.app.update();
             }
-            // After advance(1.0) × 3, total_reward = 3.0 per episode
-            // But we need the episode system to detect the terminal state
         }
 
-        // Since we manually advanced, the episode_step_system won't detect
-        // the same way. Use the stats directly to verify mean_reward works.
         let stats = scene.app.world().resource::<EpisodeStats>();
-        if let Some(mean) = stats.mean_reward() {
-            assert!(mean.is_finite());
+        assert_eq!(stats.episodes_completed, 2);
+        if let Some(mean) = stats.mean_episode_length() {
+            assert!((mean - 3.0).abs() < f32::EPSILON);
         }
     }
 

@@ -7,17 +7,6 @@ use crate::episode::{Episode, EpisodeConfig};
 use bevy::prelude::*;
 
 // ---------------------------------------------------------------------------
-// StepReward
-// ---------------------------------------------------------------------------
-
-/// Resource holding the reward for the current step.
-///
-/// External systems (reward functions) write to this each step.
-/// The episode system reads and consumes it.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct StepReward(pub f32);
-
-// ---------------------------------------------------------------------------
 // observe_system
 // ---------------------------------------------------------------------------
 
@@ -48,19 +37,14 @@ pub fn observe_system(world: &mut World) {
 // episode_step_system
 // ---------------------------------------------------------------------------
 
-/// Advances the episode by one step, accumulating reward and checking truncation.
+/// Advances the episode by one step and checks truncation.
 ///
 /// Runs in [`ClankersSet::Evaluate`](clankers_core::ClankersSet::Evaluate).
 #[allow(clippy::needless_pass_by_value)]
-pub fn episode_step_system(
-    mut episode: ResMut<Episode>,
-    config: Res<EpisodeConfig>,
-    mut reward: ResMut<StepReward>,
-) {
+pub fn episode_step_system(mut episode: ResMut<Episode>, config: Res<EpisodeConfig>) {
     if episode.is_running() {
-        episode.advance(reward.0);
+        episode.advance();
         episode.check_truncation(config.max_episode_steps);
-        reward.0 = 0.0;
     }
 }
 
@@ -82,7 +66,6 @@ mod tests {
         app.init_resource::<EpisodeConfig>();
         app.init_resource::<ObservationBuffer>();
         app.init_resource::<SensorRegistry>();
-        app.init_resource::<StepReward>();
         app.add_systems(Update, observe_system.in_set(ClankersSet::Observe));
         app.add_systems(Update, episode_step_system.in_set(ClankersSet::Evaluate));
         app.finish();
@@ -126,8 +109,6 @@ mod tests {
         assert_eq!(buffer.dim(), 6); // 2*2 + 2
         let obs = buffer.as_observation();
         assert_eq!(obs.len(), 6);
-        // JointState: [pos, vel, pos, vel], JointCommand: [cmd, cmd]
-        // Values should contain our spawned data (order may vary)
         let state_data = buffer.read(0);
         assert_eq!(state_data.len(), 4);
         let cmd_data = buffer.read(1);
@@ -137,26 +118,20 @@ mod tests {
     #[test]
     fn observe_system_handles_empty_registry() {
         let mut app = build_test_app();
-        // No sensors registered, no entities spawned
-        app.update(); // Should not panic
+        app.update();
         let buffer = app.world().resource::<ObservationBuffer>();
         assert_eq!(buffer.dim(), 0);
     }
 
     #[test]
-    fn episode_step_advances_and_accumulates_reward() {
+    fn episode_step_advances() {
         let mut app = build_test_app();
         app.world_mut().resource_mut::<Episode>().reset(None);
-        app.world_mut().resource_mut::<StepReward>().0 = 5.0;
 
         app.update();
 
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 1);
-        assert!((ep.total_reward - 5.0).abs() < f32::EPSILON);
-        // Reward should be consumed
-        let reward = app.world().resource::<StepReward>();
-        assert!((reward.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -179,13 +154,11 @@ mod tests {
     #[test]
     fn episode_step_does_nothing_when_idle() {
         let mut app = build_test_app();
-        app.world_mut().resource_mut::<StepReward>().0 = 10.0;
 
         app.update();
 
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 0);
-        assert!((ep.total_reward).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -206,7 +179,6 @@ mod tests {
 
         // Start episode
         app.world_mut().resource_mut::<Episode>().reset(None);
-        app.world_mut().resource_mut::<StepReward>().0 = 1.5;
 
         // Run one frame
         app.update();
@@ -219,6 +191,5 @@ mod tests {
         // Check episode advanced
         let ep = app.world().resource::<Episode>();
         assert_eq!(ep.step_count, 1);
-        assert!((ep.total_reward - 1.5).abs() < f32::EPSILON);
     }
 }

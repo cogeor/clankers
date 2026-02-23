@@ -1,7 +1,7 @@
 //! Episode statistics tracking.
 //!
 //! [`EpisodeStats`] records cumulative statistics across episodes:
-//! total episodes, total steps, and per-episode reward history.
+//! total episodes, total steps, and per-episode step-count history.
 
 use bevy::prelude::*;
 use clankers_env::episode::{Episode, EpisodeState};
@@ -17,8 +17,6 @@ pub struct EpisodeStats {
     pub episodes_completed: u32,
     /// Total steps across all episodes.
     pub total_steps: u64,
-    /// Reward history (total reward per completed episode).
-    pub reward_history: Vec<f32>,
     /// Step-count history (steps per completed episode).
     pub step_history: Vec<u32>,
     /// Whether we saw the episode running last frame (for edge detection).
@@ -37,20 +35,9 @@ impl EpisodeStats {
         Self {
             episodes_completed: 0,
             total_steps: 0,
-            reward_history: Vec::new(),
             step_history: Vec::new(),
             was_running: false,
         }
-    }
-
-    /// Average reward across all completed episodes, or `None` if no episodes.
-    pub fn mean_reward(&self) -> Option<f32> {
-        if self.reward_history.is_empty() {
-            return None;
-        }
-        let sum: f32 = self.reward_history.iter().sum();
-        #[allow(clippy::cast_precision_loss)]
-        Some(sum / self.reward_history.len() as f32)
     }
 
     /// Average episode length (steps) across all completed episodes.
@@ -62,11 +49,6 @@ impl EpisodeStats {
         let sum: f32 = self.step_history.iter().map(|&s| s as f32).sum();
         #[allow(clippy::cast_precision_loss)]
         Some(sum / self.step_history.len() as f32)
-    }
-
-    /// Most recent episode reward, or `None` if no episodes completed.
-    pub fn last_reward(&self) -> Option<f32> {
-        self.reward_history.last().copied()
     }
 
     /// Reset all statistics.
@@ -89,7 +71,6 @@ pub fn episode_stats_system(episode: Res<Episode>, mut stats: ResMut<EpisodeStat
     if just_finished {
         stats.episodes_completed += 1;
         stats.total_steps += u64::from(episode.step_count);
-        stats.reward_history.push(episode.total_reward);
         stats.step_history.push(episode.step_count);
     }
 
@@ -109,17 +90,8 @@ mod tests {
         let stats = EpisodeStats::new();
         assert_eq!(stats.episodes_completed, 0);
         assert_eq!(stats.total_steps, 0);
-        assert!(stats.reward_history.is_empty());
-        assert!(stats.mean_reward().is_none());
+        assert!(stats.step_history.is_empty());
         assert!(stats.mean_episode_length().is_none());
-        assert!(stats.last_reward().is_none());
-    }
-
-    #[test]
-    fn mean_reward_computes() {
-        let mut stats = EpisodeStats::new();
-        stats.reward_history = vec![10.0, 20.0, 30.0];
-        assert!((stats.mean_reward().unwrap() - 20.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -130,21 +102,14 @@ mod tests {
     }
 
     #[test]
-    fn last_reward_returns_most_recent() {
-        let mut stats = EpisodeStats::new();
-        stats.reward_history = vec![1.0, 2.0, 3.0];
-        assert!((stats.last_reward().unwrap() - 3.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
     fn reset_clears_stats() {
         let mut stats = EpisodeStats::new();
         stats.episodes_completed = 5;
         stats.total_steps = 500;
-        stats.reward_history = vec![1.0, 2.0];
+        stats.step_history = vec![10, 20];
         stats.reset();
         assert_eq!(stats.episodes_completed, 0);
-        assert!(stats.reward_history.is_empty());
+        assert!(stats.step_history.is_empty());
     }
 
     #[test]

@@ -15,7 +15,7 @@ pub mod spawn;
 // ---------------------------------------------------------------------------
 
 pub use app::{full_test_app, minimal_test_app};
-pub use episodes::{episode_snapshot, reset_episode, run_until_done, set_step_reward, step_n};
-pub use mocks::{AlwaysTerminate, ConstantReward, ConstantSensor, NeverTerminate};
+pub use episodes::{episode_snapshot, reset_episode, run_until_done, step_n};
+pub use mocks::ConstantSensor;
 pub use rng::seeded_rng;
 pub use spawn::{register_state_sensor, spawn_joint, spawn_joints};

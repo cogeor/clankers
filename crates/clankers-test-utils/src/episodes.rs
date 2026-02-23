@@ -5,16 +5,10 @@
 
 use bevy::prelude::*;
 use clankers_env::episode::{Episode, EpisodeState};
-use clankers_env::systems::StepReward;
 
 /// Reset the episode to `Running` with an optional seed.
 pub fn reset_episode(app: &mut App, seed: Option<u64>) {
     app.world_mut().resource_mut::<Episode>().reset(seed);
-}
-
-/// Set the reward that will be consumed on the next step.
-pub fn set_step_reward(app: &mut App, reward: f32) {
-    app.world_mut().resource_mut::<StepReward>().0 = reward;
 }
 
 /// Run `n` simulation steps (calls `app.update()` `n` times).
@@ -37,10 +31,10 @@ pub fn run_until_done(app: &mut App, max_safety_steps: usize) -> usize {
     max_safety_steps
 }
 
-/// Query current episode state as a tuple `(step_count, total_reward, state)`.
-pub fn episode_snapshot(app: &App) -> (u32, f32, EpisodeState) {
+/// Query current episode state as a tuple `(step_count, state)`.
+pub fn episode_snapshot(app: &App) -> (u32, EpisodeState) {
     let ep = app.world().resource::<Episode>();
-    (ep.step_count, ep.total_reward, ep.state)
+    (ep.step_count, ep.state)
 }
 
 // ---------------------------------------------------------------------------
@@ -68,23 +62,9 @@ mod tests {
         reset_episode(&mut app, None);
         step_n(&mut app, 5);
 
-        let (count, _, state) = episode_snapshot(&app);
+        let (count, state) = episode_snapshot(&app);
         assert_eq!(count, 5);
         assert_eq!(state, EpisodeState::Running);
-    }
-
-    #[test]
-    fn set_step_reward_accumulates() {
-        let mut app = full_test_app();
-        reset_episode(&mut app, None);
-
-        set_step_reward(&mut app, 3.0);
-        app.update();
-        set_step_reward(&mut app, 7.0);
-        app.update();
-
-        let (_, reward, _) = episode_snapshot(&app);
-        assert!((reward - 10.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -113,9 +93,8 @@ mod tests {
     #[test]
     fn episode_snapshot_reflects_state() {
         let app = full_test_app();
-        let (count, reward, state) = episode_snapshot(&app);
+        let (count, state) = episode_snapshot(&app);
         assert_eq!(count, 0);
-        assert!(reward.abs() < f32::EPSILON);
         assert_eq!(state, EpisodeState::Idle);
     }
 }

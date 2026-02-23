@@ -3,9 +3,7 @@
 pub mod config;
 pub mod error;
 pub mod physics;
-pub mod rewards;
 pub mod seed;
-pub mod terminations;
 pub mod time;
 pub mod traits;
 pub mod types;
@@ -79,18 +77,14 @@ pub mod prelude {
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
         // Physics
         physics::{ExternalForce, Mass, SurfaceFriction},
-        // Rewards
-        rewards::{ActionPenaltyReward, DistanceReward, LastAction, SparseReward},
         // Seeds
         seed::{SeedHierarchy, derive_seed, derive_seed_indexed},
-        // Terminations
-        terminations::{FailureTermination, StepCounter, SuccessTermination, TimeoutTermination},
         // Time
         time::{Accumulator, Clock, SimTime},
         // Traits
         traits::{
-            ActionApplicator, CompositeReward, CompositeTermination, MultiRobotActionApplicator,
-            ObservationSensor, Policy, RewardFunction, Sensor, Simulation, TerminationCondition,
+            ActionApplicator, MultiRobotActionApplicator, ObservationSensor, Policy, Sensor,
+            Simulation,
         },
         // Types
         types::{

@@ -54,17 +54,15 @@ class TestClankerEnv:
         env._client.send.return_value = {
             "type": "step",
             "observation": {"data": [1.0, 2.0]},
-            "reward": 1.5,
             "terminated": False,
             "truncated": True,
             "info": {"episode_length": 10},
         }
 
-        obs, reward, terminated, truncated, info = env.step(
+        obs, terminated, truncated, info = env.step(
             np.array([0.5, -0.3])
         )
         assert obs.shape == (2,)
-        assert reward == 1.5
         assert not terminated
         assert truncated
 
@@ -80,7 +78,6 @@ class TestClankerEnv:
         env._client.send.return_value = {
             "type": "step",
             "observation": {"data": [0.0]},
-            "reward": 0.0,
             "terminated": False,
             "truncated": False,
             "info": {},

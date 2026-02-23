@@ -118,12 +118,7 @@ fn run_headless(episodes: u32, max_steps: u32, seed: Option<u64>) {
         }
 
         let episode = app.world().resource::<Episode>();
-        println!(
-            "episode {}: steps={}, reward={:.3}",
-            ep + 1,
-            episode.step_count,
-            episode.total_reward
-        );
+        println!("episode {}: steps={}", ep + 1, episode.step_count,);
     }
 
     let stats = app.world().resource::<EpisodeStats>();

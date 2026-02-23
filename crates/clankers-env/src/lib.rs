@@ -22,6 +22,7 @@ pub mod systems;
 pub mod vec_buffer;
 pub mod vec_env;
 pub mod vec_episode;
+pub mod vec_runner;
 
 use bevy::prelude::*;
 use clankers_core::ClankersSet;
@@ -121,6 +122,7 @@ pub mod prelude {
         vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer},
         vec_env::VecEnvConfig,
         vec_episode::{AutoResetMode, EnvEpisodeMap},
+        vec_runner::{VecEnvInstance, VecEnvRunner},
     };
 }
 

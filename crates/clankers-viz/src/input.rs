@@ -99,3 +99,99 @@ pub fn keyboard_teleop_system(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clankers_core::ClankersSet;
+
+    fn build_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(clankers_core::ClankersCorePlugin);
+        app.add_plugins(clankers_teleop::ClankersTeleopPlugin);
+        app.init_resource::<VizMode>();
+        app.init_resource::<KeyboardTeleopMap>();
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.add_systems(Update, keyboard_teleop_system.in_set(ClankersSet::Decide));
+        app.finish();
+        app.cleanup();
+        app
+    }
+
+    #[test]
+    fn default_map_has_six_bindings() {
+        let map = KeyboardTeleopMap::six_joint_default();
+        assert_eq!(map.bindings.len(), 6);
+        assert_eq!(map.bindings[0].channel, "joint_0");
+        assert_eq!(map.bindings[5].channel, "joint_5");
+    }
+
+    #[test]
+    fn skips_when_not_teleop() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
+
+        // Simulate pressing Q.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyQ);
+        app.update();
+
+        let commander = app.world().resource::<TeleopCommander>();
+        assert!((commander.get("joint_0")).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pressing_key_updates_commander_in_teleop() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyQ);
+        app.update();
+
+        let commander = app.world().resource::<TeleopCommander>();
+        let value = commander.get("joint_0");
+        assert!(value > 0.0, "expected positive value, got {value}");
+    }
+
+    #[test]
+    fn negative_key_decrements() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
+        app.update();
+
+        let commander = app.world().resource::<TeleopCommander>();
+        let value = commander.get("joint_0");
+        assert!(value < 0.0, "expected negative value, got {value}");
+    }
+
+    #[test]
+    fn value_clamps_to_range() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
+
+        // Set near the limit.
+        app.world_mut()
+            .resource_mut::<TeleopCommander>()
+            .set("joint_0", 0.99);
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyQ);
+        app.update();
+
+        let commander = app.world().resource::<TeleopCommander>();
+        let value = commander.get("joint_0");
+        assert!((value - 1.0).abs() < f32::EPSILON, "expected clamped to 1.0, got {value}");
+    }
+}

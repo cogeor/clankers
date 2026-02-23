@@ -11,6 +11,87 @@ use clankers_teleop::{TeleopCommander, TeleopConfig};
 use crate::config::VizConfig;
 use crate::mode::VizMode;
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_test_app() -> bevy::prelude::App {
+        let mut app = App::new();
+        app.add_plugins(clankers_core::ClankersCorePlugin);
+        app.add_plugins(clankers_teleop::ClankersTeleopPlugin);
+        app.init_resource::<VizConfig>();
+        app.init_resource::<VizMode>();
+        app.init_resource::<VizSimGate>();
+        app.add_systems(
+            Update,
+            (mode_gate_system, mode_transition_system).before(clankers_core::ClankersSet::Observe),
+        );
+        app.finish();
+        app.cleanup();
+        app
+    }
+
+    #[test]
+    fn paused_mode_blocks_stepping() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
+        app.update();
+        assert!(!app.world().resource::<VizSimGate>().should_step);
+    }
+
+    #[test]
+    fn teleop_mode_enables_stepping_and_teleop() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
+        app.update();
+        assert!(app.world().resource::<VizSimGate>().should_step);
+        assert!(app.world().resource::<TeleopConfig>().enabled);
+    }
+
+    #[test]
+    fn policy_mode_enables_stepping_disables_teleop() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Policy;
+        app.update();
+        assert!(app.world().resource::<VizSimGate>().should_step);
+        assert!(!app.world().resource::<TeleopConfig>().enabled);
+    }
+
+    #[test]
+    fn step_once_allows_single_step_then_blocks() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
+        app.world_mut().resource_mut::<VizConfig>().step_once = true;
+        app.update();
+        assert!(app.world().resource::<VizSimGate>().should_step);
+        assert!(!app.world().resource::<VizConfig>().step_once);
+
+        // Next frame should be blocked again.
+        app.update();
+        assert!(!app.world().resource::<VizSimGate>().should_step);
+    }
+
+    #[test]
+    fn leaving_teleop_clears_commander() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
+        app.world_mut()
+            .resource_mut::<TeleopCommander>()
+            .set("joint_0", 0.5);
+        app.update();
+
+        // Switch to paused.
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
+        app.update();
+
+        assert_eq!(app.world().resource::<TeleopCommander>().channel_count(), 0);
+    }
+}
+
 /// Resource controlling whether the simulation pipeline runs this frame.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct VizSimGate {

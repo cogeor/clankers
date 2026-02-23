@@ -5,6 +5,7 @@
 //! component and an RNG.
 
 use crate::ranges::RandomizationRange;
+use clankers_actuator::components::Actuator;
 use clankers_actuator_core::friction::FrictionModel;
 use clankers_actuator_core::motor::{DcMotor, FullDcMotor, IdealMotor, MotorType};
 use clankers_actuator_core::transmission::Transmission;
@@ -162,17 +163,11 @@ pub struct ActuatorRandomizer {
 }
 
 impl ActuatorRandomizer {
-    /// Apply randomization to an actuator's motor, transmission, and friction.
-    pub fn randomize<R: Rng + ?Sized>(
-        &self,
-        motor: &mut MotorType,
-        transmission: &mut Transmission,
-        friction: &mut FrictionModel,
-        rng: &mut R,
-    ) {
-        self.motor.randomize(motor, rng);
-        self.transmission.randomize(transmission, rng);
-        self.friction.randomize(friction, rng);
+    /// Apply randomization to an actuator component in-place.
+    pub fn randomize_actuator<R: Rng + ?Sized>(&self, actuator: &mut Actuator, rng: &mut R) {
+        self.motor.randomize(&mut actuator.motor, rng);
+        self.transmission.randomize(&mut actuator.transmission, rng);
+        self.friction.randomize(&mut actuator.friction, rng);
     }
 }
 
@@ -361,21 +356,18 @@ mod tests {
             },
         };
 
-        let mut motor = MotorType::Ideal(IdealMotor {
-            max_torque: 10.0,
-            max_velocity: 100.0,
-        });
-        let mut trans = Transmission::new(100.0);
-        let mut friction = FrictionModel::default();
+        let mut actuator = Actuator::default();
         let mut rng = rng();
 
-        randomizer.randomize(&mut motor, &mut trans, &mut friction, &mut rng);
+        randomizer.randomize_actuator(&mut actuator, &mut rng);
 
-        if let MotorType::Ideal(m) = &motor {
+        if let MotorType::Ideal(m) = &actuator.motor {
             assert!(m.max_torque >= 8.0 && m.max_torque <= 12.0);
         }
-        assert!(trans.gear_ratio >= 95.0 && trans.gear_ratio <= 105.0);
-        assert!(friction.coulomb >= 0.1 && friction.coulomb < 0.5);
+        assert!(
+            actuator.transmission.gear_ratio >= 95.0 && actuator.transmission.gear_ratio <= 105.0
+        );
+        assert!(actuator.friction.coulomb >= 0.1 && actuator.friction.coulomb < 0.5);
     }
 
     // -- Determinism --

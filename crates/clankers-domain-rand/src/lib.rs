@@ -26,7 +26,10 @@ use clankers_env::episode::{Episode, EpisodeState};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::randomizers::ActuatorRandomizer;
+use crate::randomizers::{
+    ActuatorRandomizer, ExternalForceRandomizer, GeometryRandomizer, MassRandomizer,
+    SurfaceFrictionRandomizer,
+};
 
 // ---------------------------------------------------------------------------
 // DomainRandConfig
@@ -41,6 +44,14 @@ pub struct DomainRandConfig {
     pub seed: u64,
     /// Actuator parameter randomizer.
     pub actuator: ActuatorRandomizer,
+    /// Mass randomizer (for entities with [`Mass`](clankers_core::physics::Mass)).
+    pub mass: MassRandomizer,
+    /// Surface friction randomizer (for entities with [`SurfaceFriction`](clankers_core::physics::SurfaceFriction)).
+    pub surface_friction: SurfaceFrictionRandomizer,
+    /// Geometry scale randomizer (perturbs `Transform::scale`).
+    pub geometry: GeometryRandomizer,
+    /// External force randomizer (for entities with [`ExternalForce`](clankers_core::physics::ExternalForce)).
+    pub external_force: ExternalForceRandomizer,
 }
 
 impl Default for DomainRandConfig {
@@ -49,6 +60,10 @@ impl Default for DomainRandConfig {
             enabled: true,
             seed: 0,
             actuator: ActuatorRandomizer::default(),
+            mass: MassRandomizer::default(),
+            surface_friction: SurfaceFrictionRandomizer::default(),
+            geometry: GeometryRandomizer::default(),
+            external_force: ExternalForceRandomizer::default(),
         }
     }
 }
@@ -58,6 +73,34 @@ impl DomainRandConfig {
     #[must_use]
     pub const fn with_actuator(mut self, actuator: ActuatorRandomizer) -> Self {
         self.actuator = actuator;
+        self
+    }
+
+    /// Builder: set the mass randomizer.
+    #[must_use]
+    pub const fn with_mass(mut self, mass: MassRandomizer) -> Self {
+        self.mass = mass;
+        self
+    }
+
+    /// Builder: set the surface friction randomizer.
+    #[must_use]
+    pub const fn with_surface_friction(mut self, sf: SurfaceFrictionRandomizer) -> Self {
+        self.surface_friction = sf;
+        self
+    }
+
+    /// Builder: set the geometry randomizer.
+    #[must_use]
+    pub const fn with_geometry(mut self, geometry: GeometryRandomizer) -> Self {
+        self.geometry = geometry;
+        self
+    }
+
+    /// Builder: set the external force randomizer.
+    #[must_use]
+    pub const fn with_external_force(mut self, ef: ExternalForceRandomizer) -> Self {
+        self.external_force = ef;
         self
     }
 
@@ -90,17 +133,22 @@ struct DomainRandState {
 // randomize_on_reset_system
 // ---------------------------------------------------------------------------
 
-/// System that randomizes actuator parameters when a new episode starts.
+/// System that randomizes physics parameters when a new episode starts.
 ///
 /// Detects episode resets by comparing the current episode number against
-/// the last randomized episode number.
-#[allow(clippy::needless_pass_by_value)]
+/// the last randomized episode number. Randomizes actuators, mass,
+/// surface friction, geometry scale, and external forces.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 fn randomize_on_reset_system(
     config: Res<DomainRandConfig>,
     episode: Res<Episode>,
     mut state: ResMut<DomainRandState>,
     seed_hierarchy: Option<Res<SeedHierarchy>>,
     mut actuators: Query<&mut Actuator>,
+    mut masses: Query<&mut clankers_core::physics::Mass>,
+    mut surface_frictions: Query<&mut clankers_core::physics::SurfaceFriction>,
+    mut geometry_transforms: Query<&mut Transform, With<clankers_core::physics::Mass>>,
+    mut external_forces: Query<&mut clankers_core::physics::ExternalForce>,
 ) {
     if !config.enabled {
         return;
@@ -128,6 +176,22 @@ fn randomize_on_reset_system(
 
     for mut actuator in &mut actuators {
         config.actuator.randomize_actuator(&mut actuator, &mut rng);
+    }
+
+    for mut mass in &mut masses {
+        config.mass.randomize(&mut mass, &mut rng);
+    }
+
+    for mut sf in &mut surface_frictions {
+        config.surface_friction.randomize(&mut sf, &mut rng);
+    }
+
+    for mut transform in &mut geometry_transforms {
+        config.geometry.randomize(&mut transform, &mut rng);
+    }
+
+    for mut ef in &mut external_forces {
+        config.external_force.randomize(&mut ef, &mut rng);
     }
 }
 
@@ -160,7 +224,8 @@ pub mod prelude {
     pub use crate::{
         ClankersDomainRandPlugin, DomainRandConfig,
         randomizers::{
-            ActuatorRandomizer, FrictionRandomizer, MotorRandomizer, TransmissionRandomizer,
+            ActuatorRandomizer, ExternalForceRandomizer, FrictionRandomizer, GeometryRandomizer,
+            MassRandomizer, MotorRandomizer, SurfaceFrictionRandomizer, TransmissionRandomizer,
         },
         ranges::{RandomizationRange, RangeError},
     };

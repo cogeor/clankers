@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod error;
+pub mod physics;
 pub mod rewards;
 pub mod seed;
 pub mod terminations;
@@ -76,6 +77,8 @@ pub mod prelude {
         config::{ObjectConfig, RobotConfig, SceneConfig, Shape, SimConfig, TaskConfig},
         // Errors
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
+        // Physics
+        physics::{ExternalForce, Mass, SurfaceFriction},
         // Rewards
         rewards::{ActionPenaltyReward, DistanceReward, LastAction, SparseReward},
         // Seeds

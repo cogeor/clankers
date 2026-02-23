@@ -15,6 +15,7 @@
 //!     .run();
 //! ```
 
+pub mod builder;
 pub mod stats;
 
 use bevy::prelude::*;
@@ -24,6 +25,7 @@ use clankers_core::ClankersSet;
 // Re-exports
 // ---------------------------------------------------------------------------
 
+pub use builder::{SceneBuilder, SpawnedScene};
 pub use stats::EpisodeStats;
 
 // ---------------------------------------------------------------------------

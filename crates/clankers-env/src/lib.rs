@@ -117,7 +117,10 @@ pub mod prelude {
         ClankersEnvPlugin, SensorRegistry,
         buffer::{ObservationBuffer, SensorSlot},
         episode::{Episode, EpisodeConfig, EpisodeState},
-        sensors::{JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor},
+        sensors::{
+            JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor,
+            RobotJointCommandSensor, RobotJointStateSensor, RobotJointTorqueSensor,
+        },
         systems::{StepReward, episode_step_system, observe_system},
         vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer},
         vec_env::VecEnvConfig,

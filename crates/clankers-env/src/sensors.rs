@@ -6,7 +6,7 @@
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
     traits::{ObservationSensor, Sensor},
-    types::Observation,
+    types::{Observation, RobotId},
 };
 use clankers_noise::prelude::NoiseModel;
 
@@ -135,6 +135,128 @@ impl Sensor for JointTorqueSensor {
 }
 
 impl ObservationSensor for JointTorqueSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_joints
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Robot-scoped sensors
+// ---------------------------------------------------------------------------
+
+/// Reads position and velocity only from joints belonging to a specific robot.
+///
+/// Like [`JointStateSensor`] but filtered by [`RobotId`], producing data for
+/// a single robot in a multi-robot scene.
+pub struct RobotJointStateSensor {
+    robot_id: RobotId,
+    n_joints: usize,
+}
+
+impl RobotJointStateSensor {
+    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
+        Self { robot_id, n_joints }
+    }
+}
+
+impl Sensor for RobotJointStateSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_joints * 2);
+        let mut query = world.query::<(&JointState, &RobotId)>();
+        for (state, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(state.position);
+                data.push(state.velocity);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotJointStateSensor"
+    }
+}
+
+impl ObservationSensor for RobotJointStateSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_joints * 2
+    }
+}
+
+/// Reads commands only from joints belonging to a specific robot.
+pub struct RobotJointCommandSensor {
+    robot_id: RobotId,
+    n_joints: usize,
+}
+
+impl RobotJointCommandSensor {
+    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
+        Self { robot_id, n_joints }
+    }
+}
+
+impl Sensor for RobotJointCommandSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_joints);
+        let mut query = world.query::<(&JointCommand, &RobotId)>();
+        for (cmd, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(cmd.value);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotJointCommandSensor"
+    }
+}
+
+impl ObservationSensor for RobotJointCommandSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_joints
+    }
+}
+
+/// Reads torques only from joints belonging to a specific robot.
+pub struct RobotJointTorqueSensor {
+    robot_id: RobotId,
+    n_joints: usize,
+}
+
+impl RobotJointTorqueSensor {
+    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
+        Self { robot_id, n_joints }
+    }
+}
+
+impl Sensor for RobotJointTorqueSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_joints);
+        let mut query = world.query::<(&JointTorque, &RobotId)>();
+        for (torque, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(torque.value);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotJointTorqueSensor"
+    }
+}
+
+impl ObservationSensor for RobotJointTorqueSensor {
     fn observation_dim(&self) -> usize {
         self.n_joints
     }
@@ -343,6 +465,97 @@ mod tests {
         assert_eq!(sensor.observation_dim(), 6);
     }
 
+    // -- Robot-scoped sensors --
+
+    fn spawn_robot_joint(
+        world: &mut World,
+        robot_id: RobotId,
+        pos: f32,
+        vel: f32,
+        cmd: f32,
+    ) -> Entity {
+        world
+            .spawn((
+                robot_id,
+                Actuator::default(),
+                JointCommand { value: cmd },
+                JointState {
+                    position: pos,
+                    velocity: vel,
+                },
+                JointTorque { value: pos * 2.0 },
+            ))
+            .id()
+    }
+
+    #[test]
+    fn robot_joint_state_sensor_filters_by_id() {
+        let mut world = World::new();
+        spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 0.0);
+        spawn_robot_joint(&mut world, RobotId(1), 3.0, 4.0, 0.0);
+        spawn_robot_joint(&mut world, RobotId(0), 5.0, 6.0, 0.0);
+
+        let sensor = RobotJointStateSensor::new(RobotId(0), 2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 4);
+        let vals: Vec<f32> = obs.as_slice().to_vec();
+        assert!(vals.contains(&1.0));
+        assert!(vals.contains(&2.0));
+        assert!(vals.contains(&5.0));
+        assert!(vals.contains(&6.0));
+        assert!(!vals.contains(&3.0));
+        assert!(!vals.contains(&4.0));
+    }
+
+    #[test]
+    fn robot_joint_command_sensor_filters_by_id() {
+        let mut world = World::new();
+        spawn_robot_joint(&mut world, RobotId(0), 0.0, 0.0, 10.0);
+        spawn_robot_joint(&mut world, RobotId(1), 0.0, 0.0, 20.0);
+
+        let sensor = RobotJointCommandSensor::new(RobotId(0), 1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 1);
+        assert!((obs[0] - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn robot_joint_torque_sensor_filters_by_id() {
+        let mut world = World::new();
+        spawn_robot_joint(&mut world, RobotId(0), 5.0, 0.0, 0.0); // torque = 10.0
+        spawn_robot_joint(&mut world, RobotId(1), 3.0, 0.0, 0.0); // torque = 6.0
+
+        let sensor = RobotJointTorqueSensor::new(RobotId(1), 1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 1);
+        assert!((obs[0] - 6.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn robot_sensor_empty_when_no_match() {
+        let mut world = World::new();
+        spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 3.0);
+
+        let sensor = RobotJointStateSensor::new(RobotId(99), 0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn robot_sensor_name_and_dim() {
+        let s1 = RobotJointStateSensor::new(RobotId(0), 3);
+        assert_eq!(s1.name(), "RobotJointStateSensor");
+        assert_eq!(s1.observation_dim(), 6);
+
+        let s2 = RobotJointCommandSensor::new(RobotId(0), 2);
+        assert_eq!(s2.name(), "RobotJointCommandSensor");
+        assert_eq!(s2.observation_dim(), 2);
+
+        let s3 = RobotJointTorqueSensor::new(RobotId(0), 4);
+        assert_eq!(s3.name(), "RobotJointTorqueSensor");
+        assert_eq!(s3.observation_dim(), 4);
+    }
+
     // -- Send + Sync --
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -352,5 +565,8 @@ mod tests {
         assert_send_sync::<JointStateSensor>();
         assert_send_sync::<JointCommandSensor>();
         assert_send_sync::<JointTorqueSensor>();
+        assert_send_sync::<RobotJointStateSensor>();
+        assert_send_sync::<RobotJointCommandSensor>();
+        assert_send_sync::<RobotJointTorqueSensor>();
     }
 }

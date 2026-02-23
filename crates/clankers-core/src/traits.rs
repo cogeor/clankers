@@ -1,4 +1,4 @@
-use crate::types::{Action, ActionSpace, Observation, ObservationSpace};
+use crate::types::{Action, ActionSpace, Observation, ObservationSpace, RobotId};
 use bevy::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -110,6 +110,23 @@ pub trait TerminationCondition: Send + Sync + 'static {
 pub trait ActionApplicator: Send + Sync + 'static {
     /// Apply the given action to the world.
     fn apply(&self, world: &mut World, action: &Action);
+
+    /// Human-readable name for this applicator.
+    fn name(&self) -> &str;
+}
+
+// ---------------------------------------------------------------------------
+// MultiRobotActionApplicator
+// ---------------------------------------------------------------------------
+
+/// Applies actions to multiple robots in a single world.
+///
+/// The `actions` slice is indexed by robot order (matching allocation order in
+/// [`RobotGroup`](crate::types::RobotGroup)). Each element corresponds to one
+/// robot's action.
+pub trait MultiRobotActionApplicator: Send + Sync + 'static {
+    /// Apply one action per robot. `actions` is indexed by robot order.
+    fn apply_multi(&self, world: &mut World, robot_ids: &[RobotId], actions: &[Action]);
 
     /// Human-readable name for this applicator.
     fn name(&self) -> &str;
@@ -392,5 +409,36 @@ mod tests {
     fn composite_termination_name() {
         let term = CompositeTermination::new();
         assert_eq!(term.name(), "CompositeTermination");
+    }
+
+    // ---- MultiRobotActionApplicator ----
+
+    struct MockMultiApplicator;
+
+    impl MultiRobotActionApplicator for MockMultiApplicator {
+        fn apply_multi(&self, _world: &mut World, robot_ids: &[RobotId], actions: &[Action]) {
+            assert_eq!(robot_ids.len(), actions.len());
+        }
+
+        #[allow(clippy::unnecessary_literal_bound)]
+        fn name(&self) -> &str {
+            "MockMultiApplicator"
+        }
+    }
+
+    #[test]
+    fn multi_robot_applicator_dispatches() {
+        let applicator = MockMultiApplicator;
+        let mut world = test_world();
+        let ids = [RobotId(0), RobotId(1)];
+        let actions = [Action::zeros(2), Action::zeros(2)];
+        applicator.apply_multi(&mut world, &ids, &actions);
+        assert_eq!(applicator.name(), "MockMultiApplicator");
+    }
+
+    #[test]
+    fn multi_robot_applicator_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<MockMultiApplicator>();
     }
 }

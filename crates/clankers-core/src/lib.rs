@@ -75,8 +75,8 @@ pub mod prelude {
         time::{Accumulator, Clock, SimTime},
         // Traits
         traits::{
-            ActionApplicator, CompositeReward, CompositeTermination, ObservationSensor, Policy,
-            RewardFunction, Sensor, Simulation, TerminationCondition,
+            ActionApplicator, CompositeReward, CompositeTermination, MultiRobotActionApplicator,
+            ObservationSensor, Policy, RewardFunction, Sensor, Simulation, TerminationCondition,
         },
         // Types
         types::{

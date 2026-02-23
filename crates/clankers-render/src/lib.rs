@@ -29,6 +29,7 @@
 
 pub mod buffer;
 pub mod config;
+pub mod sensor;
 
 use bevy::prelude::*;
 
@@ -38,6 +39,7 @@ use bevy::prelude::*;
 
 pub use buffer::FrameBuffer;
 pub use config::{CameraConfig, RenderConfig};
+pub use sensor::ImageSensor;
 
 // ---------------------------------------------------------------------------
 // ClankersRenderPlugin
@@ -77,6 +79,7 @@ pub mod prelude {
         ClankersRenderPlugin,
         buffer::FrameBuffer,
         config::{CameraConfig, PixelFormat, RenderConfig},
+        sensor::ImageSensor,
     };
 }
 

@@ -399,6 +399,87 @@ pub struct ObjectHandle(pub Entity);
 pub struct SensorHandle(pub Entity);
 
 // ---------------------------------------------------------------------------
+// VecEnv Identity
+// ---------------------------------------------------------------------------
+
+/// Environment index used in `VecEnv` multi-environment setups.
+///
+/// Each parallel environment is assigned a unique `EnvId`. Entities within
+/// that environment carry this component so systems can distinguish which
+/// environment an entity belongs to.
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::EnvId;
+///
+/// let id = EnvId(0);
+/// assert_eq!(id.index(), 0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, bevy::prelude::Component)]
+pub struct EnvId(pub u16);
+
+impl EnvId {
+    /// The numeric environment index.
+    #[must_use]
+    pub const fn index(self) -> u16 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for EnvId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "env:{}", self.0)
+    }
+}
+
+/// Composite handle identifying an entity within a specific environment.
+///
+/// Combines an [`EnvId`] with a Bevy [`Entity`] for unique addressing
+/// across multiple parallel environments (`VecEnv`).
+///
+/// # Example
+///
+/// ```
+/// use bevy::ecs::entity::Entity;
+/// use clankers_core::types::{CompositeHandle, EnvId};
+///
+/// let handle = CompositeHandle::new(EnvId(0), Entity::from_bits(42));
+/// assert_eq!(handle.env_id().index(), 0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompositeHandle {
+    env_id: EnvId,
+    entity: Entity,
+}
+
+impl CompositeHandle {
+    /// Create a new composite handle.
+    #[must_use]
+    pub const fn new(env_id: EnvId, entity: Entity) -> Self {
+        Self { env_id, entity }
+    }
+
+    /// The environment this entity belongs to.
+    #[must_use]
+    pub const fn env_id(&self) -> EnvId {
+        self.env_id
+    }
+
+    /// The Bevy entity within the environment.
+    #[must_use]
+    pub const fn entity(&self) -> Entity {
+        self.entity
+    }
+}
+
+impl std::fmt::Display for CompositeHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:entity:{}", self.env_id, self.entity)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1088,5 +1169,58 @@ mod tests {
         assert!(o.contains("ObjectHandle"));
         let s = format!("{:?}", SensorHandle(entity));
         assert!(s.contains("SensorHandle"));
+    }
+
+    // ---- EnvId ----
+
+    #[test]
+    fn env_id_index() {
+        let id = EnvId(5);
+        assert_eq!(id.index(), 5);
+    }
+
+    #[test]
+    fn env_id_display() {
+        let id = EnvId(3);
+        assert_eq!(id.to_string(), "env:3");
+    }
+
+    #[test]
+    fn env_id_copy_eq_hash() {
+        let a = EnvId(1);
+        let b = a;
+        assert_eq!(a, b);
+        let mut set = std::collections::HashSet::new();
+        set.insert(a);
+        set.insert(b);
+        assert_eq!(set.len(), 1);
+    }
+
+    // ---- CompositeHandle ----
+
+    #[test]
+    fn composite_handle_fields() {
+        let env = EnvId(2);
+        let entity = Entity::from_bits(42);
+        let handle = CompositeHandle::new(env, entity);
+        assert_eq!(handle.env_id(), env);
+        assert_eq!(handle.entity(), entity);
+    }
+
+    #[test]
+    fn composite_handle_display() {
+        let handle = CompositeHandle::new(EnvId(0), Entity::from_bits(7));
+        let s = handle.to_string();
+        assert!(s.contains("env:0"));
+        assert!(s.contains("entity:"));
+    }
+
+    #[test]
+    fn composite_handle_equality() {
+        let a = CompositeHandle::new(EnvId(0), Entity::from_bits(1));
+        let b = CompositeHandle::new(EnvId(0), Entity::from_bits(1));
+        let c = CompositeHandle::new(EnvId(1), Entity::from_bits(1));
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

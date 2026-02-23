@@ -80,8 +80,9 @@ pub mod prelude {
         },
         // Types
         types::{
-            Action, ActionSpace, ObjectHandle, Observation, ObservationSpace, ResetInfo,
-            ResetResult, RobotHandle, SensorHandle, StepInfo, StepResult,
+            Action, ActionSpace, CompositeHandle, EnvId, ObjectHandle, Observation,
+            ObservationSpace, ResetInfo, ResetResult, RobotHandle, SensorHandle, StepInfo,
+            StepResult,
         },
     };
 }

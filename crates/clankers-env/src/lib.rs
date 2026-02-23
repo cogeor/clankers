@@ -19,6 +19,7 @@ pub mod buffer;
 pub mod episode;
 pub mod sensors;
 pub mod systems;
+pub mod vec_episode;
 
 use bevy::prelude::*;
 use clankers_core::ClankersSet;
@@ -115,6 +116,7 @@ pub mod prelude {
         episode::{Episode, EpisodeConfig, EpisodeState},
         sensors::{JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor},
         systems::{StepReward, episode_step_system, observe_system},
+        vec_episode::{AutoResetMode, EnvEpisodeMap},
     };
 }
 

@@ -24,10 +24,13 @@ clankers-policy = { path = "crates/clankers-policy" }
 clankers-render = { path = "crates/clankers-render" }
 clankers-teleop = { path = "crates/clankers-teleop" }
 clankers-sim = { path = "crates/clankers-sim" }
+clankers-viz = { path = "crates/clankers-viz" }
 clankers-test-utils = { path = "crates/clankers-test-utils" }
 
 # External dependencies (single source of truth)
 bevy = { version = "0.17.3", default-features = false }
+bevy_egui = "0.38"
+bevy_panorbit_camera = "0.33"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

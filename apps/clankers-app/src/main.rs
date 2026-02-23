@@ -1,8 +1,9 @@
 //! Clankers robotics simulation CLI.
 //!
-//! Provides three modes of operation:
+//! Provides four modes of operation:
 //! - `headless`: Run N episodes locally and print statistics
 //! - `serve`: Start a TCP gym server for remote training clients
+//! - `viz`: Interactive 3D visualization with teleop and policy inspection
 //! - `info`: Print workspace crate versions and configuration
 
 use bevy::prelude::*;
@@ -50,6 +51,17 @@ enum Commands {
 
         /// Number of joints in the default environment.
         #[arg(short, long, default_value_t = 2)]
+        joints: usize,
+
+        /// Maximum steps per episode.
+        #[arg(short, long, default_value_t = 1000)]
+        max_steps: u32,
+    },
+
+    /// Interactive 3D visualization with teleop and policy controls.
+    Viz {
+        /// Number of joints in the demo robot.
+        #[arg(short, long, default_value_t = 4)]
         joints: usize,
 
         /// Maximum steps per episode.
@@ -184,6 +196,48 @@ fn run_serve(address: &str, num_joints: usize, max_steps: u32) {
     }
 }
 
+fn run_viz(num_joints: usize, max_steps: u32) {
+    use clankers_teleop::ClankersTeleopPlugin;
+    use clankers_viz::ClankersVizPlugin;
+
+    let mut app = App::new();
+
+    // Windowed Bevy with full rendering.
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Clankers Viz".to_string(),
+            resolution: (1280, 720).into(),
+            ..default()
+        }),
+        ..default()
+    }));
+
+    // Simulation stack.
+    app.add_plugins(ClankersSimPlugin);
+    app.add_plugins(ClankersTeleopPlugin);
+
+    // Visualization layer.
+    app.add_plugins(ClankersVizPlugin);
+
+    // Spawn demo joints (cylinders as visual stand-ins).
+    for i in 0..num_joints {
+        app.world_mut().spawn((
+            Actuator::default(),
+            JointCommand::default(),
+            JointState::default(),
+            JointTorque::default(),
+            Name::new(format!("joint_{i}")),
+        ));
+    }
+
+    app.world_mut()
+        .resource_mut::<EpisodeConfig>()
+        .max_episode_steps = max_steps;
+
+    println!("starting viz with {num_joints} joints, max_steps={max_steps}");
+    app.run();
+}
+
 fn run_info() {
     println!("clankers v{}", env!("CARGO_PKG_VERSION"));
     println!();
@@ -195,6 +249,7 @@ fn run_info() {
     println!("  clankers-sim         {}", env!("CARGO_PKG_VERSION"));
     println!("  clankers-urdf        {}", env!("CARGO_PKG_VERSION"));
     println!("  clankers-domain-rand {}", env!("CARGO_PKG_VERSION"));
+    println!("  clankers-viz         {}", env!("CARGO_PKG_VERSION"));
     println!();
     println!("edition: 2024");
 }
@@ -217,6 +272,7 @@ fn main() {
             joints,
             max_steps,
         }) => run_serve(&address, joints, max_steps),
+        Some(Commands::Viz { joints, max_steps }) => run_viz(joints, max_steps),
         Some(Commands::Info) => run_info(),
         None => {
             // Default: run headless with defaults

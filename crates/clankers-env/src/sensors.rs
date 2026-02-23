@@ -5,7 +5,7 @@
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
-    physics::ImuData,
+    physics::{ContactData, ImuData},
     traits::{ObservationSensor, Sensor},
     types::{Observation, RobotId},
 };
@@ -361,6 +361,100 @@ impl ObservationSensor for RobotImuSensor {
 }
 
 // ---------------------------------------------------------------------------
+// ContactSensor
+// ---------------------------------------------------------------------------
+
+/// Reads contact normal forces from all [`ContactData`] entities.
+///
+/// Produces `3 × n_contacts` values: `[fx_0, fy_0, fz_0, fx_1, fy_1, fz_1, ...]`.
+/// Zero force indicates no active contact.
+pub struct ContactSensor {
+    /// Expected number of contact-sensing entities.
+    n_contacts: usize,
+}
+
+impl ContactSensor {
+    pub const fn new(n_contacts: usize) -> Self {
+        Self { n_contacts }
+    }
+}
+
+impl Sensor for ContactSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_contacts * 3);
+        let mut query = world.query::<&ContactData>();
+        for contact in query.iter(world) {
+            data.push(contact.normal_force.x);
+            data.push(contact.normal_force.y);
+            data.push(contact.normal_force.z);
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "ContactSensor"
+    }
+}
+
+impl ObservationSensor for ContactSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_contacts * 3
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RobotContactSensor
+// ---------------------------------------------------------------------------
+
+/// Reads contact forces only from entities belonging to a specific robot.
+///
+/// Like [`ContactSensor`] but filtered by [`RobotId`].
+pub struct RobotContactSensor {
+    robot_id: RobotId,
+    n_contacts: usize,
+}
+
+impl RobotContactSensor {
+    pub const fn new(robot_id: RobotId, n_contacts: usize) -> Self {
+        Self {
+            robot_id,
+            n_contacts,
+        }
+    }
+}
+
+impl Sensor for RobotContactSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_contacts * 3);
+        let mut query = world.query::<(&ContactData, &RobotId)>();
+        for (contact, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(contact.normal_force.x);
+                data.push(contact.normal_force.y);
+                data.push(contact.normal_force.z);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotContactSensor"
+    }
+}
+
+impl ObservationSensor for RobotContactSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_contacts * 3
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NoisySensor
 // ---------------------------------------------------------------------------
 
@@ -614,6 +708,78 @@ mod tests {
         assert_eq!(sensor.observation_dim(), 18);
     }
 
+    // -- ContactSensor --
+
+    #[test]
+    fn contact_sensor_reads_correctly() {
+        let mut world = World::new();
+        world.spawn(ContactData::new(Vec3::new(0.0, 50.0, 0.0)));
+
+        let sensor = ContactSensor::new(1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 3);
+        assert!((obs[0] - 0.0).abs() < f32::EPSILON);
+        assert!((obs[1] - 50.0).abs() < f32::EPSILON);
+        assert!((obs[2] - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn contact_sensor_multiple() {
+        let mut world = World::new();
+        world.spawn(ContactData::new(Vec3::X));
+        world.spawn(ContactData::new(Vec3::Y));
+
+        let sensor = ContactSensor::new(2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 6);
+    }
+
+    #[test]
+    fn contact_sensor_empty_world() {
+        let mut world = World::new();
+        let sensor = ContactSensor::new(0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn contact_sensor_dim_and_name() {
+        let sensor = ContactSensor::new(4);
+        assert_eq!(sensor.observation_dim(), 12);
+        assert_eq!(sensor.name(), "ContactSensor");
+    }
+
+    // -- RobotContactSensor --
+
+    #[test]
+    fn robot_contact_sensor_filters_by_id() {
+        let mut world = World::new();
+        world.spawn((ContactData::new(Vec3::new(0.0, 10.0, 0.0)), RobotId(0)));
+        world.spawn((ContactData::new(Vec3::new(0.0, 20.0, 0.0)), RobotId(1)));
+
+        let sensor = RobotContactSensor::new(RobotId(0), 1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 3);
+        assert!((obs[1] - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn robot_contact_sensor_empty_when_no_match() {
+        let mut world = World::new();
+        world.spawn((ContactData::default(), RobotId(0)));
+
+        let sensor = RobotContactSensor::new(RobotId(99), 0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn robot_contact_sensor_name_and_dim() {
+        let sensor = RobotContactSensor::new(RobotId(0), 4);
+        assert_eq!(sensor.name(), "RobotContactSensor");
+        assert_eq!(sensor.observation_dim(), 12);
+    }
+
     // -- NoisySensor --
 
     #[test]
@@ -759,9 +925,11 @@ mod tests {
         assert_send_sync::<JointCommandSensor>();
         assert_send_sync::<JointTorqueSensor>();
         assert_send_sync::<ImuSensor>();
+        assert_send_sync::<ContactSensor>();
         assert_send_sync::<RobotJointStateSensor>();
         assert_send_sync::<RobotJointCommandSensor>();
         assert_send_sync::<RobotJointTorqueSensor>();
         assert_send_sync::<RobotImuSensor>();
+        assert_send_sync::<RobotContactSensor>();
     }
 }

@@ -156,6 +156,43 @@ impl Default for ImuData {
 }
 
 // ---------------------------------------------------------------------------
+// ContactData
+// ---------------------------------------------------------------------------
+
+/// Contact force data for a rigid body.
+///
+/// Stores the total normal force from all active contacts on this body.
+/// Physics integrations populate this each step from collision solver
+/// results; [`ContactSensor`](crate) reads it.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct ContactData {
+    /// Total contact normal force in world frame (Newtons).
+    pub normal_force: Vec3,
+}
+
+impl ContactData {
+    /// Create with a specific contact force.
+    #[must_use]
+    pub const fn new(normal_force: Vec3) -> Self {
+        Self { normal_force }
+    }
+
+    /// Whether any contact is active (non-zero force).
+    #[must_use]
+    pub fn in_contact(&self) -> bool {
+        self.normal_force.length_squared() > 0.0
+    }
+}
+
+impl Default for ContactData {
+    fn default() -> Self {
+        Self {
+            normal_force: Vec3::ZERO,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -226,6 +263,21 @@ mod tests {
         assert_eq!(imu.angular_velocity, Vec3::new(0.1, 0.2, 0.3));
     }
 
+    // -- ContactData --
+
+    #[test]
+    fn contact_data_default_is_zero() {
+        let c = ContactData::default();
+        assert_eq!(c.normal_force, Vec3::ZERO);
+        assert!(!c.in_contact());
+    }
+
+    #[test]
+    fn contact_data_in_contact() {
+        let c = ContactData::new(Vec3::new(0.0, 10.0, 0.0));
+        assert!(c.in_contact());
+    }
+
     // -- Send + Sync --
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -236,5 +288,6 @@ mod tests {
         assert_send_sync::<SurfaceFriction>();
         assert_send_sync::<ExternalForce>();
         assert_send_sync::<ImuData>();
+        assert_send_sync::<ContactData>();
     }
 }

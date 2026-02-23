@@ -13,6 +13,7 @@ clankers-actuator-core.workspace = true
 clankers-actuator.workspace = true
 bevy.workspace = true
 thiserror.workspace = true
+urdf-rs.workspace = true
 
 [dev-dependencies]
 clankers-test-utils.workspace = true

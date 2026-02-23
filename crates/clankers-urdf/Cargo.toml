@@ -8,6 +8,15 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+clankers-core.workspace = true
+clankers-actuator-core.workspace = true
+clankers-actuator.workspace = true
+bevy.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+clankers-test-utils.workspace = true
+clankers-env.workspace = true
 
 [lints]
 workspace = true

@@ -540,6 +540,15 @@ dependencies = [
 [[package]]
 name = "clankers-urdf"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-actuator-core",
+ "clankers-core",
+ "clankers-env",
+ "clankers-test-utils",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "combine"

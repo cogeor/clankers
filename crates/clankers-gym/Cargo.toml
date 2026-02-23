@@ -9,11 +9,14 @@ rust-version.workspace = true
 
 [dependencies]
 clankers-core.workspace = true
+clankers-env.workspace = true
+bevy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+clankers-actuator.workspace = true
 clankers-test-utils.workspace = true
 
 [lints]

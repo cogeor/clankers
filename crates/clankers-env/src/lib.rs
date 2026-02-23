@@ -116,8 +116,8 @@ pub mod prelude {
         buffer::{ObservationBuffer, SensorSlot},
         episode::{Episode, EpisodeConfig, EpisodeState},
         sensors::{
-            JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor,
-            RobotJointCommandSensor, RobotJointStateSensor, RobotJointTorqueSensor,
+            ImuSensor, JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor,
+            RobotImuSensor, RobotJointCommandSensor, RobotJointStateSensor, RobotJointTorqueSensor,
         },
         systems::{episode_step_system, observe_system},
         vec_buffer::{VecDoneBuffer, VecObsBuffer},

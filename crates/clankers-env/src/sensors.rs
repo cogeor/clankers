@@ -5,6 +5,7 @@
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
+    physics::ImuData,
     traits::{ObservationSensor, Sensor},
     types::{Observation, RobotId},
 };
@@ -263,6 +264,103 @@ impl ObservationSensor for RobotJointTorqueSensor {
 }
 
 // ---------------------------------------------------------------------------
+// ImuSensor
+// ---------------------------------------------------------------------------
+
+/// Reads linear acceleration and angular velocity from all [`ImuData`] entities.
+///
+/// Produces `6 × n_imus` values:
+/// `[accel_x_0, accel_y_0, accel_z_0, gyro_x_0, gyro_y_0, gyro_z_0, ...]`.
+pub struct ImuSensor {
+    /// Expected number of IMU entities.
+    n_imus: usize,
+}
+
+impl ImuSensor {
+    pub const fn new(n_imus: usize) -> Self {
+        Self { n_imus }
+    }
+}
+
+impl Sensor for ImuSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_imus * 6);
+        let mut query = world.query::<&ImuData>();
+        for imu in query.iter(world) {
+            data.push(imu.linear_acceleration.x);
+            data.push(imu.linear_acceleration.y);
+            data.push(imu.linear_acceleration.z);
+            data.push(imu.angular_velocity.x);
+            data.push(imu.angular_velocity.y);
+            data.push(imu.angular_velocity.z);
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "ImuSensor"
+    }
+}
+
+impl ObservationSensor for ImuSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_imus * 6
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RobotImuSensor
+// ---------------------------------------------------------------------------
+
+/// Reads IMU data only from entities belonging to a specific robot.
+///
+/// Like [`ImuSensor`] but filtered by [`RobotId`].
+pub struct RobotImuSensor {
+    robot_id: RobotId,
+    n_imus: usize,
+}
+
+impl RobotImuSensor {
+    pub const fn new(robot_id: RobotId, n_imus: usize) -> Self {
+        Self { robot_id, n_imus }
+    }
+}
+
+impl Sensor for RobotImuSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_imus * 6);
+        let mut query = world.query::<(&ImuData, &RobotId)>();
+        for (imu, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.push(imu.linear_acceleration.x);
+                data.push(imu.linear_acceleration.y);
+                data.push(imu.linear_acceleration.z);
+                data.push(imu.angular_velocity.x);
+                data.push(imu.angular_velocity.y);
+                data.push(imu.angular_velocity.z);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotImuSensor"
+    }
+}
+
+impl ObservationSensor for RobotImuSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_imus * 6
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NoisySensor
 // ---------------------------------------------------------------------------
 
@@ -421,6 +519,101 @@ mod tests {
         assert!(vals.contains(&-3.0));
     }
 
+    // -- ImuSensor --
+
+    fn spawn_imu(world: &mut World, accel: Vec3, gyro: Vec3) -> Entity {
+        world.spawn(ImuData::new(accel, gyro)).id()
+    }
+
+    #[test]
+    fn imu_sensor_reads_correctly() {
+        let mut world = World::new();
+        spawn_imu(
+            &mut world,
+            Vec3::new(0.0, -9.81, 0.0),
+            Vec3::new(0.1, 0.2, 0.3),
+        );
+
+        let sensor = ImuSensor::new(1);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 6);
+        let vals = obs.as_slice();
+        assert!((vals[0] - 0.0).abs() < f32::EPSILON);
+        assert!((vals[1] - (-9.81)).abs() < f32::EPSILON);
+        assert!((vals[2] - 0.0).abs() < f32::EPSILON);
+        assert!((vals[3] - 0.1).abs() < f32::EPSILON);
+        assert!((vals[4] - 0.2).abs() < f32::EPSILON);
+        assert!((vals[5] - 0.3).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn imu_sensor_multiple_imus() {
+        let mut world = World::new();
+        spawn_imu(&mut world, Vec3::X, Vec3::Y);
+        spawn_imu(&mut world, Vec3::Z, Vec3::NEG_X);
+
+        let sensor = ImuSensor::new(2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 12);
+    }
+
+    #[test]
+    fn imu_sensor_empty_world() {
+        let mut world = World::new();
+        let sensor = ImuSensor::new(0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn imu_sensor_dim() {
+        let sensor = ImuSensor::new(2);
+        assert_eq!(sensor.observation_dim(), 12);
+    }
+
+    #[test]
+    fn imu_sensor_name() {
+        let sensor = ImuSensor::new(1);
+        assert_eq!(sensor.name(), "ImuSensor");
+    }
+
+    // -- RobotImuSensor --
+
+    #[test]
+    fn robot_imu_sensor_filters_by_id() {
+        let mut world = World::new();
+        world.spawn((ImuData::new(Vec3::X, Vec3::Y), RobotId(0)));
+        world.spawn((ImuData::new(Vec3::Z, Vec3::NEG_X), RobotId(1)));
+        world.spawn((ImuData::new(Vec3::NEG_Y, Vec3::NEG_Z), RobotId(0)));
+
+        let sensor = RobotImuSensor::new(RobotId(0), 2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 12);
+        // Robot 1's data (Z, NEG_X) should not appear
+        let vals = obs.as_slice();
+        // Should not contain z=1.0 from accel of robot 1
+        // Robot 0 entities: (X, Y) and (NEG_Y, NEG_Z)
+        assert!(vals.contains(&1.0)); // X.x from first entity
+        assert!(vals.contains(&-1.0)); // NEG_Y.y from third entity
+    }
+
+    #[test]
+    fn robot_imu_sensor_empty_when_no_match() {
+        let mut world = World::new();
+        world.spawn((ImuData::default(), RobotId(0)));
+
+        let sensor = RobotImuSensor::new(RobotId(99), 0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn robot_imu_sensor_name_and_dim() {
+        let sensor = RobotImuSensor::new(RobotId(0), 3);
+        assert_eq!(sensor.name(), "RobotImuSensor");
+        assert_eq!(sensor.observation_dim(), 18);
+    }
+
     // -- NoisySensor --
 
     #[test]
@@ -565,8 +758,10 @@ mod tests {
         assert_send_sync::<JointStateSensor>();
         assert_send_sync::<JointCommandSensor>();
         assert_send_sync::<JointTorqueSensor>();
+        assert_send_sync::<ImuSensor>();
         assert_send_sync::<RobotJointStateSensor>();
         assert_send_sync::<RobotJointCommandSensor>();
         assert_send_sync::<RobotJointTorqueSensor>();
+        assert_send_sync::<RobotImuSensor>();
     }
 }

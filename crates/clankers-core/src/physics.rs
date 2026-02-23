@@ -119,6 +119,43 @@ impl Default for ExternalForce {
 }
 
 // ---------------------------------------------------------------------------
+// ImuData
+// ---------------------------------------------------------------------------
+
+/// Inertial measurement unit data for a rigid body.
+///
+/// Stores linear acceleration (m/s²) and angular velocity (rad/s) as
+/// measured by a simulated IMU. Physics integrations populate this
+/// component each step; [`ImuSensor`](crate) reads it.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct ImuData {
+    /// Linear acceleration in body frame (m/s²).
+    pub linear_acceleration: Vec3,
+    /// Angular velocity in body frame (rad/s).
+    pub angular_velocity: Vec3,
+}
+
+impl ImuData {
+    /// Create a new IMU reading.
+    #[must_use]
+    pub const fn new(linear_acceleration: Vec3, angular_velocity: Vec3) -> Self {
+        Self {
+            linear_acceleration,
+            angular_velocity,
+        }
+    }
+}
+
+impl Default for ImuData {
+    fn default() -> Self {
+        Self {
+            linear_acceleration: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -173,6 +210,22 @@ mod tests {
         assert_eq!(f.torque, Vec3::Y);
     }
 
+    // -- ImuData --
+
+    #[test]
+    fn imu_data_default_is_zero() {
+        let imu = ImuData::default();
+        assert_eq!(imu.linear_acceleration, Vec3::ZERO);
+        assert_eq!(imu.angular_velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn imu_data_new() {
+        let imu = ImuData::new(Vec3::new(0.0, -9.81, 0.0), Vec3::new(0.1, 0.2, 0.3));
+        assert_eq!(imu.linear_acceleration, Vec3::new(0.0, -9.81, 0.0));
+        assert_eq!(imu.angular_velocity, Vec3::new(0.1, 0.2, 0.3));
+    }
+
     // -- Send + Sync --
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -182,5 +235,6 @@ mod tests {
         assert_send_sync::<Mass>();
         assert_send_sync::<SurfaceFriction>();
         assert_send_sync::<ExternalForce>();
+        assert_send_sync::<ImuData>();
     }
 }

@@ -1,34 +1,31 @@
-# Clankers Workspace
+# Clankers
 
-This workspace now follows the documented crate structure in `.delegate/doc/crates`.
+Robotics simulation framework built on Bevy ECS.
 
-## App Entry Point
-- `apps/clankers-app`
+## App
+
+- `apps/clankers-app` — example headless simulation
 
 ## Crates
-- `crates/clankers-core`
-- `crates/clankers-noise`
-- `crates/clankers-env`
-- `crates/clankers-actuator-core`
-- `crates/clankers-actuator`
-- `crates/clankers-urdf`
-- `crates/clankers-gym`
-- `crates/clankers-domain-rand`
-- `crates/clankers-policy`
-- `crates/clankers-render`
-- `crates/clankers-teleop`
-- `crates/clankers-viz`
-- `crates/clankers-sim`
 
-## ROS2 (Opt-In)
-ROS2 is disabled by default and enabled explicitly, matching the documented behavior inspired by IsaacLab.
+| Crate | Description |
+|-------|-------------|
+| `clankers-core` | System ordering, `SimTime`, traits (`Sensor`, `ActionApplicator`) |
+| `clankers-noise` | Noise generators (Gaussian, Ornstein-Uhlenbeck, uniform) |
+| `clankers-actuator-core` | Motor model traits and types |
+| `clankers-actuator` | Joint components, PD control, dynamics systems |
+| `clankers-env` | Episode lifecycle, observation pipeline, reward/termination |
+| `clankers-urdf` | URDF parser and Bevy entity spawning |
+| `clankers-policy` | Policy runner abstraction (scripted, random) |
+| `clankers-domain-rand` | Actuator parameter randomisation per episode |
+| `clankers-teleop` | Input-source-agnostic teleoperation mapping |
+| `clankers-render` | Headless frame buffer, `RenderConfig`, `ImageSensor` |
+| `clankers-gym` | Gymnasium-compatible `GymEnv`, TCP server, JSON protocol |
+| `clankers-sim` | Meta-plugin integrating core + actuator + env, `SceneBuilder` |
+| `clankers-test-utils` | Shared test helpers |
 
-Run without ROS:
-```powershell
-cargo run -p clankers-app -- --mode training --steps 25
-```
+## Quick Start
 
-Run with ROS2 (requires sourced ROS env, e.g. `ROS_DISTRO` set):
-```powershell
-cargo run -p clankers-app --features clankers-sim/ros2 -- --mode training --steps 25 --ros2-enable --ros2-topic /clankers/status
+```sh
+cargo test --workspace
 ```

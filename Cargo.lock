@@ -461,6 +461,12 @@ version = "0.1.0"
 [[package]]
 name = "clankers-app"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-env",
+ "clankers-sim",
+]
 
 [[package]]
 name = "clankers-core"
@@ -505,6 +511,16 @@ dependencies = [
 [[package]]
 name = "clankers-gym"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-env",
+ "clankers-test-utils",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "clankers-noise"
@@ -531,6 +547,11 @@ dependencies = [
 [[package]]
 name = "clankers-render"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-core",
+ "clankers-test-utils",
+]
 
 [[package]]
 name = "clankers-sim"
@@ -541,7 +562,10 @@ dependencies = [
  "clankers-core",
  "clankers-domain-rand",
  "clankers-env",
+ "clankers-gym",
  "clankers-policy",
+ "clankers-render",
+ "clankers-teleop",
  "clankers-test-utils",
  "clankers-urdf",
 ]
@@ -553,7 +577,6 @@ dependencies = [
  "bevy",
  "clankers-actuator",
  "clankers-core",
- "clankers-env",
  "clankers-test-utils",
 ]
 

@@ -288,13 +288,18 @@ impl Accumulator {
 /// High-level simulation clock combining [`SimTime`] with an [`Accumulator`].
 ///
 /// Typical usage:
-/// ```ignore
-/// clock.tick(frame_delta);
+///
+/// ```
+/// use std::time::Duration;
+/// use clankers_core::time::Clock;
+///
+/// let mut clock = Clock::new(1.0 / 60.0);
+/// clock.tick(Duration::from_secs_f64(1.0 / 30.0));
 /// while clock.should_step() {
 ///     clock.advance();
-///     // run fixed-step simulation logic using clock.time()
+///     let _t = clock.time();
 /// }
-/// let alpha = clock.alpha(); // for visual interpolation
+/// let _alpha = clock.alpha();
 /// ```
 #[derive(Debug, Clone)]
 pub struct Clock {

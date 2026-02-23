@@ -1,0 +1,18 @@
+[package]
+name = "clankers-noise"
+description = "Mathematical noise models for sensor simulation, action perturbation, and domain randomization"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rand.workspace = true
+rand_distr.workspace = true
+
+[dev-dependencies]
+rand_chacha.workspace = true
+
+[lints]
+workspace = true

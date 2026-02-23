@@ -1,0 +1,13 @@
+[package]
+name = "clankers-gym"
+description = "TCP server and Gymnasium-compatible training protocol for Clankers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

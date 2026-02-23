@@ -1,0 +1,20 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo lock is committed for the workspace (binary + library)
+# See: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Delegate runtime files
+.delegate/

@@ -1,0 +1,13 @@
+[package]
+name = "clankers-sim"
+description = "Top-level Bevy plugin integrating all Clankers modules"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

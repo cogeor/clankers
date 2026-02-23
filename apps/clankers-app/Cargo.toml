@@ -1,0 +1,13 @@
+[package]
+name = "clankers-app"
+description = "Example Clankers robotics simulation application"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

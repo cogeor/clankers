@@ -1,0 +1,13 @@
+[package]
+name = "clankers-policy"
+description = "ONNX policy inference for deployment without Python"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

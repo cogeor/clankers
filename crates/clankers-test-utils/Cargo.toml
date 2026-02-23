@@ -1,0 +1,13 @@
+[package]
+name = "clankers-test-utils"
+description = "Shared test fixtures and utilities for Clankers crates"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

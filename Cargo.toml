@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["apps/*", "crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+authors = ["Clankerss Contributors"]
+license = "MIT"
+rust-version = "1.88"
+repository = "https://github.com/costal/clankers"
+
+[workspace.dependencies]
+# Internal crates
+clankers-core = { path = "crates/clankers-core" }
+clankers-noise = { path = "crates/clankers-noise" }
+clankers-env = { path = "crates/clankers-env" }
+clankers-actuator-core = { path = "crates/clankers-actuator-core" }
+clankers-actuator = { path = "crates/clankers-actuator" }
+clankers-urdf = { path = "crates/clankers-urdf" }
+clankers-gym = { path = "crates/clankers-gym" }
+clankers-domain-rand = { path = "crates/clankers-domain-rand" }
+clankers-policy = { path = "crates/clankers-policy" }
+clankers-render = { path = "crates/clankers-render" }
+clankers-teleop = { path = "crates/clankers-teleop" }
+clankers-sim = { path = "crates/clankers-sim" }
+clankers-test-utils = { path = "crates/clankers-test-utils" }
+
+# External dependencies (single source of truth)
+bevy = { version = "0.17.3", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rand = "0.8"
+rand_chacha = "0.3"
+rand_distr = "0.4"
+toml = "0.8"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Allow common pedantic false positives
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

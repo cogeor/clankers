@@ -528,6 +528,14 @@ version = "0.1.0"
 [[package]]
 name = "clankers-test-utils"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-env",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+]
 
 [[package]]
 name = "clankers-urdf"

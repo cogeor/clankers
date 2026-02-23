@@ -23,7 +23,7 @@ pub mod state_machine;
 
 pub use env::GymEnv;
 pub use protocol::{EnvInfo, ProtocolError, ProtocolState, Request, Response};
-pub use server::GymServer;
+pub use server::{GymServer, ServerConfig};
 
 // ---------------------------------------------------------------------------
 // Prelude

@@ -1,16 +1,43 @@
 //! TCP server for remote training communication.
 //!
 //! [`GymServer`] listens on a TCP port and handles one connection at a time,
-//! dispatching [`Request`] messages to a [`GymEnv`].
-//!
-//! The protocol uses newline-delimited JSON: each message is a single line
-//! of JSON followed by `\n`.
+//! dispatching [`Request`] messages to a [`GymEnv`] using length-prefixed
+//! JSON framing per `PROTOCOL_SPEC.md`.
 
-use std::io::{BufRead, BufReader, Write};
+use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 
 use crate::env::GymEnv;
-use crate::protocol::{Request, Response};
+use crate::framing::{read_message, write_message};
+use crate::protocol::{
+    EnvInfo, ProtocolError, ProtocolState, Request, Response, PROTOCOL_VERSION,
+};
+use crate::state_machine::ProtocolStateMachine;
+
+// ---------------------------------------------------------------------------
+// ServerConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration for the gym server's handshake response.
+#[derive(Debug, Clone)]
+pub struct ServerConfig {
+    /// Environment name reported during handshake.
+    pub env_name: String,
+    /// Environment version reported during handshake.
+    pub env_version: String,
+    /// Server-side capabilities.
+    pub capabilities: HashMap<String, bool>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            env_name: "clankers".into(),
+            env_version: "0.1.0".into(),
+            capabilities: HashMap::new(),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // GymServer
@@ -19,10 +46,11 @@ use crate::protocol::{Request, Response};
 /// TCP server that exposes a [`GymEnv`] over the network.
 ///
 /// Binds to a local address and handles one client connection at a time.
-/// Each connection runs a request-response loop until the client sends
-/// [`Close`](Request::Close) or disconnects.
+/// Uses length-prefixed JSON framing and validates message ordering via
+/// [`ProtocolStateMachine`].
 pub struct GymServer {
     listener: TcpListener,
+    config: ServerConfig,
 }
 
 impl GymServer {
@@ -33,7 +61,20 @@ impl GymServer {
     /// Returns an IO error if the address cannot be bound.
     pub fn bind(addr: &str) -> std::io::Result<Self> {
         let listener = TcpListener::bind(addr)?;
-        Ok(Self { listener })
+        Ok(Self {
+            listener,
+            config: ServerConfig::default(),
+        })
+    }
+
+    /// Bind with a custom server configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if the address cannot be bound.
+    pub fn bind_with_config(addr: &str, config: ServerConfig) -> std::io::Result<Self> {
+        let listener = TcpListener::bind(addr)?;
+        Ok(Self { listener, config })
     }
 
     /// The local address the server is bound to.
@@ -43,15 +84,16 @@ impl GymServer {
 
     /// Accept one client connection and run the request-response loop.
     ///
-    /// Blocks until a client connects. Processes messages until the client
-    /// sends [`Close`](Request::Close) or the connection drops.
+    /// Blocks until a client connects. The first message must be an `Init`
+    /// handshake. Processes messages until the client sends
+    /// [`Close`](Request::Close) or the connection drops.
     ///
     /// # Errors
     ///
-    /// Returns an IO error if accepting or communicating fails.
-    pub fn serve_one(&self, env: &mut GymEnv) -> std::io::Result<()> {
+    /// Returns a [`ProtocolError`] if communication or protocol validation fails.
+    pub fn serve_one(&self, env: &mut GymEnv) -> Result<(), ProtocolError> {
         let (stream, _addr) = self.listener.accept()?;
-        handle_connection(stream, env)
+        handle_connection(stream, env, &self.config)
     }
 }
 
@@ -59,37 +101,32 @@ impl GymServer {
 // Connection handler
 // ---------------------------------------------------------------------------
 
-fn handle_connection(stream: TcpStream, env: &mut GymEnv) -> std::io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+fn handle_connection(
+    stream: TcpStream,
+    env: &mut GymEnv,
+    config: &ServerConfig,
+) -> Result<(), ProtocolError> {
+    let mut reader = stream.try_clone().map_err(ProtocolError::Io)?;
     let mut writer = stream;
-    let mut line = String::new();
+    let mut sm = ProtocolStateMachine::new();
 
     loop {
-        line.clear();
-        let bytes_read = reader.read_line(&mut line)?;
-        if bytes_read == 0 {
-            // Client disconnected
-            break;
-        }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let response = match serde_json::from_str::<Request>(trimmed) {
-            Ok(request) => dispatch(env, request),
-            Err(e) => Response::error(format!("invalid request: {e}")),
+        let request: Option<Request> = read_message(&mut reader)?;
+        let Some(request) = request else {
+            break; // Client disconnected
         };
 
-        let mut json = serde_json::to_string(&response).unwrap_or_else(|e| {
-            format!(r#"{{"type":"error","message":"serialisation failed: {e}"}}"#)
-        });
-        json.push('\n');
-        writer.write_all(json.as_bytes())?;
-        writer.flush()?;
+        // Validate state transition
+        let response = match sm.on_request(&request) {
+            Ok(()) => dispatch(env, &request, config, &sm),
+            Err(e) => e.into_response(),
+        };
 
-        if matches!(response, Response::Close) {
+        // Update state machine after response
+        sm.on_response(&response);
+        write_message(&mut writer, &response)?;
+
+        if sm.state() == ProtocolState::Disconnected {
             break;
         }
     }
@@ -97,18 +134,46 @@ fn handle_connection(stream: TcpStream, env: &mut GymEnv) -> std::io::Result<()>
     Ok(())
 }
 
-fn dispatch(env: &mut GymEnv, request: Request) -> Response {
+fn dispatch(
+    env: &mut GymEnv,
+    request: &Request,
+    config: &ServerConfig,
+    _sm: &ProtocolStateMachine,
+) -> Response {
     match request {
-        Request::Init { .. } => Response::error("handshake not implemented in legacy server"),
+        Request::Init { capabilities, seed, .. } => {
+            // Negotiate capabilities (logical AND)
+            let negotiated: HashMap<String, bool> = capabilities
+                .iter()
+                .map(|(k, v)| {
+                    let server_has = config.capabilities.get(k).copied().unwrap_or(false);
+                    (k.clone(), *v && server_has)
+                })
+                .collect();
+
+            Response::InitResponse {
+                protocol_version: PROTOCOL_VERSION.into(),
+                env_name: config.env_name.clone(),
+                env_version: config.env_version.clone(),
+                env_info: EnvInfo {
+                    n_agents: 1,
+                    observation_space: env.observation_space().clone(),
+                    action_space: env.action_space().clone(),
+                    reward_range: None,
+                },
+                capabilities: negotiated,
+                seed_accepted: seed.is_some(),
+            }
+        }
         Request::Spaces => Response::Spaces {
             observation_space: env.observation_space().clone(),
             action_space: env.action_space().clone(),
         },
-        Request::Reset { seed } => Response::from_reset(env.reset(seed)),
-        Request::Step { action } => Response::from_step(env.step(&action)),
+        Request::Reset { seed } => Response::from_reset(env.reset(*seed)),
+        Request::Step { action } => Response::from_step(env.step(action)),
         Request::Close => Response::Close,
         Request::Ping { timestamp } => Response::Pong {
-            timestamp,
+            timestamp: *timestamp,
             server_time: 0,
         },
     }
@@ -122,11 +187,11 @@ fn dispatch(env: &mut GymEnv, request: Request) -> Response {
 mod tests {
     use super::*;
     use crate::env::GymEnv;
+    use crate::framing;
     use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
     use clankers_core::traits::ActionApplicator;
     use clankers_core::types::{Action, ActionSpace, ObservationSpace};
     use clankers_env::prelude::*;
-    use std::io::{BufRead, BufReader, Write};
     use std::net::TcpStream;
 
     struct NoopApplicator;
@@ -160,20 +225,23 @@ mod tests {
         GymEnv::new(app, obs_space, act_space, Box::new(NoopApplicator))
     }
 
-    fn send_and_receive(stream: &mut TcpStream, msg: &str) -> String {
-        let mut out = msg.to_string();
-        out.push('\n');
-        stream.write_all(out.as_bytes()).unwrap();
-        stream.flush().unwrap();
+    fn send_recv(stream: &mut TcpStream, req: &Request) -> Response {
+        framing::write_message(stream, req).unwrap();
+        framing::read_message::<Response>(stream).unwrap().unwrap()
+    }
 
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut response = String::new();
-        reader.read_line(&mut response).unwrap();
-        response
+    fn init_request() -> Request {
+        Request::Init {
+            protocol_version: "1.0.0".into(),
+            client_name: "test".into(),
+            client_version: "0.1.0".into(),
+            capabilities: HashMap::new(),
+            seed: None,
+        }
     }
 
     #[test]
-    fn server_spaces_request() {
+    fn server_handshake_and_spaces() {
         let server = GymServer::bind("127.0.0.1:0").unwrap();
         let addr = server.local_addr().unwrap();
 
@@ -184,22 +252,24 @@ mod tests {
 
         let mut stream = TcpStream::connect(addr).unwrap();
 
-        // Send spaces request
-        let resp = send_and_receive(&mut stream, r#"{"type":"spaces"}"#);
-        let parsed: Response = serde_json::from_str(&resp).unwrap();
-        assert!(matches!(parsed, Response::Spaces { .. }));
+        // Handshake
+        let resp = send_recv(&mut stream, &init_request());
+        assert!(matches!(resp, Response::InitResponse { .. }));
+
+        // Spaces
+        let resp = send_recv(&mut stream, &Request::Spaces);
+        assert!(matches!(resp, Response::Spaces { .. }));
 
         // Close
-        let resp = send_and_receive(&mut stream, r#"{"type":"close"}"#);
-        let parsed: Response = serde_json::from_str(&resp).unwrap();
-        assert!(matches!(parsed, Response::Close));
+        let resp = send_recv(&mut stream, &Request::Close);
+        assert!(matches!(resp, Response::Close));
 
         drop(stream);
         handle.join().unwrap();
     }
 
     #[test]
-    fn server_reset_and_step() {
+    fn server_handshake_reset_step() {
         let server = GymServer::bind("127.0.0.1:0").unwrap();
         let addr = server.local_addr().unwrap();
 
@@ -209,25 +279,57 @@ mod tests {
         });
 
         let mut stream = TcpStream::connect(addr).unwrap();
+
+        // Handshake
+        send_recv(&mut stream, &init_request());
 
         // Reset
-        let resp = send_and_receive(&mut stream, r#"{"type":"reset","seed":42}"#);
-        let parsed: Response = serde_json::from_str(&resp).unwrap();
-        assert!(matches!(parsed, Response::Reset { .. }));
+        let resp = send_recv(&mut stream, &Request::Reset { seed: Some(42) });
+        assert!(matches!(resp, Response::Reset { .. }));
 
         // Step
-        let resp = send_and_receive(&mut stream, r#"{"type":"step","action":{"Discrete":0}}"#);
-        let parsed: Response = serde_json::from_str(&resp).unwrap();
-        assert!(matches!(parsed, Response::Step { .. }));
+        let resp = send_recv(
+            &mut stream,
+            &Request::Step {
+                action: Action::Discrete(0),
+            },
+        );
+        assert!(matches!(resp, Response::Step { .. }));
 
         // Close
-        send_and_receive(&mut stream, r#"{"type":"close"}"#);
+        send_recv(&mut stream, &Request::Close);
         drop(stream);
         handle.join().unwrap();
     }
 
     #[test]
-    fn server_invalid_request() {
+    fn server_rejects_step_before_handshake() {
+        let server = GymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_env();
+            // Will encounter error response but should complete
+            let _ = server.serve_one(&mut env);
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        // Send step without init — should get error
+        let resp = send_recv(
+            &mut stream,
+            &Request::Step {
+                action: Action::Discrete(0),
+            },
+        );
+        assert!(matches!(resp, Response::Error { .. }));
+
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn server_ping_pong() {
         let server = GymServer::bind("127.0.0.1:0").unwrap();
         let addr = server.local_addr().unwrap();
 
@@ -238,11 +340,19 @@ mod tests {
 
         let mut stream = TcpStream::connect(addr).unwrap();
 
-        let resp = send_and_receive(&mut stream, "not valid json");
-        let parsed: Response = serde_json::from_str(&resp).unwrap();
-        assert!(matches!(parsed, Response::Error { .. }));
+        // Handshake first
+        send_recv(&mut stream, &init_request());
 
-        send_and_receive(&mut stream, r#"{"type":"close"}"#);
+        // Ping
+        let resp = send_recv(&mut stream, &Request::Ping { timestamp: 12345 });
+        if let Response::Pong { timestamp, .. } = resp {
+            assert_eq!(timestamp, 12345);
+        } else {
+            panic!("expected Pong");
+        }
+
+        // Close
+        send_recv(&mut stream, &Request::Close);
         drop(stream);
         handle.join().unwrap();
     }
@@ -254,12 +364,68 @@ mod tests {
 
         let handle = std::thread::spawn(move || {
             let mut env = build_test_env();
-            // serve_one should return Ok when client disconnects
-            server.serve_one(&mut env).unwrap();
+            let _ = server.serve_one(&mut env);
         });
 
         let stream = TcpStream::connect(addr).unwrap();
         // Immediately drop — server should handle gracefully
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn server_capability_negotiation() {
+        let mut server_caps = HashMap::new();
+        server_caps.insert("batch_step".into(), true);
+        server_caps.insert("shared_memory".into(), false);
+
+        let config = ServerConfig {
+            env_name: "test_env".into(),
+            env_version: "1.0.0".into(),
+            capabilities: server_caps,
+        };
+
+        let server = GymServer::bind_with_config("127.0.0.1:0", config).unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_env();
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let mut client_caps = HashMap::new();
+        client_caps.insert("batch_step".into(), true);
+        client_caps.insert("shared_memory".into(), true);
+
+        let resp = send_recv(
+            &mut stream,
+            &Request::Init {
+                protocol_version: "1.0.0".into(),
+                client_name: "test".into(),
+                client_version: "0.1.0".into(),
+                capabilities: client_caps,
+                seed: None,
+            },
+        );
+
+        if let Response::InitResponse {
+            env_name,
+            capabilities,
+            ..
+        } = resp
+        {
+            assert_eq!(env_name, "test_env");
+            // batch_step: both true → true
+            assert_eq!(capabilities.get("batch_step"), Some(&true));
+            // shared_memory: server false → false
+            assert_eq!(capabilities.get("shared_memory"), Some(&false));
+        } else {
+            panic!("expected InitResponse");
+        }
+
+        send_recv(&mut stream, &Request::Close);
         drop(stream);
         handle.join().unwrap();
     }

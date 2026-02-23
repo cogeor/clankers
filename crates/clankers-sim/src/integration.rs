@@ -11,8 +11,10 @@ mod tests {
     use clankers_actuator::clankers_actuator_core::prelude::MotorType;
     use clankers_actuator::components::{Actuator, JointCommand, JointState};
     use clankers_core::config::SimConfig;
+    use clankers_core::types::{RobotGroup, RobotId};
     use clankers_domain_rand::prelude::*;
     use clankers_env::episode::{Episode, EpisodeConfig, EpisodeState};
+    use clankers_env::sensors::{RobotJointCommandSensor, RobotJointStateSensor};
     use clankers_policy::prelude::*;
 
     use crate::builder::SceneBuilder;
@@ -525,5 +527,174 @@ mod tests {
 
         let ep_cfg = scene.app.world().resource::<EpisodeConfig>();
         assert_eq!(ep_cfg.max_episode_steps, 100);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-robot identity and robot-scoped sensors
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn multi_robot_robot_group_populated() {
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        let group = scene.app.world().resource::<RobotGroup>();
+        assert_eq!(group.len(), 2);
+
+        let info0 = group.get(RobotId(0)).unwrap();
+        assert_eq!(info0.name(), "pendulum");
+        assert_eq!(info0.joint_count(), 1);
+
+        let info1 = group.get(RobotId(1)).unwrap();
+        assert_eq!(info1.name(), "arm");
+        assert_eq!(info1.joint_count(), 2);
+    }
+
+    #[test]
+    fn multi_robot_entities_tagged_with_robot_id() {
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        // All pendulum joints should have RobotId(0)
+        let pendulum = &scene.robots["pendulum"];
+        let pivot = pendulum.joint_entity("pivot").unwrap();
+        assert_eq!(scene.app.world().get::<RobotId>(pivot).unwrap().index(), 0);
+
+        // All arm joints should have RobotId(1)
+        let arm = &scene.robots["arm"];
+        for name in ["shoulder", "elbow"] {
+            let entity = arm.joint_entity(name).unwrap();
+            assert_eq!(scene.app.world().get::<RobotId>(entity).unwrap().index(), 1);
+        }
+    }
+
+    #[test]
+    fn robot_scoped_sensors_read_correct_subset() {
+        use clankers_core::traits::Sensor;
+
+        let mut scene = SceneBuilder::new()
+            .with_max_episode_steps(5)
+            .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        // Set distinctive commands per robot
+        let pendulum = &scene.robots["pendulum"];
+        let pivot = pendulum.joint_entity("pivot").unwrap();
+        scene
+            .app
+            .world_mut()
+            .get_mut::<JointCommand>(pivot)
+            .unwrap()
+            .value = 7.0;
+
+        let arm = &scene.robots["arm"];
+        let shoulder = arm.joint_entity("shoulder").unwrap();
+        scene
+            .app
+            .world_mut()
+            .get_mut::<JointCommand>(shoulder)
+            .unwrap()
+            .value = 3.0;
+        let elbow = arm.joint_entity("elbow").unwrap();
+        scene
+            .app
+            .world_mut()
+            .get_mut::<JointCommand>(elbow)
+            .unwrap()
+            .value = 5.0;
+
+        // Robot 0 (pendulum) command sensor should see 1 value: 7.0
+        let sensor0 = RobotJointCommandSensor::new(RobotId(0), 1);
+        let obs0 = sensor0.read(scene.app.world_mut());
+        assert_eq!(obs0.len(), 1);
+        assert!((obs0[0] - 7.0).abs() < f32::EPSILON);
+
+        // Robot 1 (arm) command sensor should see 2 values: 3.0 and 5.0
+        let sensor1 = RobotJointCommandSensor::new(RobotId(1), 2);
+        let obs1 = sensor1.read(scene.app.world_mut());
+        assert_eq!(obs1.len(), 2);
+        let vals: Vec<f32> = obs1.as_slice().to_vec();
+        assert!(vals.contains(&3.0));
+        assert!(vals.contains(&5.0));
+    }
+
+    #[test]
+    fn robot_scoped_state_sensor_isolates_robots() {
+        use clankers_core::traits::Sensor;
+
+        let mut positions = HashMap::new();
+        positions.insert("shoulder".into(), 1.5_f32);
+        positions.insert("elbow".into(), -0.5_f32);
+
+        let mut scene = SceneBuilder::new()
+            .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(TWO_JOINT_URDF, positions)
+            .unwrap()
+            .build();
+
+        // Robot 0 state sensor: 1 joint → 2 values (pos, vel)
+        let sensor0 = RobotJointStateSensor::new(RobotId(0), 1);
+        let obs0 = sensor0.read(scene.app.world_mut());
+        assert_eq!(obs0.len(), 2);
+        // Default initial position is 0.0
+        assert!(obs0[0].abs() < f32::EPSILON);
+
+        // Robot 1 state sensor: 2 joints → 4 values
+        let sensor1 = RobotJointStateSensor::new(RobotId(1), 2);
+        let obs1 = sensor1.read(scene.app.world_mut());
+        assert_eq!(obs1.len(), 4);
+        let vals: Vec<f32> = obs1.as_slice().to_vec();
+        assert!(vals.contains(&1.5));
+        assert!(vals.contains(&-0.5));
+    }
+
+    #[test]
+    fn multi_robot_scene_runs_with_independent_actions() {
+        let mut scene = SceneBuilder::new()
+            .with_max_episode_steps(5)
+            .with_robot_urdf(SINGLE_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        scene.app.world_mut().resource_mut::<Episode>().reset(None);
+
+        // Apply different commands to each robot each step
+        for step in 0..5_u16 {
+            let pivot = scene.robots["pendulum"].joint_entity("pivot").unwrap();
+            scene
+                .app
+                .world_mut()
+                .get_mut::<JointCommand>(pivot)
+                .unwrap()
+                .value = f32::from(step) * 2.0;
+
+            let shoulder = scene.robots["arm"].joint_entity("shoulder").unwrap();
+            scene
+                .app
+                .world_mut()
+                .get_mut::<JointCommand>(shoulder)
+                .unwrap()
+                .value = -1.0;
+
+            scene.app.update();
+        }
+
+        let stats = scene.app.world().resource::<EpisodeStats>();
+        assert_eq!(stats.episodes_completed, 1);
+        assert_eq!(stats.total_steps, 5);
     }
 }

@@ -26,4 +26,9 @@ impl VizMode {
             Self::Policy => "Policy",
         }
     }
+
+    /// Whether this mode advances the simulation.
+    pub const fn is_simulating(self) -> bool {
+        matches!(self, Self::Teleop | Self::Policy)
+    }
 }

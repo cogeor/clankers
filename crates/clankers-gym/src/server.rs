@@ -1,8 +1,7 @@
 //! TCP server for remote training communication.
 //!
 //! [`GymServer`] listens on a TCP port and handles one connection at a time,
-//! dispatching [`Request`](crate::protocol::Request) messages to a
-//! [`GymEnv`](crate::env::GymEnv).
+//! dispatching [`Request`] messages to a [`GymEnv`].
 //!
 //! The protocol uses newline-delimited JSON: each message is a single line
 //! of JSON followed by `\n`.

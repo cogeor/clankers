@@ -891,7 +891,7 @@ mod tests {
             if let Action::Continuous(v) = &action {
                 assert_eq!(v.len(), 4);
                 for val in v {
-                    assert!(*val == 0.0 || *val == 1.0);
+                    assert!(val.abs() < f32::EPSILON || (*val - 1.0).abs() < f32::EPSILON);
                 }
             } else {
                 panic!("Expected Continuous action from MultiBinary space");

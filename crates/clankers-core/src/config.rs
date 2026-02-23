@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn sim_config_toml_deserialization() {
-        let toml_str = r#"
+        let toml_str = r"
             physics_dt = 0.002
             control_dt = 0.04
             max_episode_steps = 500
@@ -486,7 +486,7 @@ mod tests {
             deterministic_mode = true
             gravity = [0.0, 0.0, -10.0]
             render_resolution = [128, 128]
-        "#;
+        ";
         let cfg: SimConfig = toml::from_str(toml_str).unwrap();
         assert!((cfg.physics_dt - 0.002).abs() < f64::EPSILON);
         assert!((cfg.control_dt - 0.04).abs() < f64::EPSILON);
@@ -517,12 +517,12 @@ mod tests {
         let path = dir.join("test_sim.toml");
         std::fs::write(
             &path,
-            r#"
+            r"
             physics_dt = 0.005
             control_dt = 0.02
             max_episode_steps = 200
             seed = 7
-        "#,
+        ",
         )
         .unwrap();
 
@@ -544,10 +544,10 @@ mod tests {
         let path = dir.join("test_invalid.toml");
         std::fs::write(
             &path,
-            r#"
+            r"
             physics_dt = -1.0
             control_dt = 0.02
-        "#,
+        ",
         )
         .unwrap();
 
@@ -572,8 +572,12 @@ mod tests {
         let cfg = RobotConfig::default();
         assert_eq!(cfg.name, "robot");
         assert_eq!(cfg.urdf_path, PathBuf::new());
-        assert_eq!(cfg.base_position, [0.0, 0.0, 0.0]);
-        assert_eq!(cfg.base_orientation, [0.0, 0.0, 0.0, 1.0]);
+        for v in &cfg.base_position {
+            assert!(v.abs() < f32::EPSILON);
+        }
+        for (i, expected) in [0.0, 0.0, 0.0, 1.0].iter().enumerate() {
+            assert!((cfg.base_orientation[i] - expected).abs() < f32::EPSILON);
+        }
         assert!(cfg.fixed_base);
         assert!(cfg.initial_joint_positions.is_empty());
         assert!(cfg.position_limits.is_none());
@@ -611,8 +615,12 @@ mod tests {
             urdf_path = "robot.urdf"
         "#;
         let cfg: RobotConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.base_position, [0.0, 0.0, 0.0]);
-        assert_eq!(cfg.base_orientation, [0.0, 0.0, 0.0, 1.0]);
+        for v in &cfg.base_position {
+            assert!(v.abs() < f32::EPSILON);
+        }
+        for (i, expected) in [0.0, 0.0, 0.0, 1.0].iter().enumerate() {
+            assert!((cfg.base_orientation[i] - expected).abs() < f32::EPSILON);
+        }
         assert!(cfg.fixed_base);
         assert!(cfg.initial_joint_positions.is_empty());
     }
@@ -623,9 +631,15 @@ mod tests {
     fn object_config_default_values() {
         let cfg = ObjectConfig::default();
         assert_eq!(cfg.name, "object");
-        assert_eq!(cfg.position, [0.0, 0.0, 0.0]);
-        assert_eq!(cfg.orientation, [0.0, 0.0, 0.0, 1.0]);
-        assert_eq!(cfg.color, [0.5, 0.5, 0.5, 1.0]);
+        for v in &cfg.position {
+            assert!(v.abs() < f32::EPSILON);
+        }
+        for (i, expected) in [0.0, 0.0, 0.0, 1.0].iter().enumerate() {
+            assert!((cfg.orientation[i] - expected).abs() < f32::EPSILON);
+        }
+        for (i, expected) in [0.5, 0.5, 0.5, 1.0].iter().enumerate() {
+            assert!((cfg.color[i] - expected).abs() < f32::EPSILON);
+        }
         assert!(cfg.is_static);
         assert!((cfg.mass - 1.0).abs() < f32::EPSILON);
         assert!((cfg.friction - 0.5).abs() < f32::EPSILON);
@@ -653,7 +667,9 @@ mod tests {
         let json = serde_json::to_string(&shape).unwrap();
         let shape2: Shape = serde_json::from_str(&json).unwrap();
         if let Shape::Box(dims) = shape2 {
-            assert_eq!(dims, [1.0, 2.0, 3.0]);
+            for (i, expected) in [1.0, 2.0, 3.0].iter().enumerate() {
+                assert!((dims[i] - expected).abs() < f32::EPSILON);
+            }
         } else {
             panic!("Expected Shape::Box");
         }
@@ -727,26 +743,30 @@ mod tests {
 
     #[test]
     fn joint_limits_config_deserialization() {
-        let toml_str = r#"
-            default = [-3.14, 3.14]
+        let toml_str = r"
+            default = [-3.0, 3.0]
 
             [per_joint]
             joint1 = [-1.0, 1.0]
             joint2 = [-2.0, 2.0]
-        "#;
+        ";
         let cfg: JointLimitsConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.default, Some([-3.14, 3.14]));
+        let default = cfg.default.unwrap();
+        assert!((default[0] - (-3.0)).abs() < f32::EPSILON);
+        assert!((default[1] - 3.0).abs() < f32::EPSILON);
         assert_eq!(cfg.per_joint.len(), 2);
-        assert_eq!(cfg.per_joint["joint1"], [-1.0, 1.0]);
-        assert_eq!(cfg.per_joint["joint2"], [-2.0, 2.0]);
+        assert!((cfg.per_joint["joint1"][0] - (-1.0)).abs() < f32::EPSILON);
+        assert!((cfg.per_joint["joint1"][1] - 1.0).abs() < f32::EPSILON);
+        assert!((cfg.per_joint["joint2"][0] - (-2.0)).abs() < f32::EPSILON);
+        assert!((cfg.per_joint["joint2"][1] - 2.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn joint_limits_config_no_default() {
-        let toml_str = r#"
+        let toml_str = r"
             [per_joint]
             joint1 = [-1.0, 1.0]
-        "#;
+        ";
         let cfg: JointLimitsConfig = toml::from_str(toml_str).unwrap();
         assert!(cfg.default.is_none());
         assert_eq!(cfg.per_joint.len(), 1);
@@ -877,7 +897,8 @@ mod tests {
         assert!(!cfg.observation.normalize);
         assert_eq!(cfg.action.action_type, "velocity");
         assert!(cfg.action.joints.is_empty());
-        assert_eq!(cfg.action.limits, [-1.0, 1.0]);
+        assert!((cfg.action.limits[0] - (-1.0)).abs() < f32::EPSILON);
+        assert!((cfg.action.limits[1] - 1.0).abs() < f32::EPSILON);
         assert!(cfg.reward.reward_type.is_empty());
         assert!(cfg.reward.weights.is_empty());
     }
@@ -889,7 +910,8 @@ mod tests {
         let cfg = ActionConfig::default();
         assert_eq!(cfg.action_type, "velocity");
         assert!(cfg.joints.is_empty());
-        assert_eq!(cfg.limits, [-1.0, 1.0]);
+        assert!((cfg.limits[0] - (-1.0)).abs() < f32::EPSILON);
+        assert!((cfg.limits[1] - 1.0).abs() < f32::EPSILON);
     }
 
     // ---- SceneMeta defaults ----

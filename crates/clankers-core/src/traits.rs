@@ -262,6 +262,7 @@ mod tests {
             true
         }
 
+        #[allow(clippy::unnecessary_literal_bound)]
         fn name(&self) -> &str {
             "AlwaysTerminate"
         }
@@ -274,6 +275,7 @@ mod tests {
             false
         }
 
+        #[allow(clippy::unnecessary_literal_bound)]
         fn name(&self) -> &str {
             "NeverTerminate"
         }

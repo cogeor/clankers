@@ -595,4 +595,255 @@ mod tests {
         drop(stream);
         handle.join().unwrap();
     }
+
+    // ---- VecGymServer integration tests ----
+
+    use clankers_core::types::{Observation, ResetInfo, ResetResult, StepInfo, StepResult};
+    use clankers_env::vec_runner::VecEnvInstance;
+
+    struct ConstVecEnvInstance {
+        obs_dim: usize,
+        step_count: u32,
+    }
+
+    impl ConstVecEnvInstance {
+        fn new(obs_dim: usize) -> Self {
+            Self {
+                obs_dim,
+                step_count: 0,
+            }
+        }
+    }
+
+    impl VecEnvInstance for ConstVecEnvInstance {
+        fn reset(&mut self, _seed: Option<u64>) -> ResetResult {
+            self.step_count = 0;
+            ResetResult {
+                observation: Observation::zeros(self.obs_dim),
+                info: ResetInfo::default(),
+            }
+        }
+
+        fn step(&mut self, _action: &Action) -> StepResult {
+            self.step_count += 1;
+            StepResult {
+                #[allow(clippy::cast_precision_loss)]
+                observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
+                reward: 1.0,
+                terminated: false,
+                truncated: false,
+                info: StepInfo::default(),
+            }
+        }
+
+        fn obs_dim(&self) -> usize {
+            self.obs_dim
+        }
+    }
+
+    fn build_test_vec_env(num_envs: usize, obs_dim: usize) -> GymVecEnv {
+        let envs: Vec<Box<dyn VecEnvInstance>> = (0..num_envs)
+            .map(|_| Box::new(ConstVecEnvInstance::new(obs_dim)) as Box<dyn VecEnvInstance>)
+            .collect();
+        let config = clankers_env::vec_env::VecEnvConfig::new(
+            u16::try_from(num_envs).expect("too many envs"),
+        );
+        let obs_space = ObservationSpace::Box {
+            low: vec![-10.0; obs_dim],
+            high: vec![10.0; obs_dim],
+        };
+        let act_space = ActionSpace::Box {
+            low: vec![-1.0; obs_dim],
+            high: vec![1.0; obs_dim],
+        };
+        GymVecEnv::new(envs, config, obs_space, act_space)
+    }
+
+    fn init_with_batch() -> Request {
+        let mut caps = HashMap::new();
+        caps.insert("batch_step".into(), true);
+        Request::Init {
+            protocol_version: "1.0.0".into(),
+            client_name: "test".into(),
+            client_version: "0.1.0".into(),
+            capabilities: caps,
+            seed: None,
+        }
+    }
+
+    #[test]
+    fn vec_server_handshake_and_batch_reset() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(3, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        // Handshake
+        let resp = send_recv(&mut stream, &init_with_batch());
+        if let Response::InitResponse {
+            env_info,
+            capabilities,
+            ..
+        } = &resp
+        {
+            assert_eq!(env_info.n_agents, 3);
+            assert_eq!(capabilities.get("batch_step"), Some(&true));
+        } else {
+            panic!("expected InitResponse");
+        }
+
+        // Batch reset all envs
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1, 2],
+                seeds: None,
+            },
+        );
+        if let Response::BatchReset { observations, .. } = &resp {
+            assert_eq!(observations.len(), 3);
+            assert_eq!(observations[0].len(), 2);
+        } else {
+            panic!("expected BatchReset response, got {resp:?}");
+        }
+
+        // Close
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_batch_step() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(2, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        // Handshake
+        send_recv(&mut stream, &init_with_batch());
+
+        // Reset
+        send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1],
+                seeds: None,
+            },
+        );
+
+        // Batch step
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchStep {
+                actions: vec![Action::zeros(2), Action::zeros(2)],
+            },
+        );
+        if let Response::BatchStep {
+            observations,
+            rewards,
+            terminated,
+            ..
+        } = &resp
+        {
+            assert_eq!(observations.len(), 2);
+            assert_eq!(observations[0].as_slice(), &[1.0, 1.0]);
+            assert!((rewards[0] - 1.0).abs() < f32::EPSILON);
+            assert!(!terminated[0]);
+        } else {
+            panic!("expected BatchStep response, got {resp:?}");
+        }
+
+        // Close
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_selective_reset() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(3, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+        send_recv(&mut stream, &init_with_batch());
+
+        // Reset all
+        send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1, 2],
+                seeds: None,
+            },
+        );
+
+        // Step all
+        send_recv(
+            &mut stream,
+            &Request::BatchStep {
+                actions: vec![Action::zeros(2), Action::zeros(2), Action::zeros(2)],
+            },
+        );
+
+        // Reset only env 1
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![1],
+                seeds: Some(vec![Some(42)]),
+            },
+        );
+        if let Response::BatchReset { observations, .. } = &resp {
+            assert_eq!(observations.len(), 1);
+            // Env 1 was reset, so obs should be zeros
+            assert_eq!(observations[0].as_slice(), &[0.0, 0.0]);
+        } else {
+            panic!("expected BatchReset response");
+        }
+
+        // Close
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_batch_step_capability_negotiated() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(1, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        // Client requests batch_step capability
+        let resp = send_recv(&mut stream, &init_with_batch());
+        if let Response::InitResponse { capabilities, .. } = &resp {
+            assert_eq!(capabilities.get("batch_step"), Some(&true));
+        } else {
+            panic!("expected InitResponse");
+        }
+
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
 }

@@ -19,6 +19,8 @@ pub mod buffer;
 pub mod episode;
 pub mod sensors;
 pub mod systems;
+pub mod vec_buffer;
+pub mod vec_env;
 pub mod vec_episode;
 
 use bevy::prelude::*;
@@ -116,6 +118,8 @@ pub mod prelude {
         episode::{Episode, EpisodeConfig, EpisodeState},
         sensors::{JointCommandSensor, JointStateSensor, JointTorqueSensor, NoisySensor},
         systems::{StepReward, episode_step_system, observe_system},
+        vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer},
+        vec_env::VecEnvConfig,
         vec_episode::{AutoResetMode, EnvEpisodeMap},
     };
 }

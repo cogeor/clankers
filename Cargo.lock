@@ -433,6 +433,11 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "clankers-actuator"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator-core",
+ "clankers-core",
+]
 
 [[package]]
 name = "clankers-actuator-core"
@@ -458,10 +463,29 @@ dependencies = [
 [[package]]
 name = "clankers-domain-rand"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-actuator-core",
+ "clankers-core",
+ "clankers-env",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_distr 0.4.3",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "clankers-env"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-noise",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+]
 
 [[package]]
 name = "clankers-gym"
@@ -479,6 +503,15 @@ dependencies = [
 [[package]]
 name = "clankers-policy"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-domain-rand",
+ "clankers-env",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+]
 
 [[package]]
 name = "clankers-render"

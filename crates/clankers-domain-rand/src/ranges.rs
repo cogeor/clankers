@@ -168,10 +168,10 @@ mod tests {
 
     #[test]
     fn fixed_always_returns_value() {
-        let range = RandomizationRange::fixed(3.14).unwrap();
+        let range = RandomizationRange::fixed(2.5).unwrap();
         let mut rng = rng();
         for _ in 0..10 {
-            assert!((range.sample(&mut rng) - 3.14).abs() < f32::EPSILON);
+            assert!((range.sample(&mut rng) - 2.5).abs() < f32::EPSILON);
         }
     }
 
@@ -252,7 +252,7 @@ mod tests {
         let mut rng = rng();
         for _ in 0..100 {
             let v = range.sample(&mut rng);
-            assert!(v >= 0.01 && v < 10.0, "got {v}");
+            assert!((0.01..10.0).contains(&v), "got {v}");
         }
     }
 
@@ -281,7 +281,7 @@ mod tests {
         let mut rng = rng();
         for _ in 0..100 {
             let v = range.sample(&mut rng);
-            assert!(v >= 9.0 && v <= 11.0, "got {v}");
+            assert!((9.0..=11.0).contains(&v), "got {v}");
         }
     }
 

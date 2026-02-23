@@ -21,6 +21,9 @@
 pub mod policies;
 pub mod runner;
 
+#[cfg(test)]
+mod integration_tests;
+
 use bevy::prelude::*;
 use clankers_core::ClankersSet;
 

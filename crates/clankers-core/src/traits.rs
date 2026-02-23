@@ -41,7 +41,7 @@ pub trait Sensor: Send + Sync + 'static {
     type Output;
 
     /// Read sensor data from the world.
-    fn read(&self, world: &World) -> Self::Output;
+    fn read(&self, world: &mut World) -> Self::Output;
 
     /// Human-readable name for this sensor.
     fn name(&self) -> &str;

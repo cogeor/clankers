@@ -5,3 +5,4 @@
 
 pub mod buffer;
 pub mod episode;
+pub mod sensors;

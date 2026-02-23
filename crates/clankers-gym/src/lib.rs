@@ -12,6 +12,7 @@
 //! the standard Gymnasium `step`/`reset`/`close` pattern.
 
 pub mod env;
+pub mod framing;
 pub mod protocol;
 pub mod server;
 

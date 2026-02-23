@@ -535,6 +535,16 @@ version = "0.1.0"
 [[package]]
 name = "clankers-sim"
 version = "0.1.0"
+dependencies = [
+ "bevy",
+ "clankers-actuator",
+ "clankers-core",
+ "clankers-domain-rand",
+ "clankers-env",
+ "clankers-policy",
+ "clankers-test-utils",
+ "clankers-urdf",
+]
 
 [[package]]
 name = "clankers-teleop"

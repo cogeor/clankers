@@ -147,11 +147,9 @@ impl SceneBuilder {
             *app.world_mut().resource_mut::<EpisodeConfig>() = config;
         }
 
-        // Finalize plugin setup before spawning entities.
-        app.finish();
-        app.cleanup();
-
-        // Spawn robots.
+        // Spawn robots into the world. Plugins are finalized on the
+        // first `app.update()` call, allowing callers to add more
+        // plugins or resources between `build()` and the first update.
         let mut robots = HashMap::new();
         for entry in self.robots {
             let spawned =

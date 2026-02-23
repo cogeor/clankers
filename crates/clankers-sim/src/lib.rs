@@ -18,6 +18,9 @@
 pub mod builder;
 pub mod stats;
 
+#[cfg(test)]
+mod integration;
+
 use bevy::prelude::*;
 use clankers_core::ClankersSet;
 

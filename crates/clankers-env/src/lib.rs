@@ -117,8 +117,9 @@ pub mod prelude {
         episode::{Episode, EpisodeConfig, EpisodeState},
         sensors::{
             ContactSensor, ImuSensor, JointCommandSensor, JointStateSensor, JointTorqueSensor,
-            NoisySensor, RobotContactSensor, RobotImuSensor, RobotJointCommandSensor,
-            RobotJointStateSensor, RobotJointTorqueSensor,
+            NoisySensor, RaycastSensor, RobotContactSensor, RobotImuSensor,
+            RobotJointCommandSensor, RobotJointStateSensor, RobotJointTorqueSensor,
+            RobotRaycastSensor,
         },
         systems::{episode_step_system, observe_system},
         vec_buffer::{VecDoneBuffer, VecObsBuffer},

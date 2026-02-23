@@ -5,7 +5,7 @@
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
-    physics::{ContactData, ImuData},
+    physics::{ContactData, ImuData, RaycastResult},
     traits::{ObservationSensor, Sensor},
     types::{Observation, RobotId},
 };
@@ -455,6 +455,93 @@ impl ObservationSensor for RobotContactSensor {
 }
 
 // ---------------------------------------------------------------------------
+// RaycastSensor
+// ---------------------------------------------------------------------------
+
+/// Reads hit distances from all [`RaycastResult`] entities.
+///
+/// Produces `n_rays` values (one distance per ray). Entities are read
+/// in Bevy query iteration order; spawn consistently for determinism.
+pub struct RaycastSensor {
+    /// Total expected number of rays across all entities.
+    n_rays: usize,
+}
+
+impl RaycastSensor {
+    pub const fn new(n_rays: usize) -> Self {
+        Self { n_rays }
+    }
+}
+
+impl Sensor for RaycastSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_rays);
+        let mut query = world.query::<&RaycastResult>();
+        for result in query.iter(world) {
+            data.extend_from_slice(&result.distances);
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RaycastSensor"
+    }
+}
+
+impl ObservationSensor for RaycastSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_rays
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RobotRaycastSensor
+// ---------------------------------------------------------------------------
+
+/// Reads raycast hit distances only from entities belonging to a specific robot.
+///
+/// Like [`RaycastSensor`] but filtered by [`RobotId`].
+pub struct RobotRaycastSensor {
+    robot_id: RobotId,
+    n_rays: usize,
+}
+
+impl RobotRaycastSensor {
+    pub const fn new(robot_id: RobotId, n_rays: usize) -> Self {
+        Self { robot_id, n_rays }
+    }
+}
+
+impl Sensor for RobotRaycastSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let mut data = Vec::with_capacity(self.n_rays);
+        let mut query = world.query::<(&RaycastResult, &RobotId)>();
+        for (result, &id) in query.iter(world) {
+            if id == self.robot_id {
+                data.extend_from_slice(&result.distances);
+            }
+        }
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "RobotRaycastSensor"
+    }
+}
+
+impl ObservationSensor for RobotRaycastSensor {
+    fn observation_dim(&self) -> usize {
+        self.n_rays
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NoisySensor
 // ---------------------------------------------------------------------------
 
@@ -780,6 +867,92 @@ mod tests {
         assert_eq!(sensor.observation_dim(), 12);
     }
 
+    // -- RaycastSensor --
+
+    #[test]
+    fn raycast_sensor_reads_correctly() {
+        let mut world = World::new();
+        world.spawn(RaycastResult::new(vec![1.5, 3.0, 10.0], 10.0));
+
+        let sensor = RaycastSensor::new(3);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 3);
+        assert!((obs[0] - 1.5).abs() < f32::EPSILON);
+        assert!((obs[1] - 3.0).abs() < f32::EPSILON);
+        assert!((obs[2] - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn raycast_sensor_multiple_entities() {
+        let mut world = World::new();
+        world.spawn(RaycastResult::new(vec![1.0, 2.0], 5.0));
+        world.spawn(RaycastResult::new(vec![3.0], 5.0));
+
+        let sensor = RaycastSensor::new(3);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 3);
+    }
+
+    #[test]
+    fn raycast_sensor_no_hits() {
+        let mut world = World::new();
+        world.spawn(RaycastResult::no_hits(4, 10.0));
+
+        let sensor = RaycastSensor::new(4);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 4);
+        for i in 0..4 {
+            assert!((obs[i] - 10.0).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn raycast_sensor_empty_world() {
+        let mut world = World::new();
+        let sensor = RaycastSensor::new(0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn raycast_sensor_dim_and_name() {
+        let sensor = RaycastSensor::new(16);
+        assert_eq!(sensor.observation_dim(), 16);
+        assert_eq!(sensor.name(), "RaycastSensor");
+    }
+
+    // -- RobotRaycastSensor --
+
+    #[test]
+    fn robot_raycast_sensor_filters_by_id() {
+        let mut world = World::new();
+        world.spawn((RaycastResult::new(vec![1.0, 2.0], 5.0), RobotId(0)));
+        world.spawn((RaycastResult::new(vec![3.0, 4.0], 5.0), RobotId(1)));
+
+        let sensor = RobotRaycastSensor::new(RobotId(0), 2);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 2);
+        assert!((obs[0] - 1.0).abs() < f32::EPSILON);
+        assert!((obs[1] - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn robot_raycast_sensor_empty_when_no_match() {
+        let mut world = World::new();
+        world.spawn((RaycastResult::no_hits(3, 10.0), RobotId(0)));
+
+        let sensor = RobotRaycastSensor::new(RobotId(99), 0);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 0);
+    }
+
+    #[test]
+    fn robot_raycast_sensor_name_and_dim() {
+        let sensor = RobotRaycastSensor::new(RobotId(0), 8);
+        assert_eq!(sensor.name(), "RobotRaycastSensor");
+        assert_eq!(sensor.observation_dim(), 8);
+    }
+
     // -- NoisySensor --
 
     #[test]
@@ -926,10 +1099,12 @@ mod tests {
         assert_send_sync::<JointTorqueSensor>();
         assert_send_sync::<ImuSensor>();
         assert_send_sync::<ContactSensor>();
+        assert_send_sync::<RaycastSensor>();
         assert_send_sync::<RobotJointStateSensor>();
         assert_send_sync::<RobotJointCommandSensor>();
         assert_send_sync::<RobotJointTorqueSensor>();
         assert_send_sync::<RobotImuSensor>();
         assert_send_sync::<RobotContactSensor>();
+        assert_send_sync::<RobotRaycastSensor>();
     }
 }

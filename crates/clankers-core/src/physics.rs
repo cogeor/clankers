@@ -193,6 +193,49 @@ impl Default for ContactData {
 }
 
 // ---------------------------------------------------------------------------
+// RaycastResult
+// ---------------------------------------------------------------------------
+
+/// Raycast hit distances for a sensor bank on a rigid body.
+///
+/// Each entry in `distances` represents one ray's hit distance in meters.
+/// A value equal to `max_range` indicates no hit within range. Physics
+/// integrations populate this each step; [`RaycastSensor`](crate) reads it.
+#[derive(Component, Debug, Clone, PartialEq)]
+pub struct RaycastResult {
+    /// Hit distance for each ray (meters). `max_range` if no hit.
+    pub distances: Vec<f32>,
+    /// Maximum sensing range (meters).
+    pub max_range: f32,
+}
+
+impl RaycastResult {
+    /// Create with given distances and max range.
+    #[must_use]
+    pub const fn new(distances: Vec<f32>, max_range: f32) -> Self {
+        Self {
+            distances,
+            max_range,
+        }
+    }
+
+    /// Create a result with all rays at max range (no hits).
+    #[must_use]
+    pub fn no_hits(n_rays: usize, max_range: f32) -> Self {
+        Self {
+            distances: vec![max_range; n_rays],
+            max_range,
+        }
+    }
+
+    /// Number of rays.
+    #[must_use]
+    pub const fn n_rays(&self) -> usize {
+        self.distances.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -278,6 +321,24 @@ mod tests {
         assert!(c.in_contact());
     }
 
+    // -- RaycastResult --
+
+    #[test]
+    fn raycast_result_new() {
+        let r = RaycastResult::new(vec![1.0, 2.0, 5.0], 5.0);
+        assert_eq!(r.n_rays(), 3);
+        assert!((r.max_range - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn raycast_result_no_hits() {
+        let r = RaycastResult::no_hits(4, 10.0);
+        assert_eq!(r.n_rays(), 4);
+        for &d in &r.distances {
+            assert!((d - 10.0).abs() < f32::EPSILON);
+        }
+    }
+
     // -- Send + Sync --
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -289,5 +350,6 @@ mod tests {
         assert_send_sync::<ExternalForce>();
         assert_send_sync::<ImuData>();
         assert_send_sync::<ContactData>();
+        assert_send_sync::<RaycastResult>();
     }
 }

@@ -21,8 +21,10 @@
 
 pub mod camera;
 pub mod config;
+pub mod input;
 pub mod mode;
 pub mod plugin;
+pub mod systems;
 pub mod ui;
 
 pub use config::VizConfig;

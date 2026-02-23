@@ -531,6 +531,117 @@ impl BatchResetResult {
 }
 
 // ---------------------------------------------------------------------------
+// Robot Identity
+// ---------------------------------------------------------------------------
+
+/// Unique identifier for a robot within a scene.
+///
+/// Every entity belonging to a given robot (joints, sensors, etc.) carries
+/// this component so that systems can group entities per robot.
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::RobotId;
+///
+/// let id = RobotId(0);
+/// assert_eq!(id.index(), 0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, bevy::prelude::Component)]
+pub struct RobotId(pub u32);
+
+impl RobotId {
+    /// The numeric robot index.
+    #[must_use]
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for RobotId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "robot:{}", self.0)
+    }
+}
+
+/// Metadata about a spawned robot in the scene.
+#[derive(Debug, Clone)]
+pub struct RobotInfo {
+    /// Human-readable robot name (typically from URDF).
+    pub name: String,
+    /// Ordered list of joint entities belonging to this robot.
+    pub joints: Vec<Entity>,
+}
+
+impl RobotInfo {
+    /// Number of joints.
+    #[must_use]
+    pub const fn joint_count(&self) -> usize {
+        self.joints.len()
+    }
+
+    /// Robot name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Registry of all robots in the scene, mapping [`RobotId`] to [`RobotInfo`].
+///
+/// Auto-allocates monotonically increasing IDs via [`allocate`](Self::allocate).
+///
+/// # Example
+///
+/// ```
+/// use bevy::ecs::entity::Entity;
+/// use clankers_core::types::RobotGroup;
+///
+/// let mut group = RobotGroup::default();
+/// let id = group.allocate("arm".to_string(), vec![Entity::from_bits(1)]);
+/// assert_eq!(id.index(), 0);
+/// assert_eq!(group.len(), 1);
+/// ```
+#[derive(Debug, Default, bevy::prelude::Resource)]
+pub struct RobotGroup {
+    robots: HashMap<RobotId, RobotInfo>,
+    next_id: u32,
+}
+
+impl RobotGroup {
+    /// Register a new robot and return its assigned [`RobotId`].
+    pub fn allocate(&mut self, name: String, joints: Vec<Entity>) -> RobotId {
+        let id = RobotId(self.next_id);
+        self.next_id += 1;
+        self.robots.insert(id, RobotInfo { name, joints });
+        id
+    }
+
+    /// Look up robot info by ID.
+    #[must_use]
+    pub fn get(&self, id: RobotId) -> Option<&RobotInfo> {
+        self.robots.get(&id)
+    }
+
+    /// Iterate over all `(RobotId, RobotInfo)` pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (RobotId, &RobotInfo)> {
+        self.robots.iter().map(|(&id, info)| (id, info))
+    }
+
+    /// Number of registered robots.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.robots.len()
+    }
+
+    /// Whether the group is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.robots.is_empty()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entity Handles
 // ---------------------------------------------------------------------------
 
@@ -1479,5 +1590,88 @@ mod tests {
         let c = CompositeHandle::new(EnvId(1), Entity::from_bits(1));
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    // ---- RobotId ----
+
+    #[test]
+    fn robot_id_index() {
+        let id = RobotId(7);
+        assert_eq!(id.index(), 7);
+    }
+
+    #[test]
+    fn robot_id_display() {
+        let id = RobotId(3);
+        assert_eq!(id.to_string(), "robot:3");
+    }
+
+    #[test]
+    fn robot_id_copy_eq_hash() {
+        let a = RobotId(1);
+        let b = a;
+        assert_eq!(a, b);
+        let mut set = std::collections::HashSet::new();
+        set.insert(a);
+        set.insert(b);
+        assert_eq!(set.len(), 1);
+    }
+
+    // ---- RobotInfo ----
+
+    #[test]
+    fn robot_info_basic() {
+        let info = RobotInfo {
+            name: "arm".to_string(),
+            joints: vec![Entity::from_bits(1), Entity::from_bits(2)],
+        };
+        assert_eq!(info.name(), "arm");
+        assert_eq!(info.joint_count(), 2);
+    }
+
+    // ---- RobotGroup ----
+
+    #[test]
+    fn robot_group_allocate_increments_id() {
+        let mut group = RobotGroup::default();
+        let id0 = group.allocate("a".to_string(), vec![]);
+        let id1 = group.allocate("b".to_string(), vec![]);
+        assert_eq!(id0.index(), 0);
+        assert_eq!(id1.index(), 1);
+        assert_eq!(group.len(), 2);
+        assert!(!group.is_empty());
+    }
+
+    #[test]
+    fn robot_group_get() {
+        let mut group = RobotGroup::default();
+        let id = group.allocate("bot".to_string(), vec![Entity::from_bits(42)]);
+        let info = group.get(id).unwrap();
+        assert_eq!(info.name(), "bot");
+        assert_eq!(info.joint_count(), 1);
+    }
+
+    #[test]
+    fn robot_group_get_missing() {
+        let group = RobotGroup::default();
+        assert!(group.get(RobotId(99)).is_none());
+    }
+
+    #[test]
+    fn robot_group_iter() {
+        let mut group = RobotGroup::default();
+        group.allocate("a".to_string(), vec![]);
+        group.allocate("b".to_string(), vec![]);
+        let names: Vec<&str> = group.iter().map(|(_, info)| info.name()).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"a"));
+        assert!(names.contains(&"b"));
+    }
+
+    #[test]
+    fn robot_group_empty() {
+        let group = RobotGroup::default();
+        assert!(group.is_empty());
+        assert_eq!(group.len(), 0);
     }
 }

@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
 use clankers_actuator_core::motor::IdealMotor;
 use clankers_actuator_core::prelude::MotorType;
+use clankers_core::types::RobotId;
 
 use crate::types::{JointData, RobotModel};
 
@@ -68,10 +69,35 @@ pub fn spawn_robot<S: BuildHasher>(
     model: &RobotModel,
     initial_positions: &HashMap<String, f32, S>,
 ) -> SpawnedRobot {
+    spawn_robot_inner(world, model, initial_positions, None)
+}
+
+/// Spawn actuated joint entities tagged with a [`RobotId`].
+///
+/// Same as [`spawn_robot`] but also inserts the given [`RobotId`] component
+/// on every spawned entity, enabling multi-robot queries.
+pub fn spawn_robot_with_id<S: BuildHasher>(
+    world: &mut World,
+    model: &RobotModel,
+    initial_positions: &HashMap<String, f32, S>,
+    robot_id: RobotId,
+) -> SpawnedRobot {
+    spawn_robot_inner(world, model, initial_positions, Some(robot_id))
+}
+
+fn spawn_robot_inner<S: BuildHasher>(
+    world: &mut World,
+    model: &RobotModel,
+    initial_positions: &HashMap<String, f32, S>,
+    robot_id: Option<RobotId>,
+) -> SpawnedRobot {
     let mut joints = HashMap::new();
 
     for joint in model.actuated_joints() {
         let entity = spawn_joint_entity(world, joint, initial_positions);
+        if let Some(id) = robot_id {
+            world.entity_mut(entity).insert(id);
+        }
         joints.insert(joint.name.clone(), entity);
     }
 
@@ -127,6 +153,7 @@ fn spawn_joint_entity<S: BuildHasher>(
 mod tests {
     use super::*;
     use crate::parser::parse_string;
+    use clankers_core::types::RobotId;
 
     const ARM_URDF: &str = r#"
         <robot name="arm">
@@ -260,5 +287,42 @@ mod tests {
 
         assert!(result.joint_entity("nonexistent").is_none());
         assert!(result.joint_entity("shoulder").is_some());
+    }
+
+    #[test]
+    fn spawn_with_id_tags_all_entities() {
+        let model = parse_string(ARM_URDF).unwrap();
+        let mut world = World::new();
+        let id = RobotId(7);
+        let result = spawn_robot_with_id(&mut world, &model, &HashMap::new(), id);
+
+        for entity in result.joints.values() {
+            let robot_id = world.get::<RobotId>(*entity).expect("RobotId missing");
+            assert_eq!(*robot_id, id);
+        }
+    }
+
+    #[test]
+    fn spawn_without_id_has_no_robot_id() {
+        let model = parse_string(ARM_URDF).unwrap();
+        let mut world = World::new();
+        let result = spawn_robot(&mut world, &model, &HashMap::new());
+
+        for entity in result.joints.values() {
+            assert!(world.get::<RobotId>(*entity).is_none());
+        }
+    }
+
+    #[test]
+    fn two_robots_different_ids() {
+        let model = parse_string(ARM_URDF).unwrap();
+        let mut world = World::new();
+        let r0 = spawn_robot_with_id(&mut world, &model, &HashMap::new(), RobotId(0));
+        let r1 = spawn_robot_with_id(&mut world, &model, &HashMap::new(), RobotId(1));
+
+        let e0 = r0.joint_entity("shoulder").unwrap();
+        let e1 = r1.joint_entity("shoulder").unwrap();
+        assert_eq!(world.get::<RobotId>(e0).unwrap().index(), 0);
+        assert_eq!(world.get::<RobotId>(e1).unwrap().index(), 1);
     }
 }

@@ -15,7 +15,7 @@ pub mod types;
 
 pub use error::UrdfError;
 pub use parser::{parse_file, parse_string};
-pub use spawner::{JointName, SpawnedRobot, spawn_robot};
+pub use spawner::{JointName, SpawnedRobot, spawn_robot, spawn_robot_with_id};
 pub use types::{
     Collision, Geometry, Inertial, JointData, JointDynamics, JointLimits, JointType, LinkData,
     Material, Origin, RobotModel, Visual,

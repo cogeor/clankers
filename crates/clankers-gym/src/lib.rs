@@ -20,7 +20,7 @@ pub mod server;
 // ---------------------------------------------------------------------------
 
 pub use env::GymEnv;
-pub use protocol::{Request, Response};
+pub use protocol::{EnvInfo, ProtocolError, ProtocolState, Request, Response};
 pub use server::GymServer;
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,6 @@ pub use server::GymServer;
 pub mod prelude {
     pub use crate::{
         GymEnv, GymServer,
-        protocol::{Request, Response},
+        protocol::{EnvInfo, ProtocolError, ProtocolState, Request, Response},
     };
 }

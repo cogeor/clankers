@@ -99,6 +99,7 @@ fn handle_connection(stream: TcpStream, env: &mut GymEnv) -> std::io::Result<()>
 
 fn dispatch(env: &mut GymEnv, request: Request) -> Response {
     match request {
+        Request::Init { .. } => Response::error("handshake not implemented in legacy server"),
         Request::Spaces => Response::Spaces {
             observation_space: env.observation_space().clone(),
             action_space: env.action_space().clone(),
@@ -106,6 +107,10 @@ fn dispatch(env: &mut GymEnv, request: Request) -> Response {
         Request::Reset { seed } => Response::from_reset(env.reset(seed)),
         Request::Step { action } => Response::from_step(env.step(&action)),
         Request::Close => Response::Close,
+        Request::Ping { timestamp } => Response::Pong {
+            timestamp,
+            server_time: 0,
+        },
     }
 }
 

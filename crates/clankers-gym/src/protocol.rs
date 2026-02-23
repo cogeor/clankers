@@ -10,6 +10,8 @@
 //!
 //! All messages are newline-delimited JSON.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -36,6 +38,21 @@ use clankers_core::types::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
+    /// Initialize connection (handshake). Must be the first message after TCP connect.
+    Init {
+        /// Protocol version the client supports.
+        protocol_version: String,
+        /// Client identifier.
+        client_name: String,
+        /// Client version string.
+        client_version: String,
+        /// Capability flags the client supports.
+        #[serde(default)]
+        capabilities: HashMap<String, bool>,
+        /// Optional seed for deterministic operation.
+        #[serde(default)]
+        seed: Option<u64>,
+    },
     /// Query the observation and action spaces.
     Spaces,
     /// Reset the environment, optionally with a seed.
@@ -51,6 +68,32 @@ pub enum Request {
     },
     /// Close the environment and disconnect.
     Close,
+    /// Keepalive probe.
+    Ping {
+        /// Client-side timestamp (epoch milliseconds).
+        timestamp: u64,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// EnvInfo
+// ---------------------------------------------------------------------------
+
+/// Environment metadata sent during the handshake.
+///
+/// Included in [`Response::InitResponse`] so the client knows the
+/// observation/action shapes and agent count before the first reset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvInfo {
+    /// Number of agents in the environment.
+    pub n_agents: usize,
+    /// Observation space descriptor.
+    pub observation_space: ObservationSpace,
+    /// Action space descriptor.
+    pub action_space: ActionSpace,
+    /// Optional reward range `(min, max)`.
+    #[serde(default)]
+    pub reward_range: Option<(f32, f32)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +114,21 @@ pub enum Request {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
+    /// Handshake reply with negotiated capabilities and environment metadata.
+    InitResponse {
+        /// Negotiated protocol version.
+        protocol_version: String,
+        /// Environment name.
+        env_name: String,
+        /// Environment version.
+        env_version: String,
+        /// Environment metadata (spaces, agent count).
+        env_info: EnvInfo,
+        /// Negotiated capability flags (logical AND of client and server).
+        capabilities: HashMap<String, bool>,
+        /// Whether the requested seed was accepted.
+        seed_accepted: bool,
+    },
     /// Observation and action space descriptions.
     Spaces {
         observation_space: ObservationSpace,
@@ -93,6 +151,13 @@ pub enum Response {
     Close,
     /// Error response.
     Error { message: String },
+    /// Keepalive reply.
+    Pong {
+        /// Echo of the client's timestamp.
+        timestamp: u64,
+        /// Server-side timestamp (epoch milliseconds).
+        server_time: u64,
+    },
 }
 
 impl Response {
@@ -448,6 +513,145 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    // ---- Init / Handshake ----
+
+    #[test]
+    fn request_init_roundtrip() {
+        let mut caps = HashMap::new();
+        caps.insert("batch_step".into(), true);
+        let req = Request::Init {
+            protocol_version: "1.0.0".into(),
+            client_name: "test".into(),
+            client_version: "0.1.0".into(),
+            capabilities: caps,
+            seed: Some(42),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let req2: Request = serde_json::from_str(&json).unwrap();
+        if let Request::Init {
+            protocol_version,
+            seed,
+            capabilities,
+            ..
+        } = req2
+        {
+            assert_eq!(protocol_version, "1.0.0");
+            assert_eq!(seed, Some(42));
+            assert_eq!(capabilities.get("batch_step"), Some(&true));
+        } else {
+            panic!("expected Init");
+        }
+    }
+
+    #[test]
+    fn request_init_from_json() {
+        let json = r#"{"type":"init","protocol_version":"1.0.0","client_name":"py","client_version":"0.1.0"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        if let Request::Init {
+            capabilities, seed, ..
+        } = req
+        {
+            assert!(capabilities.is_empty());
+            assert_eq!(seed, None);
+        } else {
+            panic!("expected Init");
+        }
+    }
+
+    #[test]
+    fn response_init_response_roundtrip() {
+        let env_info = EnvInfo {
+            n_agents: 1,
+            observation_space: ObservationSpace::Box {
+                low: vec![-1.0; 3],
+                high: vec![1.0; 3],
+            },
+            action_space: ActionSpace::Discrete { n: 4 },
+            reward_range: Some((-1.0, 1.0)),
+        };
+        let resp = Response::InitResponse {
+            protocol_version: "1.0.0".into(),
+            env_name: "TestEnv".into(),
+            env_version: "0.1.0".into(),
+            env_info,
+            capabilities: HashMap::new(),
+            seed_accepted: true,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::InitResponse {
+            protocol_version,
+            seed_accepted,
+            env_info,
+            ..
+        } = resp2
+        {
+            assert_eq!(protocol_version, "1.0.0");
+            assert!(seed_accepted);
+            assert_eq!(env_info.n_agents, 1);
+        } else {
+            panic!("expected InitResponse");
+        }
+    }
+
+    // ---- Ping / Pong ----
+
+    #[test]
+    fn request_ping_roundtrip() {
+        let req = Request::Ping {
+            timestamp: 1_000_000,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let req2: Request = serde_json::from_str(&json).unwrap();
+        if let Request::Ping { timestamp } = req2 {
+            assert_eq!(timestamp, 1_000_000);
+        } else {
+            panic!("expected Ping");
+        }
+    }
+
+    #[test]
+    fn response_pong_roundtrip() {
+        let resp = Response::Pong {
+            timestamp: 1_000_000,
+            server_time: 1_000_001,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::Pong {
+            timestamp,
+            server_time,
+        } = resp2
+        {
+            assert_eq!(timestamp, 1_000_000);
+            assert_eq!(server_time, 1_000_001);
+        } else {
+            panic!("expected Pong");
+        }
+    }
+
+    // ---- EnvInfo ----
+
+    #[test]
+    fn env_info_roundtrip() {
+        let info = EnvInfo {
+            n_agents: 2,
+            observation_space: ObservationSpace::Box {
+                low: vec![0.0; 4],
+                high: vec![1.0; 4],
+            },
+            action_space: ActionSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+            reward_range: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let info2: EnvInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info2.n_agents, 2);
+        assert!(info2.reward_range.is_none());
+    }
 
     // ---- Request serialisation ----
 

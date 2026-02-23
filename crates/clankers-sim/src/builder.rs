@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use clankers_core::config::SimConfig;
+use clankers_core::types::RobotGroup;
 use clankers_env::episode::EpisodeConfig;
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::RobotModel;
@@ -131,6 +132,10 @@ impl SceneBuilder {
 
     /// Build the Bevy [`App`] with all plugins and spawned entities.
     ///
+    /// Each robot is assigned a [`RobotId`](clankers_core::types::RobotId) via
+    /// the [`RobotGroup`] resource, and all its joint entities are tagged with
+    /// that ID for multi-robot queries.
+    ///
     /// Returns a [`SpawnedScene`] containing the app and robot handles.
     #[must_use]
     pub fn build(self) -> SpawnedScene {
@@ -147,15 +152,30 @@ impl SceneBuilder {
             *app.world_mut().resource_mut::<EpisodeConfig>() = config;
         }
 
-        // Spawn robots into the world. Plugins are finalized on the
-        // first `app.update()` call, allowing callers to add more
-        // plugins or resources between `build()` and the first update.
+        // Initialize RobotGroup resource.
+        let mut robot_group = RobotGroup::default();
+
+        // Spawn robots into the world with RobotId tagging.
         let mut robots = HashMap::new();
         for entry in self.robots {
-            let spawned =
-                clankers_urdf::spawn_robot(app.world_mut(), &entry.model, &entry.initial_positions);
+            let robot_id = robot_group.allocate(
+                entry.model.name.clone(),
+                Vec::new(), // joints filled after spawn
+            );
+            let spawned = clankers_urdf::spawn_robot_with_id(
+                app.world_mut(),
+                &entry.model,
+                &entry.initial_positions,
+                robot_id,
+            );
+            // Update RobotGroup with actual joint entities.
+            let joint_entities: Vec<Entity> = spawned.joints.values().copied().collect();
+            let info = robot_group.get_mut(robot_id).expect("just allocated");
+            info.joints = joint_entities;
             robots.insert(spawned.name.clone(), spawned);
         }
+
+        app.world_mut().insert_resource(robot_group);
 
         SpawnedScene { app, robots }
     }
@@ -169,6 +189,7 @@ impl SceneBuilder {
 mod tests {
     use super::*;
     use crate::EpisodeStats;
+    use clankers_core::types::RobotId;
     use clankers_env::episode::Episode;
 
     const TWO_JOINT_URDF: &str = r#"
@@ -320,5 +341,63 @@ mod tests {
     fn default_builder_is_same_as_new() {
         let scene = SceneBuilder::default().build();
         assert!(scene.robots.is_empty());
+    }
+
+    #[test]
+    fn build_populates_robot_group() {
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        let group = scene.app.world().resource::<RobotGroup>();
+        assert_eq!(group.len(), 1);
+        let info = group.get(RobotId(0)).unwrap();
+        assert_eq!(info.name(), "test_bot");
+        assert_eq!(info.joint_count(), 2);
+    }
+
+    #[test]
+    fn multi_robot_scene_assigns_distinct_ids() {
+        let urdf2 = r#"
+            <robot name="second_bot">
+                <link name="base"/>
+                <link name="arm"/>
+                <joint name="arm_joint" type="revolute">
+                    <parent link="base"/>
+                    <child link="arm"/>
+                    <axis xyz="0 0 1"/>
+                    <limit lower="-3.14" upper="3.14" effort="100" velocity="10"/>
+                </joint>
+            </robot>
+        "#;
+
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .with_robot_urdf(urdf2, HashMap::new())
+            .unwrap()
+            .build();
+
+        let group = scene.app.world().resource::<RobotGroup>();
+        assert_eq!(group.len(), 2);
+
+        // Verify entities are tagged with RobotId
+        let bot = &scene.robots["test_bot"];
+        let entity = bot.joint_entity("joint1").unwrap();
+        let id = scene.app.world().get::<RobotId>(entity).unwrap();
+        assert_eq!(id.index(), 0);
+
+        let bot2 = &scene.robots["second_bot"];
+        let entity2 = bot2.joint_entity("arm_joint").unwrap();
+        let id2 = scene.app.world().get::<RobotId>(entity2).unwrap();
+        assert_eq!(id2.index(), 1);
+    }
+
+    #[test]
+    fn empty_scene_has_empty_robot_group() {
+        let scene = SceneBuilder::new().build();
+        let group = scene.app.world().resource::<RobotGroup>();
+        assert!(group.is_empty());
     }
 }

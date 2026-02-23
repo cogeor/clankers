@@ -623,6 +623,11 @@ impl RobotGroup {
         self.robots.get(&id)
     }
 
+    /// Mutable look up robot info by ID.
+    pub fn get_mut(&mut self, id: RobotId) -> Option<&mut RobotInfo> {
+        self.robots.get_mut(&id)
+    }
+
     /// Iterate over all `(RobotId, RobotInfo)` pairs.
     pub fn iter(&self) -> impl Iterator<Item = (RobotId, &RobotInfo)> {
         self.robots.iter().map(|(&id, info)| (id, info))

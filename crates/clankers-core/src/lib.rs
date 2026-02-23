@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod error;
+pub mod seed;
 pub mod time;
 pub mod traits;
 pub mod types;
@@ -55,6 +56,8 @@ impl Plugin for ClankersCorePlugin {
         );
         app.init_resource::<config::SimConfig>();
         app.init_resource::<time::SimTime>();
+        app.init_resource::<seed::SeedHierarchy>();
+        app.init_resource::<types::RobotGroup>();
     }
 }
 
@@ -71,6 +74,8 @@ pub mod prelude {
         config::{ObjectConfig, RobotConfig, SceneConfig, Shape, SimConfig, TaskConfig},
         // Errors
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
+        // Seeds
+        seed::{SeedHierarchy, derive_seed, derive_seed_indexed},
         // Time
         time::{Accumulator, Clock, SimTime},
         // Traits
@@ -113,5 +118,13 @@ mod tests {
         // Verify SimTime resource exists at zero.
         let sim_time = app.world().resource::<time::SimTime>();
         assert_eq!(sim_time.nanos(), 0);
+
+        // Verify SeedHierarchy resource exists.
+        let seeds = app.world().resource::<seed::SeedHierarchy>();
+        assert_eq!(seeds.root(), 0);
+
+        // Verify RobotGroup resource exists.
+        let group = app.world().resource::<types::RobotGroup>();
+        assert!(group.is_empty());
     }
 }

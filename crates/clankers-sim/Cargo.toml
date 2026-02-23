@@ -18,6 +18,9 @@ bevy.workspace = true
 clankers-test-utils.workspace = true
 clankers-policy.workspace = true
 clankers-domain-rand.workspace = true
+clankers-teleop.workspace = true
+clankers-render.workspace = true
+clankers-gym.workspace = true
 
 [lints]
 workspace = true

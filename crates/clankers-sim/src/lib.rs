@@ -19,6 +19,8 @@ pub mod builder;
 pub mod stats;
 
 #[cfg(test)]
+mod headless;
+#[cfg(test)]
 mod integration;
 
 use bevy::prelude::*;

@@ -5,6 +5,7 @@
 //! done flags are stored in [`SoA`](super::vec_buffer) buffers for
 //! efficient batched access.
 
+use clankers_core::seed::SeedHierarchy;
 use clankers_core::types::{Action, EnvId, Observation, ResetResult, StepResult};
 
 use crate::vec_buffer::{VecDoneBuffer, VecObsBuffer, VecRewardBuffer};
@@ -144,6 +145,23 @@ impl VecEnvRunner {
             self.obs_buf.set(i, &result.observation);
             self.episodes
                 .reset(EnvId(u16::try_from(i).expect("env index overflow")), seed);
+        }
+        self.reward_buf.clear();
+        self.done_buf.clear();
+    }
+
+    /// Reset all environments with per-env seeds derived from a [`SeedHierarchy`].
+    ///
+    /// Each environment receives a unique seed:
+    /// `hierarchy.env_seed(env_index)`, ensuring independent but reproducible
+    /// random streams.
+    pub fn reset_all_from_hierarchy(&mut self, hierarchy: &SeedHierarchy) {
+        for (i, env) in self.envs.iter_mut().enumerate() {
+            let env_id = EnvId(u16::try_from(i).expect("env index overflow"));
+            let seed = hierarchy.env_seed(env_id.index());
+            let result = env.reset(Some(seed));
+            self.obs_buf.set(i, &result.observation);
+            self.episodes.reset(env_id, Some(seed));
         }
         self.reward_buf.clear();
         self.done_buf.clear();
@@ -384,6 +402,39 @@ mod tests {
 
         runner.step_all(&actions);
         assert!(runner.done_buffer().truncated(0));
+    }
+
+    #[test]
+    fn reset_all_from_hierarchy_assigns_per_env_seeds() {
+        let envs = make_envs(3, 2);
+        let config = VecEnvConfig::new(3);
+        let mut runner = VecEnvRunner::new(envs, config);
+
+        let hierarchy = SeedHierarchy::new(42);
+        runner.reset_all_from_hierarchy(&hierarchy);
+
+        let s0 = runner.episodes().get(EnvId(0)).seed;
+        let s1 = runner.episodes().get(EnvId(1)).seed;
+        let s2 = runner.episodes().get(EnvId(2)).seed;
+
+        // All seeds present
+        assert!(s0.is_some());
+        assert!(s1.is_some());
+        assert!(s2.is_some());
+
+        // All seeds distinct
+        assert_ne!(s0, s1);
+        assert_ne!(s1, s2);
+        assert_ne!(s0, s2);
+
+        // Seeds are deterministic
+        let envs2 = make_envs(3, 2);
+        let mut runner2 = VecEnvRunner::new(envs2, VecEnvConfig::new(3));
+        runner2.reset_all_from_hierarchy(&hierarchy);
+        assert_eq!(
+            runner.episodes().get(EnvId(0)).seed,
+            runner2.episodes().get(EnvId(0)).seed
+        );
     }
 
     #[test]

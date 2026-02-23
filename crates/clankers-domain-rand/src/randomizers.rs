@@ -642,10 +642,7 @@ mod tests {
         randomizer.randomize(&mut ext, &mut rng);
         let force_mag = ext.force.length();
         let torque_mag = ext.torque.length();
-        assert!(
-            (0.5..=2.0).contains(&force_mag),
-            "force_mag = {force_mag}"
-        );
+        assert!((0.5..=2.0).contains(&force_mag), "force_mag = {force_mag}");
         assert!(
             (0.1..=0.5).contains(&torque_mag),
             "torque_mag = {torque_mag}"

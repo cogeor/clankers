@@ -1,0 +1,158 @@
+<?xml version="1.0"?>
+<robot name="six_dof_arm">
+    <!-- 6-DOF articulated robot arm with alternating joint axes -->
+
+    <link name="base">
+        <inertial>
+            <mass value="20.0"/>
+            <inertia ixx="0.5" ixy="0" ixz="0" iyy="0.5" iyz="0" izz="0.5"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <cylinder radius="0.08" length="0.1"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="shoulder_link">
+        <inertial>
+            <origin xyz="0 0 0.1"/>
+            <mass value="3.0"/>
+            <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.005"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.1"/>
+            <geometry>
+                <cylinder radius="0.04" length="0.2"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="upper_arm">
+        <inertial>
+            <origin xyz="0 0 0.15"/>
+            <mass value="2.5"/>
+            <inertia ixx="0.015" ixy="0" ixz="0" iyy="0.015" iyz="0" izz="0.003"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.15"/>
+            <geometry>
+                <cylinder radius="0.035" length="0.3"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="elbow_link">
+        <inertial>
+            <origin xyz="0 0 0.05"/>
+            <mass value="1.5"/>
+            <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.002"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.05"/>
+            <geometry>
+                <cylinder radius="0.03" length="0.1"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="forearm">
+        <inertial>
+            <origin xyz="0 0 0.1"/>
+            <mass value="1.0"/>
+            <inertia ixx="0.003" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.001"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.1"/>
+            <geometry>
+                <cylinder radius="0.025" length="0.2"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="wrist_link">
+        <inertial>
+            <origin xyz="0 0 0.03"/>
+            <mass value="0.5"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.0005"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.03"/>
+            <geometry>
+                <cylinder radius="0.02" length="0.06"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="end_effector">
+        <inertial>
+            <mass value="0.2"/>
+            <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0002"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <sphere radius="0.025"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <!-- Joint 1: Base rotation (yaw) -->
+    <joint name="j1_base_yaw" type="revolute">
+        <parent link="base"/>
+        <child link="shoulder_link"/>
+        <origin xyz="0 0 0.05"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14159" upper="3.14159" effort="80" velocity="2"/>
+        <dynamics damping="1.0" friction="0.2"/>
+    </joint>
+
+    <!-- Joint 2: Shoulder pitch -->
+    <joint name="j2_shoulder_pitch" type="revolute">
+        <parent link="shoulder_link"/>
+        <child link="upper_arm"/>
+        <origin xyz="0 0 0.2"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.5708" upper="2.356" effort="60" velocity="2"/>
+        <dynamics damping="0.8" friction="0.15"/>
+    </joint>
+
+    <!-- Joint 3: Elbow pitch -->
+    <joint name="j3_elbow_pitch" type="revolute">
+        <parent link="upper_arm"/>
+        <child link="elbow_link"/>
+        <origin xyz="0 0 0.3"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-2.356" upper="2.356" effort="40" velocity="3"/>
+        <dynamics damping="0.5" friction="0.1"/>
+    </joint>
+
+    <!-- Joint 4: Forearm roll -->
+    <joint name="j4_forearm_roll" type="revolute">
+        <parent link="elbow_link"/>
+        <child link="forearm"/>
+        <origin xyz="0 0 0.1"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14159" upper="3.14159" effort="20" velocity="5"/>
+        <dynamics damping="0.2" friction="0.05"/>
+    </joint>
+
+    <!-- Joint 5: Wrist pitch -->
+    <joint name="j5_wrist_pitch" type="revolute">
+        <parent link="forearm"/>
+        <child link="wrist_link"/>
+        <origin xyz="0 0 0.2"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-2.094" upper="2.094" effort="10" velocity="5"/>
+        <dynamics damping="0.1" friction="0.02"/>
+    </joint>
+
+    <!-- Joint 6: Wrist roll -->
+    <joint name="j6_wrist_roll" type="revolute">
+        <parent link="wrist_link"/>
+        <child link="end_effector"/>
+        <origin xyz="0 0 0.06"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14159" upper="3.14159" effort="5" velocity="8"/>
+        <dynamics damping="0.05" friction="0.01"/>
+    </joint>
+</robot>

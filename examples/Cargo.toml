@@ -1,0 +1,48 @@
+[package]
+name = "clankers-examples"
+description = "Example scenes and pipelines for the Clankers simulation framework"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+clankers-core.workspace = true
+clankers-sim.workspace = true
+clankers-actuator.workspace = true
+clankers-actuator-core.workspace = true
+clankers-env.workspace = true
+clankers-urdf.workspace = true
+clankers-gym.workspace = true
+clankers-policy.workspace = true
+clankers-domain-rand.workspace = true
+clankers-noise.workspace = true
+clankers-teleop.workspace = true
+clankers-viz.workspace = true
+clankers-physics.workspace = true
+bevy = { workspace = true, features = ["default"] }
+rand.workspace = true
+rand_chacha.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Inherited workspace allows
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+return_self_not_must_use = "allow"
+# Relaxed for example code — clarity over strictness
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_truncation = "allow"
+too_many_lines = "allow"
+doc_markdown = "allow"
+items_after_statements = "allow"

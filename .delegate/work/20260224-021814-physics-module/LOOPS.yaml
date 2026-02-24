@@ -1,0 +1,14 @@
+loops:
+  - id: 01
+    summary: Create clankers-physics crate with engine-agnostic trait API and plugin skeleton
+    status: done
+    commit: 111412d
+  - id: 02
+    summary: Implement Rapier backend -- URDF-to-Rapier bridge, torque/state sync systems, gravity config
+    depends_on: [01]
+    status: done
+    commit: 7b617ce
+  - id: 03
+    summary: Wire physics into ClankersSet::Simulate, update SceneBuilder and pendulum_viz example
+    depends_on: [02]
+    status: done

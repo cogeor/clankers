@@ -146,6 +146,24 @@ impl GymEnv {
 }
 
 // ---------------------------------------------------------------------------
+// VecEnvInstance impl — allows GymEnv to be used inside VecEnvRunner
+// ---------------------------------------------------------------------------
+
+impl clankers_env::vec_runner::VecEnvInstance for GymEnv {
+    fn reset(&mut self, seed: Option<u64>) -> ResetResult {
+        GymEnv::reset(self, seed)
+    }
+
+    fn step(&mut self, action: &Action) -> StepResult {
+        GymEnv::step(self, action)
+    }
+
+    fn obs_dim(&self) -> usize {
+        self.obs_space.shape()[0]
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

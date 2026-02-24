@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/*", "crates/*"]
+members = ["apps/*", "crates/*", "examples"]
 
 [workspace.package]
 edition = "2024"
@@ -24,6 +24,7 @@ clankers-policy = { path = "crates/clankers-policy" }
 clankers-render = { path = "crates/clankers-render" }
 clankers-teleop = { path = "crates/clankers-teleop" }
 clankers-sim = { path = "crates/clankers-sim" }
+clankers-physics = { path = "crates/clankers-physics" }
 clankers-viz = { path = "crates/clankers-viz" }
 clankers-test-utils = { path = "crates/clankers-test-utils" }
 

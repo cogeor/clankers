@@ -99,7 +99,17 @@ class Discrete:
 
 
 def space_from_dict(data: dict[str, Any]) -> Box | Discrete:
-    """Deserialize a space from a protocol dict."""
+    """Deserialize a space from a protocol dict.
+
+    Handles both flat format ``{"low": ..., "high": ...}`` and
+    Rust serde enum format ``{"Box": {"low": ..., "high": ...}}``.
+    """
+    # Rust serde enum format: {"Box": {...}} or {"Discrete": {...}}
+    if "Box" in data:
+        return Box.from_dict(data["Box"])
+    if "Discrete" in data:
+        return Discrete.from_dict(data["Discrete"])
+    # Flat format
     if "low" in data and "high" in data:
         return Box.from_dict(data)
     if "n" in data:

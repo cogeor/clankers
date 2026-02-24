@@ -56,4 +56,15 @@ try:
 except ImportError:
     pass
 
+# Optional SB3 VecEnv integration (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.sb3_vec_env import (  # noqa: F401
+        ClankerSB3VecEnv,
+        make_cartpole_sb3_vec_env,
+    )
+
+    __all__.extend(["ClankerSB3VecEnv", "make_cartpole_sb3_vec_env"])
+except ImportError:
+    pass
+
 __version__ = "0.1.0"

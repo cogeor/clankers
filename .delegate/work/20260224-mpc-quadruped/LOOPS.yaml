@@ -1,0 +1,72 @@
+task: 20260224-mpc-quadruped
+description: Centroidal Convex MPC for Quadruped Locomotion
+loops:
+  - id: "01"
+    summary: "Quadruped URDF and lib constant"
+    scope: "examples/urdf/quadruped.urdf, examples/src/lib.rs"
+    description: |
+      Create a quadruped robot URDF with 4 legs × 2 joints (hip_pitch + knee_pitch).
+      Body 0.4×0.2×0.1m, 5kg. Legs at corners, 0.15m segments.
+      Add QUADRUPED_URDF constant to examples/src/lib.rs.
+      Test: parse URDF, verify 8 DOF, verify FK for each leg.
+
+  - id: "02"
+    summary: "MPC crate foundation: types, centroidal dynamics, gait scheduler"
+    scope: "crates/clankers-mpc/{Cargo.toml, src/lib.rs, types.rs, centroidal.rs, gait.rs}"
+    description: |
+      Create clankers-mpc crate. Define core types (MpcConfig, BodyState, ContactPlan).
+      Implement centroidal dynamics: continuous A/B matrices, ZOH discretization.
+      Implement gait scheduler: GaitType enum (Trot, Walk, Stand), phase-based
+      contact sequence generation over prediction horizon.
+      Tests: A/B matrix construction, discretization vs analytic, gait contact patterns.
+
+  - id: "03"
+    summary: "QP formulation and MPC solver with Clarabel"
+    scope: "crates/clankers-mpc/src/{qp.rs, solver.rs}"
+    description: |
+      Add clarabel dependency to workspace. Build QP problem from centroidal dynamics:
+      - P (cost Hessian), q (cost linear), A_eq (dynamics), A_ineq (friction + limits)
+      - Linearized friction cone: |fx| ≤ μ*fz, |fy| ≤ μ*fz
+      - Unilateral contact: fz ≥ 0, fz ≤ fmax
+      - Swing feet: f = 0
+      MpcSolver::solve() returns optimal foot forces for current step.
+      Tests: standing balance, forward push recovery, verify constraint satisfaction.
+
+  - id: "04"
+    summary: "Whole Body Controller and swing leg trajectory"
+    scope: "crates/clankers-mpc/src/{wbc.rs, swing.rs}"
+    description: |
+      WBC maps foot forces → joint torques: τ = J_c^T F for stance legs.
+      Uses clankers-ik KinematicChain per leg for FK and Jacobian computation.
+      Swing leg: Bézier curve trajectory in Cartesian space, then IK to joint angles.
+      SwingPlanner generates foot trajectories with configurable step height/duration.
+      Tests: Jacobian transpose correctness, swing trajectory shape, IK convergence.
+
+  - id: "05"
+    summary: "Bevy ECS plugin integration"
+    scope: "crates/clankers-mpc/src/plugin.rs"
+    description: |
+      ClankersMpcPlugin adds resources and systems to Bevy app.
+      Resources: MpcState (body state), QuadrupedConfig (leg geometry), GaitClock.
+      Systems: extract_body_state (reads Transform/Velocity from body entity),
+      mpc_control_system (gait→MPC→WBC→JointCommand), runs in ClankersSet::Decide.
+      Feature-gated behind "bevy" feature like clankers-ik.
+      Tests: plugin builds, body state extraction.
+
+  - id: "06"
+    summary: "Quadruped MPC example binary"
+    scope: "examples/src/bin/quadruped_mpc.rs, examples/Cargo.toml"
+    description: |
+      Headless example: spawn quadruped with Rapier physics (floating base),
+      wire MPC pipeline, run trot gait walking forward for 500 steps.
+      Actuators in torque mode. MPC targets forward velocity 0.3 m/s.
+      Print: body position, velocity, foot forces, convergence status.
+      Verify body stays upright and moves forward.
+
+  - id: "07"
+    summary: "MPC documentation"
+    scope: ".delegate/doc/crates/clankers-mpc.md"
+    description: |
+      Document MPC module: architecture, mathematical formulation, usage guide,
+      configuration options, example code. Reference the quadruped example.
+      Cover: centroidal dynamics, QP formulation, gait patterns, WBC, swing leg.

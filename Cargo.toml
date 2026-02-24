@@ -41,6 +41,7 @@ rand_chacha = "0.3"
 rand_distr = "0.4"
 toml = "0.8"
 urdf-rs = "0.9"
+rapier3d = "0.32"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

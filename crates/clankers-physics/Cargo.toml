@@ -13,6 +13,7 @@ clankers-actuator.workspace = true
 clankers-urdf.workspace = true
 bevy.workspace = true
 thiserror.workspace = true
+rapier3d.workspace = true
 
 [lints]
 workspace = true

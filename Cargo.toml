@@ -27,8 +27,10 @@ clankers-sim = { path = "crates/clankers-sim" }
 clankers-physics = { path = "crates/clankers-physics" }
 clankers-viz = { path = "crates/clankers-viz" }
 clankers-test-utils = { path = "crates/clankers-test-utils" }
+clankers-ik = { path = "crates/clankers-ik" }
 
 # External dependencies (single source of truth)
+nalgebra = "0.34"
 bevy = { version = "0.17.3", default-features = false }
 bevy_egui = "0.38"
 bevy_panorbit_camera = "0.33"

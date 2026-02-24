@@ -1,0 +1,19 @@
+[package]
+name = "clankers-ik"
+description = "Inverse kinematics solver for Clankers robots"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+clankers-urdf.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+approx = "0.5"
+
+[lints]
+workspace = true

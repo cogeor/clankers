@@ -1987,6 +1987,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "clankers-ik"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "clankers-urdf",
+ "nalgebra",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "clankers-noise"
 version = "0.1.0"
 dependencies = [

@@ -14,11 +14,13 @@ clankers-actuator.workspace = true
 bevy.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+ndarray = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
 serde_json.workspace = true
+thiserror.workspace = true
 
 [features]
-onnx = ["dep:ort"]
+onnx = ["dep:ort", "dep:ndarray"]
 
 [dev-dependencies]
 clankers-domain-rand.workspace = true

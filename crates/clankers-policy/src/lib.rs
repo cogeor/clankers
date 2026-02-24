@@ -21,6 +21,9 @@
 pub mod policies;
 pub mod runner;
 
+#[cfg(feature = "onnx")]
+pub mod onnx;
+
 #[cfg(test)]
 mod integration_tests;
 
@@ -59,6 +62,9 @@ pub mod prelude {
         policies::{ConstantPolicy, RandomPolicy, ScriptedPolicy, ZeroPolicy},
         runner::{PolicyRunner, policy_decide_system},
     };
+
+    #[cfg(feature = "onnx")]
+    pub use crate::onnx::{OnnxPolicy, OnnxPolicyError};
 }
 
 // ---------------------------------------------------------------------------

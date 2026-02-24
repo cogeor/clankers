@@ -1,7 +1,7 @@
 //! URDF-to-Rapier bridge: converts [`RobotModel`] into rapier rigid bodies
 //! and impulse joints, inserting physics marker components on entities.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use bevy::prelude::{Vec3, World};
 use rapier3d::prelude::{
@@ -43,11 +43,19 @@ pub fn register_robot(
         .body_handles
         .insert(model.root_link.clone(), root_handle);
 
+    // Track accumulated world positions through the kinematic chain.
+    // URDF joint origins are relative to the parent link, so each child's
+    // world position = parent world position + joint origin offset.
+    let mut link_world_pos: HashMap<String, Vec3> = HashMap::new();
+    link_world_pos.insert(model.root_link.clone(), Vec3::ZERO);
+
     // 2. BFS through the kinematic tree
     let mut queue = VecDeque::new();
     queue.push_back(model.root_link.clone());
 
     while let Some(parent_link_name) = queue.pop_front() {
+        let parent_world = link_world_pos[&parent_link_name];
+
         for joint_data in model.joints.values() {
             if joint_data.parent != parent_link_name {
                 continue;
@@ -60,9 +68,13 @@ pub fn register_robot(
                 joint_data.origin.xyz[2],
             );
 
-            // Create child rigid body at joint origin position
+            // Child world position = parent world + joint origin offset
+            let child_world = parent_world + origin_pos;
+            link_world_pos.insert(child_link_name.clone(), child_world);
+
+            // Create child rigid body at accumulated world position
             let child_link = model.links.get(child_link_name);
-            let child_body = create_link_body(child_link, origin_pos);
+            let child_body = create_link_body(child_link, child_world);
             let child_handle = context.rigid_body_set.insert(child_body);
             context
                 .body_handles
@@ -139,7 +151,9 @@ fn create_link_body(
     link: Option<&clankers_urdf::types::LinkData>,
     position: Vec3,
 ) -> rapier3d::prelude::RigidBody {
-    let mut builder = rapier3d::prelude::RigidBodyBuilder::dynamic().translation(position);
+    let mut builder = rapier3d::prelude::RigidBodyBuilder::dynamic()
+        .translation(position)
+        .can_sleep(false);
 
     if let Some(link) = link {
         if let Some(ref inertial) = link.inertial {

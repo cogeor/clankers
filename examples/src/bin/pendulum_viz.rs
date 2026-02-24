@@ -8,7 +8,7 @@
 //!
 //! - **Scene camera** (orbit): mouse only — left-drag orbit, right-drag pan,
 //!   scroll zoom. Does NOT respond to keyboard.
-//! - **Joint control** (teleop): keyboard only — Q/A = cart slide, W/S = pole
+//! - **Joint control** (teleop): keyboard only — A/D = cart slide, W/S = pole
 //!   hinge. Also controllable via egui sliders in Teleop mode.
 //! - **Robot camera**: not present in this example, but could be added as an
 //!   optional `Camera3d` parented to a robot link entity.
@@ -25,6 +25,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use clankers_actuator::components::JointState;
+use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
 use clankers_noise::prelude::*;
@@ -32,6 +33,7 @@ use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierCont
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::SceneBuilder;
 use clankers_teleop::prelude::*;
+use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
 use clankers_viz::ClankersVizPlugin;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -325,7 +327,7 @@ fn main() {
     });
 
     // 8. Teleop: keyboard drives joints, NOT the camera.
-    //    Q/A → joint_0 (cart_slide), W/S → joint_1 (pole_hinge)
+    //    A/D → joint_0 (cart_slide), W/S → joint_1 (pole_hinge)
     //    Scene camera is mouse-only (PanOrbitCamera).
     let teleop_config = TeleopConfig::new()
         .with_mapping(
@@ -337,6 +339,23 @@ fn main() {
             JointMapping::new(pole).with_scale(5.0).with_dead_zone(0.05),
         );
     scene.app.insert_resource(teleop_config);
+
+    // Custom keyboard map: A/D = cart, W/S = pole (WASD-style).
+    scene.app.insert_resource(KeyboardTeleopMap {
+        bindings: vec![
+            KeyboardJointBinding {
+                channel: "joint_0".into(),
+                key_positive: KeyCode::KeyD,
+                key_negative: KeyCode::KeyA,
+            },
+            KeyboardJointBinding {
+                channel: "joint_1".into(),
+                key_positive: KeyCode::KeyW,
+                key_negative: KeyCode::KeyS,
+            },
+        ],
+        increment: 0.05,
+    });
 
     // 9. Windowed rendering (scene camera added by ClankersVizPlugin)
     scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -357,9 +376,11 @@ fn main() {
     scene.app.add_systems(Startup, spawn_robot_meshes);
 
     // 12. Visual sync: JointState (physics) → mesh transforms
+    //     Must run after physics so we read up-to-date JointState.
     scene.app.add_systems(
         Update,
-        (sync_cart_visual, sync_pivot_visual, sync_pole_visual),
+        (sync_cart_visual, sync_pivot_visual, sync_pole_visual)
+            .after(ClankersSet::Simulate),
     );
 
     // 13. Sensor noise: noisy readings in obs buffer
@@ -370,7 +391,7 @@ fn main() {
 
     println!("Cart-pole viz with Rapier physics + sensor noise");
     println!("  Scene camera: mouse (orbit/pan/zoom)");
-    println!("  Joint control: switch to Teleop mode, then Q/A = cart, W/S = pole");
+    println!("  Joint control: A/D = cart, W/S = pole");
     println!("  Physics: Rapier3D, gravity [0,0,-9.81], 20 substeps/frame");
     scene.app.run();
 }

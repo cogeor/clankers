@@ -32,9 +32,16 @@ pub fn rapier_step_system(
         if let Some(joint) = context.impulse_joint_set.get_mut(joint_handle, true) {
             // Motor trick: ForceBased motor with huge target velocity,
             // clamped to desired torque magnitude.
-            let target_vel = if t.abs() < 1e-10 { 0.0 } else { t.signum() * 1e10 };
-            joint.data.set_motor(axis, target_vel, 0.0, 0.0, 1.0);
-            joint.data.set_motor_max_force(axis, t.abs());
+            // API: set_motor(axis, target_pos, target_vel, stiffness, damping)
+            if t.abs() > 1e-10 {
+                let target_vel = t.signum() * 1e10;
+                joint.data.set_motor(axis, 0.0, target_vel, 0.0, 1.0);
+                joint.data.set_motor_max_force(axis, t.abs());
+            } else {
+                // Zero torque: fully disable motor so DOF is free.
+                joint.data.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
+                joint.data.set_motor_max_force(axis, 0.0);
+            }
         }
     }
 

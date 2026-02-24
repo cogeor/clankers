@@ -1,8 +1,11 @@
 //! Camera setup for the visualization scene.
 //!
 //! Uses `bevy_panorbit_camera` for orbit camera controls.
+//! The camera is automatically disabled when egui wants pointer input
+//! (e.g. dragging sliders) to prevent conflicts.
 
 use bevy::prelude::*;
+use bevy_egui::EguiContexts;
 use bevy_panorbit_camera::PanOrbitCamera;
 
 /// Spawn the default orbit camera looking at the origin.
@@ -17,6 +20,22 @@ pub fn spawn_camera(mut commands: Commands) {
         },
         Camera3d::default(),
     ));
+}
+
+/// Disable orbit camera when egui wants pointer input (slider drags, clicks).
+///
+/// Checks both `is_pointer_over_area()` (pointer hovering over egui) and
+/// `wants_pointer_input()` (egui actively consuming pointer events, e.g.
+/// during a slider drag even if the pointer drifts outside the panel).
+pub fn egui_camera_gate(mut contexts: EguiContexts, mut cameras: Query<&mut PanOrbitCamera>) {
+    let egui_wants_pointer = contexts
+        .ctx_mut()
+        .map_or(false, |ctx| {
+            ctx.is_pointer_over_area() || ctx.wants_pointer_input()
+        });
+    for mut cam in &mut cameras {
+        cam.enabled = !egui_wants_pointer;
+    }
 }
 
 /// Spawn a ground plane and basic lighting.

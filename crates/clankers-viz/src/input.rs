@@ -1,13 +1,11 @@
 //! Keyboard-to-teleop input mapping.
 //!
 //! Maps keyboard keys to [`TeleopCommander`] channels so that
-//! pressing keys drives joints during teleop mode.
+//! pressing keys drives joints.
 
 use bevy::prelude::*;
 
 use clankers_teleop::TeleopCommander;
-
-use crate::mode::VizMode;
 
 /// A single key-to-joint channel binding.
 #[derive(Clone, Debug)]
@@ -70,18 +68,15 @@ impl KeyboardTeleopMap {
 
 /// System that reads keyboard input and writes to [`TeleopCommander`].
 ///
-/// Only active when [`VizMode::Teleop`] is selected.
+/// Always active — keyboard input is captured regardless of mode.
+/// The downstream `apply_teleop_commands` system decides whether to
+/// actually apply the buffered values to joints.
 #[allow(clippy::needless_pass_by_value)]
 pub fn keyboard_teleop_system(
     keys: Res<ButtonInput<KeyCode>>,
     map: Res<KeyboardTeleopMap>,
     mut commander: ResMut<TeleopCommander>,
-    mode: Res<VizMode>,
 ) {
-    if *mode != VizMode::Teleop {
-        return;
-    }
-
     for binding in &map.bindings {
         let current = commander.get(&binding.channel);
         let mut delta = 0.0;
@@ -113,7 +108,6 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(clankers_core::ClankersCorePlugin);
         app.add_plugins(clankers_teleop::ClankersTeleopPlugin);
-        app.init_resource::<VizMode>();
         app.init_resource::<KeyboardTeleopMap>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.add_systems(Update, keyboard_teleop_system.in_set(ClankersSet::Decide));
@@ -131,24 +125,22 @@ mod tests {
     }
 
     #[test]
-    fn skips_when_not_teleop() {
+    fn keyboard_input_always_captured() {
         let mut app = build_test_app();
-        *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
 
-        // Simulate pressing Q.
+        // Pressing Q updates commander regardless of mode.
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyQ);
         app.update();
 
         let commander = app.world().resource::<TeleopCommander>();
-        assert!((commander.get("joint_0")).abs() < f32::EPSILON);
+        assert!(commander.get("joint_0") > 0.0, "keyboard input should always be captured");
     }
 
     #[test]
-    fn pressing_key_updates_commander_in_teleop() {
+    fn pressing_key_updates_commander() {
         let mut app = build_test_app();
-        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
 
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -163,7 +155,6 @@ mod tests {
     #[test]
     fn negative_key_decrements() {
         let mut app = build_test_app();
-        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
 
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -178,7 +169,6 @@ mod tests {
     #[test]
     fn value_clamps_to_range() {
         let mut app = build_test_app();
-        *app.world_mut().resource_mut::<VizMode>() = VizMode::Teleop;
 
         // Set near the limit.
         app.world_mut()

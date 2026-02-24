@@ -13,6 +13,9 @@ use clankers_policy::runner::PolicyRunner;
 use clankers_sim::EpisodeStats;
 use clankers_teleop::TeleopCommander;
 
+use clankers_core::types::{RobotGroup, RobotId};
+
+use crate::SelectedRobotId;
 use crate::config::VizConfig;
 use crate::mode::VizMode;
 
@@ -24,10 +27,12 @@ pub fn side_panel_system(
     mut mode: ResMut<VizMode>,
     mut episode: ResMut<Episode>,
     mut commander: ResMut<TeleopCommander>,
-    joints: Query<(Entity, &JointCommand, &JointState, &JointTorque)>,
+    joints: Query<(Entity, &JointCommand, &JointState, &JointTorque, Option<&RobotId>)>,
     obs_buffer: Res<ObservationBuffer>,
     policy_runner: Option<Res<PolicyRunner>>,
     stats: Option<Res<EpisodeStats>>,
+    robot_group: Option<Res<RobotGroup>>,
+    mut selected_robot: ResMut<SelectedRobotId>,
 ) {
     if !viz_config.show_panel {
         return;
@@ -47,13 +52,16 @@ pub fn side_panel_system(
             mode_section(ui, &mut mode, policy_runner.is_some());
             ui.separator();
 
+            robot_section(ui, robot_group.as_deref(), &mut selected_robot);
+            ui.separator();
+
             controls_section(ui, &mut viz_config, &mut mode, &mut episode, &mut commander);
             ui.separator();
 
             episode_section(ui, &episode, stats.as_deref());
             ui.separator();
 
-            joints_section(ui, &joints, &mut commander, *mode);
+            joints_section(ui, &joints, &mut commander, *mode, &selected_robot);
             ui.separator();
 
             observation_section(ui, &obs_buffer);
@@ -157,15 +165,51 @@ fn episode_section(ui: &mut egui::Ui, episode: &Episode, stats: Option<&EpisodeS
         });
 }
 
+fn robot_section(
+    ui: &mut egui::Ui,
+    robot_group: Option<&RobotGroup>,
+    selected: &mut SelectedRobotId,
+) {
+    let Some(group) = robot_group else { return };
+    if group.len() <= 1 {
+        return;
+    }
+
+    ui.label("Robot");
+    ui.horizontal(|ui| {
+        // Sort by RobotId index for stable ordering.
+        let mut robots: Vec<_> = group.iter().collect();
+        robots.sort_by_key(|(id, _)| id.index());
+
+        for (id, info) in &robots {
+            let is_selected = selected.0 == Some(*id);
+            let button = egui::Button::new(&info.name).selected(is_selected);
+            if ui.add(button).clicked() {
+                selected.0 = if is_selected { None } else { Some(*id) };
+            }
+        }
+    });
+}
+
 fn joints_section(
     ui: &mut egui::Ui,
-    joints: &Query<(Entity, &JointCommand, &JointState, &JointTorque)>,
+    joints: &Query<(Entity, &JointCommand, &JointState, &JointTorque, Option<&RobotId>)>,
     commander: &mut ResMut<TeleopCommander>,
     mode: VizMode,
+    selected: &SelectedRobotId,
 ) {
     ui.label("Joints");
 
-    if joints.is_empty() {
+    // Collect and filter joints by selected robot.
+    let filtered: Vec<_> = joints
+        .iter()
+        .filter(|(_, _, _, _, rid)| match selected.0 {
+            Some(sel) => rid.map_or(false, |r| *r == sel),
+            None => true,
+        })
+        .collect();
+
+    if filtered.is_empty() {
         ui.label("No joints spawned.");
         return;
     }
@@ -184,7 +228,7 @@ fn joints_section(
             ui.strong("Torque (Nm)");
             ui.end_row();
 
-            for (i, (_entity, cmd, state, torque)) in joints.iter().enumerate() {
+            for (i, (_entity, cmd, state, torque, _rid)) in filtered.iter().enumerate() {
                 ui.label(format!("J{i}"));
 
                 if is_teleop {

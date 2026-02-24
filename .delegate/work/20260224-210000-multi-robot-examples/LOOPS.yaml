@@ -1,0 +1,20 @@
+loops:
+  - id: "01"
+    summary: "Add SelectedRobotId resource and robot selector UI with filtered joint display"
+    scope: "clankers-viz"
+    type: feat
+    status: pending
+
+  - id: "02"
+    summary: "Rebuild KeyboardTeleopMap and TeleopConfig when selected robot changes"
+    scope: "clankers-viz"
+    type: feat
+    depends_on: ["01"]
+    status: pending
+
+  - id: "03"
+    summary: "Create multi_robot_viz.rs example with per-robot meshes and visual sync"
+    scope: "clankers-examples"
+    type: feat
+    depends_on: ["01", "02"]
+    status: pending

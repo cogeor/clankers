@@ -153,6 +153,68 @@ class FailureTermination(TerminationFn):
         return "FailureTermination"
 
 
+class BoundsTermination(TerminationFn):
+    """Terminates when an observation value exceeds symmetric bounds.
+
+    Checks ``abs(obs[index]) > threshold``.
+
+    Parameters
+    ----------
+    obs_index : int
+        Index into the observation vector to check.
+    threshold : float
+        Symmetric bound. Terminates if ``abs(obs[index]) > threshold``.
+    label : str
+        Name for this termination condition.
+    """
+
+    def __init__(self, obs_index: int, threshold: float, label: str = "BoundsTermination") -> None:
+        self._obs_index = obs_index
+        self._threshold = threshold
+        self._label = label
+
+    def is_terminated(
+        self,
+        obs: NDArray[np.float32],
+        step_count: int = 0,
+        info: dict[str, Any] | None = None,
+    ) -> bool:
+        return bool(abs(float(obs[self._obs_index])) > self._threshold)
+
+    @property
+    def name(self) -> str:
+        return self._label
+
+
+def cartpole_termination(
+    angle_threshold: float = 0.2094,
+    position_threshold: float = 2.4,
+    angle_index: int = 2,
+    position_index: int = 0,
+) -> CompositeTermination:
+    """Standard CartPole-v1 termination conditions.
+
+    Terminates when:
+    - Pole angle exceeds ±12 degrees (0.2094 rad)
+    - Cart position exceeds ±2.4 meters
+
+    Parameters
+    ----------
+    angle_threshold : float
+        Max pole angle in radians (default: 0.2094 = 12 degrees).
+    position_threshold : float
+        Max cart position in meters (default: 2.4).
+    angle_index : int
+        Index of pole angle in observation vector (default: 2).
+    position_index : int
+        Index of cart position in observation vector (default: 0).
+    """
+    return CompositeTermination([
+        BoundsTermination(angle_index, angle_threshold, "PoleAngleTermination"),
+        BoundsTermination(position_index, position_threshold, "CartPositionTermination"),
+    ])
+
+
 class CompositeTermination(TerminationFn):
     """OR-composition of multiple termination conditions.
 

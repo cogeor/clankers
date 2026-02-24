@@ -138,6 +138,34 @@ class SparseReward(RewardFunction):
         return "SparseReward"
 
 
+class ConstantReward(RewardFunction):
+    """Returns a constant reward each step.
+
+    Standard reward for CartPole-v1: +1 per step the pole is upright.
+
+    Parameters
+    ----------
+    value : float
+        Constant reward value (default: 1.0).
+    """
+
+    def __init__(self, value: float = 1.0) -> None:
+        self._value = value
+
+    def compute(
+        self,
+        obs: NDArray[np.float32],
+        action: NDArray[np.float32] | int | None = None,
+        next_obs: NDArray[np.float32] | None = None,
+        info: dict[str, Any] | None = None,
+    ) -> float:
+        return self._value
+
+    @property
+    def name(self) -> str:
+        return "ConstantReward"
+
+
 class ActionPenaltyReward(RewardFunction):
     """Penalty proportional to the L2 norm squared of the action.
 

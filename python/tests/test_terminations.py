@@ -6,11 +6,13 @@ import numpy as np
 import pytest
 
 from clanker_gym.terminations import (
+    BoundsTermination,
     CompositeTermination,
     FailureTermination,
     SuccessTermination,
     TerminationFn,
     TimeoutTermination,
+    cartpole_termination,
 )
 
 # ---------------------------------------------------------------------------
@@ -184,3 +186,81 @@ class TestCompositeTermination:
             .add(FailureTermination(obs_index=1, min_value=0.0))  # true: -1.0 < 0.0
         )
         assert term.is_terminated(obs)
+
+
+# ---------------------------------------------------------------------------
+# BoundsTermination
+# ---------------------------------------------------------------------------
+
+
+class TestBoundsTermination:
+    def test_fires_above_threshold(self):
+        obs = np.array([0.0, 0.0, 0.3, 0.0], dtype=np.float32)
+        term = BoundsTermination(obs_index=2, threshold=0.2)
+        assert term.is_terminated(obs)
+
+    def test_fires_below_negative_threshold(self):
+        obs = np.array([0.0, 0.0, -0.3, 0.0], dtype=np.float32)
+        term = BoundsTermination(obs_index=2, threshold=0.2)
+        assert term.is_terminated(obs)
+
+    def test_does_not_fire_within_bounds(self):
+        obs = np.array([0.0, 0.0, 0.1, 0.0], dtype=np.float32)
+        term = BoundsTermination(obs_index=2, threshold=0.2)
+        assert not term.is_terminated(obs)
+
+    def test_exact_boundary_does_not_fire(self):
+        # Use 0.25 which is exactly representable in float32
+        obs = np.array([0.25], dtype=np.float32)
+        term = BoundsTermination(obs_index=0, threshold=0.25)
+        assert not term.is_terminated(obs)
+
+    def test_custom_label(self):
+        term = BoundsTermination(obs_index=0, threshold=1.0, label="MyBounds")
+        assert term.name == "MyBounds"
+
+    def test_default_label(self):
+        term = BoundsTermination(obs_index=0, threshold=1.0)
+        assert term.name == "BoundsTermination"
+
+    def test_is_termination_fn(self):
+        term = BoundsTermination(obs_index=0, threshold=1.0)
+        assert isinstance(term, TerminationFn)
+
+
+# ---------------------------------------------------------------------------
+# cartpole_termination factory
+# ---------------------------------------------------------------------------
+
+
+class TestCartpoleTermination:
+    def test_returns_composite(self):
+        term = cartpole_termination()
+        assert isinstance(term, CompositeTermination)
+
+    def test_angle_triggers(self):
+        # pole_angle at index 2 exceeds 12 degrees (0.2094 rad)
+        obs = np.array([0.0, 0.0, 0.25, 0.0], dtype=np.float32)
+        term = cartpole_termination()
+        assert term.is_terminated(obs)
+
+    def test_position_triggers(self):
+        # cart_pos at index 0 exceeds 2.4m
+        obs = np.array([2.5, 0.0, 0.0, 0.0], dtype=np.float32)
+        term = cartpole_termination()
+        assert term.is_terminated(obs)
+
+    def test_negative_position_triggers(self):
+        obs = np.array([-2.5, 0.0, 0.0, 0.0], dtype=np.float32)
+        term = cartpole_termination()
+        assert term.is_terminated(obs)
+
+    def test_within_bounds_no_trigger(self):
+        obs = np.array([1.0, 0.0, 0.1, 0.0], dtype=np.float32)
+        term = cartpole_termination()
+        assert not term.is_terminated(obs)
+
+    def test_custom_thresholds(self):
+        obs = np.array([0.5, 0.0, 0.05, 0.0], dtype=np.float32)
+        term = cartpole_termination(angle_threshold=0.04, position_threshold=0.4)
+        assert term.is_terminated(obs)  # both exceeded

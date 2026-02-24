@@ -22,8 +22,10 @@ clankers-noise.workspace = true
 clankers-teleop.workspace = true
 clankers-viz.workspace = true
 clankers-physics.workspace = true
+clankers-ik = { workspace = true, features = ["bevy"] }
 clap.workspace = true
 bevy = { workspace = true, features = ["default"] }
+nalgebra.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 

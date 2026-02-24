@@ -121,8 +121,9 @@ class TestClankerGymnasiumEnv:
 
     def test_close(self):
         env = self._make_env()
+        mock_client = env._client
         env.close()
-        env._client.close.assert_called_once()
+        mock_client.close.assert_called_once()
         assert env._client is None
 
     def test_step_discrete_action(self):

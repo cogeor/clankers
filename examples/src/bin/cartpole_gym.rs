@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use clankers_actuator::components::JointCommand;
+use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::prelude::*;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
@@ -124,7 +124,21 @@ fn main() {
         obs_space,
         act_space,
         Box::new(CartPoleApplicator),
-    );
+    )
+    .with_reset_fn(|world: &mut World| {
+        // Reset rapier rigid body positions and velocities
+        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+            ctx.reset_to_initial();
+            world.insert_resource(ctx);
+        }
+        // Reset joint states and commands
+        let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
+        for (mut state, mut cmd) in query.iter_mut(world) {
+            state.position = 0.0;
+            state.velocity = 0.0;
+            cmd.value = 0.0;
+        }
+    });
 
     // ---------------------------------------------------------------
     // 5. Start server

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use bevy::prelude::{Entity, Resource, Vec3};
+use bevy::prelude::{Entity, Quat, Resource, Vec3};
 use rapier3d::prelude::{
     CCDSolver, ColliderSet, DefaultBroadPhase, ImpulseJointHandle, ImpulseJointSet,
     IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline,
@@ -61,6 +61,10 @@ pub struct RapierContext {
     pub joint_info: HashMap<Entity, JointInfo>,
     /// Link name → RigidBodyHandle.
     pub body_handles: HashMap<String, RigidBodyHandle>,
+
+    // -- Initial state for reset --
+    /// Initial body translations, stored after register_robot.
+    pub initial_body_positions: HashMap<RigidBodyHandle, Vec3>,
 }
 
 impl RapierContext {
@@ -85,6 +89,33 @@ impl RapierContext {
             joint_handles: HashMap::new(),
             joint_info: HashMap::new(),
             body_handles: HashMap::new(),
+            initial_body_positions: HashMap::new(),
+        }
+    }
+
+    /// Store current body positions as the initial state for reset.
+    pub fn snapshot_initial_state(&mut self) {
+        self.initial_body_positions.clear();
+        for (name, &handle) in &self.body_handles {
+            if let Some(body) = self.rigid_body_set.get(handle) {
+                let t = body.translation();
+                self.initial_body_positions
+                    .insert(handle, Vec3::new(t.x, t.y, t.z));
+            }
+            let _ = name; // suppress unused warning
+        }
+    }
+
+    /// Reset all rigid bodies to their initial positions with zero velocity.
+    pub fn reset_to_initial(&mut self) {
+        for (&handle, &initial_pos) in &self.initial_body_positions {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_translation(initial_pos, true);
+                body.set_rotation(Quat::IDENTITY, true);
+                body.set_linvel(Vec3::ZERO, true);
+                body.set_angvel(Vec3::ZERO, true);
+                body.wake_up(true);
+            }
         }
     }
 

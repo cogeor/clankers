@@ -9,9 +9,9 @@ use bevy::prelude::*;
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum VizMode {
     /// Simulation paused. No stepping occurs.
-    #[default]
     Paused,
     /// Manual teleop control via keyboard/gamepad input.
+    #[default]
     Teleop,
     /// Autonomous policy inference drives the robot.
     Policy,

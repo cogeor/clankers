@@ -46,6 +46,9 @@ impl Plugin for ClankersVizPlugin {
         // Startup: camera and scene.
         app.add_systems(Startup, (camera::spawn_camera, camera::spawn_scene));
 
+        // Disable orbit camera when egui wants pointer (prevents slider drag → orbit).
+        app.add_systems(Update, camera::egui_camera_gate);
+
         // Mode gating: runs before the ClankersSet pipeline.
         app.add_systems(
             Update,

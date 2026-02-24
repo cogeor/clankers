@@ -14,9 +14,23 @@
 //! at initialization time. The solver then operates on this chain, taking
 //! target poses and current joint positions as input, and producing
 //! target joint positions as output.
+//!
+//! # Bevy Integration
+//!
+//! Enable the `bevy` feature for ECS integration:
+//!
+//! ```toml
+//! clankers-ik = { workspace = true, features = ["bevy"] }
+//! ```
 
 pub mod chain;
 pub mod solver;
 
+#[cfg(feature = "bevy")]
+pub mod plugin;
+
 pub use chain::KinematicChain;
 pub use solver::{DlsConfig, DlsSolver, IkResult, IkTarget};
+
+#[cfg(feature = "bevy")]
+pub use plugin::{ClankerIkPlugin, IkChainEntry, IkChainMap, IkSolverConfig};

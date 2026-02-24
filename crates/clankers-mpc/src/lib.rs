@@ -20,8 +20,10 @@
 
 pub mod centroidal;
 pub mod gait;
+pub mod solver;
 pub mod types;
 
 pub use centroidal::{build_continuous_dynamics, discretize};
 pub use gait::{GaitScheduler, GaitType};
-pub use types::{BodyState, ContactPlan, MpcConfig};
+pub use solver::MpcSolver;
+pub use types::{BodyState, ContactPlan, MpcConfig, MpcSolution, ReferenceTrajectory};

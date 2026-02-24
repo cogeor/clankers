@@ -1,0 +1,27 @@
+loops:
+  - id: "01"
+    summary: "Add ort workspace dependency and onnx feature flag to clankers-policy"
+    scope: "clankers-policy, workspace"
+    type: "chore"
+    status: pending
+
+  - id: "02"
+    summary: "Implement OnnxPolicy struct with Policy trait, metadata parsing, and unit tests"
+    scope: "clankers-policy"
+    type: "feat"
+    depends_on: ["01"]
+    status: pending
+
+  - id: "03"
+    summary: "Create Python export script to convert SB3 models to ONNX with clanker metadata"
+    scope: "python/examples"
+    type: "feat"
+    depends_on: ["02"]
+    status: pending
+
+  - id: "04"
+    summary: "Add cartpole_policy_viz example binary for ONNX policy visualization"
+    scope: "examples"
+    type: "feat"
+    depends_on: ["02", "03"]
+    status: pending

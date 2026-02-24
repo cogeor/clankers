@@ -28,6 +28,7 @@ clankers-physics = { path = "crates/clankers-physics" }
 clankers-viz = { path = "crates/clankers-viz" }
 clankers-test-utils = { path = "crates/clankers-test-utils" }
 clankers-ik = { path = "crates/clankers-ik" }
+clankers-mpc = { path = "crates/clankers-mpc" }
 
 # External dependencies (single source of truth)
 nalgebra = "0.34"
@@ -43,6 +44,7 @@ rand_chacha = "0.3"
 rand_distr = "0.4"
 toml = "0.8"
 urdf-rs = "0.9"
+clarabel = "0.11"
 rapier3d = "0.32"
 ndarray = "0.16"
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "load-dynamic", "tls-native"] }

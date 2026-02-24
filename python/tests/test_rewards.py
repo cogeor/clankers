@@ -8,6 +8,7 @@ import pytest
 from clanker_gym.rewards import (
     ActionPenaltyReward,
     CompositeReward,
+    ConstantReward,
     DistanceReward,
     RewardFunction,
     SparseReward,
@@ -196,3 +197,48 @@ class TestCompositeReward:
         obs = np.zeros(1, dtype=np.float32)
         action = np.array([3.0], dtype=np.float32)
         assert abs(reward.compute(obs, action=action) - (-9.0)) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# ConstantReward
+# ---------------------------------------------------------------------------
+
+
+class TestConstantReward:
+    def test_default_value(self):
+        reward = ConstantReward()
+        obs = np.zeros(4, dtype=np.float32)
+        assert reward.compute(obs) == 1.0
+
+    def test_custom_value(self):
+        reward = ConstantReward(value=0.5)
+        obs = np.zeros(4, dtype=np.float32)
+        assert reward.compute(obs) == 0.5
+
+    def test_negative_value(self):
+        reward = ConstantReward(value=-1.0)
+        obs = np.zeros(4, dtype=np.float32)
+        assert reward.compute(obs) == -1.0
+
+    def test_ignores_obs_and_action(self):
+        reward = ConstantReward(value=2.0)
+        obs = np.array([99.0, 88.0], dtype=np.float32)
+        action = np.array([7.0], dtype=np.float32)
+        assert reward.compute(obs, action=action) == 2.0
+
+    def test_name(self):
+        reward = ConstantReward()
+        assert reward.name == "ConstantReward"
+
+    def test_is_reward_function(self):
+        reward = ConstantReward()
+        assert isinstance(reward, RewardFunction)
+
+    def test_in_composite(self):
+        reward = CompositeReward().add(ConstantReward(1.0), weight=1.0).add(
+            ActionPenaltyReward(scale=1.0), weight=1.0
+        )
+        obs = np.zeros(1, dtype=np.float32)
+        action = np.array([2.0], dtype=np.float32)
+        # constant: 1.0 * 1.0 = 1.0; penalty: -4.0 * 1.0 = -4.0; total = -3.0
+        assert abs(reward.compute(obs, action=action) - (-3.0)) < 1e-6

@@ -5,17 +5,20 @@ from clanker_gym.env import ClankerEnv
 from clanker_gym.rewards import (
     ActionPenaltyReward,
     CompositeReward,
+    ConstantReward,
     DistanceReward,
     RewardFunction,
     SparseReward,
 )
 from clanker_gym.spaces import Box, Discrete
 from clanker_gym.terminations import (
+    BoundsTermination,
     CompositeTermination,
     FailureTermination,
     SuccessTermination,
     TerminationFn,
     TimeoutTermination,
+    cartpole_termination,
 )
 from clanker_gym.vec_env import ClankerVecEnv
 
@@ -29,6 +32,7 @@ __all__ = [
     "RewardFunction",
     "DistanceReward",
     "SparseReward",
+    "ConstantReward",
     "ActionPenaltyReward",
     "CompositeReward",
     # Terminations
@@ -36,7 +40,9 @@ __all__ = [
     "SuccessTermination",
     "TimeoutTermination",
     "FailureTermination",
+    "BoundsTermination",
     "CompositeTermination",
+    "cartpole_termination",
 ]
 
 # Optional Gymnasium integration (requires `pip install clanker-gym[sb3]`).

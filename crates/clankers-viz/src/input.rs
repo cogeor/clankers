@@ -34,12 +34,12 @@ impl Default for KeyboardTeleopMap {
 }
 
 impl KeyboardTeleopMap {
-    /// Default mapping for up to 6 joints.
+    /// Create a mapping for exactly `n` joints (clamped to 0..=6).
     ///
-    /// Q/A → `joint_0`, W/S → `joint_1`, E/D → `joint_2`,
-    /// R/F → `joint_3`, T/G → `joint_4`, Y/H → `joint_5`.
+    /// Uses the same key pairs as [`six_joint_default`](Self::six_joint_default):
+    /// Q/A, W/S, E/D, R/F, T/G, Y/H -- truncated to the first `n`.
     #[must_use]
-    pub fn six_joint_default() -> Self {
+    pub fn for_joint_count(n: usize) -> Self {
         let pairs = [
             (KeyCode::KeyQ, KeyCode::KeyA),
             (KeyCode::KeyW, KeyCode::KeyS),
@@ -49,10 +49,11 @@ impl KeyboardTeleopMap {
             (KeyCode::KeyY, KeyCode::KeyH),
         ];
 
-        let bindings = pairs
-            .into_iter()
+        let count = n.min(pairs.len());
+        let bindings = pairs[..count]
+            .iter()
             .enumerate()
-            .map(|(i, (pos, neg))| KeyboardJointBinding {
+            .map(|(i, &(pos, neg))| KeyboardJointBinding {
                 channel: format!("joint_{i}"),
                 key_positive: pos,
                 key_negative: neg,
@@ -63,6 +64,15 @@ impl KeyboardTeleopMap {
             bindings,
             increment: 0.05,
         }
+    }
+
+    /// Default mapping for up to 6 joints.
+    ///
+    /// Q/A → `joint_0`, W/S → `joint_1`, E/D → `joint_2`,
+    /// R/F → `joint_3`, T/G → `joint_4`, Y/H → `joint_5`.
+    #[must_use]
+    pub fn six_joint_default() -> Self {
+        Self::for_joint_count(6)
     }
 }
 
@@ -164,6 +174,40 @@ mod tests {
         let commander = app.world().resource::<TeleopCommander>();
         let value = commander.get("joint_0");
         assert!(value < 0.0, "expected negative value, got {value}");
+    }
+
+    #[test]
+    fn for_joint_count_zero() {
+        let map = KeyboardTeleopMap::for_joint_count(0);
+        assert_eq!(map.bindings.len(), 0);
+    }
+
+    #[test]
+    fn for_joint_count_three() {
+        let map = KeyboardTeleopMap::for_joint_count(3);
+        assert_eq!(map.bindings.len(), 3);
+        assert_eq!(map.bindings[0].channel, "joint_0");
+        assert_eq!(map.bindings[2].channel, "joint_2");
+        assert_eq!(map.bindings[0].key_positive, KeyCode::KeyQ);
+        assert_eq!(map.bindings[2].key_positive, KeyCode::KeyE);
+    }
+
+    #[test]
+    fn for_joint_count_clamps_at_six() {
+        let map = KeyboardTeleopMap::for_joint_count(10);
+        assert_eq!(map.bindings.len(), 6);
+    }
+
+    #[test]
+    fn six_joint_default_equals_for_joint_count_six() {
+        let a = KeyboardTeleopMap::six_joint_default();
+        let b = KeyboardTeleopMap::for_joint_count(6);
+        assert_eq!(a.bindings.len(), b.bindings.len());
+        for (ba, bb) in a.bindings.iter().zip(b.bindings.iter()) {
+            assert_eq!(ba.channel, bb.channel);
+            assert_eq!(ba.key_positive, bb.key_positive);
+            assert_eq!(ba.key_negative, bb.key_negative);
+        }
     }
 
     #[test]

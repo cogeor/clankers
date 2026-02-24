@@ -8,6 +8,7 @@
 pub mod backend;
 pub mod components;
 pub mod plugin;
+pub mod rapier;
 pub mod systems;
 
 // ---------------------------------------------------------------------------

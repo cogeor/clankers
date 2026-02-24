@@ -1,1 +1,4 @@
 # Workspace-wide cargo configuration
+
+[build]
+jobs = 24

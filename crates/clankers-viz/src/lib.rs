@@ -19,6 +19,9 @@
 //!     .run();
 //! ```
 
+use bevy::prelude::Resource;
+use clankers_core::types::RobotId;
+
 pub mod camera;
 pub mod config;
 pub mod input;
@@ -27,6 +30,30 @@ pub mod plugin;
 pub mod systems;
 pub mod ui;
 
+/// Resource tracking which robot is selected in the viz UI.
+///
+/// `None` means show all robots (useful for single-robot scenes).
+#[derive(Resource, Default, Clone, Debug)]
+pub struct SelectedRobotId(pub Option<RobotId>);
+
 pub use config::VizConfig;
 pub use mode::VizMode;
 pub use plugin::ClankersVizPlugin;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_robot_id_default_is_none() {
+        let selected = SelectedRobotId::default();
+        assert!(selected.0.is_none());
+    }
+
+    #[test]
+    fn selected_robot_id_clone() {
+        let a = SelectedRobotId(Some(RobotId(2)));
+        let b = a.clone();
+        assert_eq!(a.0, b.0);
+    }
+}

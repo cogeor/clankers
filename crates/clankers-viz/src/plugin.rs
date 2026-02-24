@@ -37,7 +37,8 @@ impl Plugin for ClankersVizPlugin {
         app.init_resource::<VizConfig>()
             .init_resource::<VizMode>()
             .init_resource::<VizSimGate>()
-            .init_resource::<KeyboardTeleopMap>();
+            .init_resource::<KeyboardTeleopMap>()
+            .init_resource::<crate::SelectedRobotId>();
 
         // Third-party plugins.
         app.add_plugins(EguiPlugin::default())

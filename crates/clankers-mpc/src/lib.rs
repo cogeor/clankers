@@ -21,9 +21,13 @@
 pub mod centroidal;
 pub mod gait;
 pub mod solver;
+pub mod swing;
 pub mod types;
+pub mod wbc;
 
 pub use centroidal::{build_continuous_dynamics, discretize};
 pub use gait::{GaitScheduler, GaitType};
 pub use solver::MpcSolver;
+pub use swing::{SwingConfig, raibert_foot_target, swing_foot_position};
 pub use types::{BodyState, ContactPlan, MpcConfig, MpcSolution, ReferenceTrajectory};
+pub use wbc::{LegCommand, compute_leg_jacobian, jacobian_transpose_torques};

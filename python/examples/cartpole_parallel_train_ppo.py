@@ -122,9 +122,9 @@ def main() -> None:
     print(f"PPO config: MlpPolicy(64x64), lr=3e-4, n_steps=2048, batch=64")
 
     # --- Single-env training ---
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print("Training with SINGLE environment (port 9877)...")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
     try:
         model_single, time_single = train_single_env(total_timesteps, port=9877)
         print(f"  Training time: {time_single:.1f}s")
@@ -138,9 +138,9 @@ def main() -> None:
         model_single, time_single, eval_single = None, None, None
 
     # --- Vec-env training ---
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print("Training with PARALLEL environments (port 9878)...")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
     try:
         model_vec, time_vec = train_vec_env(total_timesteps, port=9878)
         print(f"  Training time: {time_vec:.1f}s")

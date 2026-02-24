@@ -47,9 +47,12 @@ __all__ = [
 
 # Optional Gymnasium integration (requires `pip install clanker-gym[sb3]`).
 try:
-    from clanker_gym.gymnasium_env import ClankerGymnasiumEnv  # noqa: F401
+    from clanker_gym.gymnasium_env import (  # noqa: F401
+        ClankerGymnasiumEnv,
+        make_cartpole_gymnasium_env,
+    )
 
-    __all__.append("ClankerGymnasiumEnv")
+    __all__.extend(["ClankerGymnasiumEnv", "make_cartpole_gymnasium_env"])
 except ImportError:
     pass
 

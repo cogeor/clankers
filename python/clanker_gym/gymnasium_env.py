@@ -23,8 +23,9 @@ except ImportError as exc:
     ) from exc
 
 from clanker_gym.client import GymClient
-from clanker_gym.rewards import RewardFunction
+from clanker_gym.rewards import ConstantReward, RewardFunction
 from clanker_gym.spaces import Box, Discrete, space_from_dict
+from clanker_gym.terminations import TerminationFn, cartpole_termination
 
 
 def _to_gymnasium_space(
@@ -62,12 +63,14 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         host: str = "127.0.0.1",
         port: int = 9876,
         reward_fn: RewardFunction | None = None,
+        termination_fn: TerminationFn | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._host = host
         self._port = port
         self._reward_fn = reward_fn
+        self._termination_fn = termination_fn
         self._client: GymClient | None = None
         self._step_count = 0
         self._last_obs: NDArray[np.float32] | None = None
@@ -163,6 +166,10 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         else:
             reward = 0.0
 
+        # Python-side termination override
+        if self._termination_fn is not None and not terminated:
+            terminated = self._termination_fn.is_terminated(obs, self._step_count)
+
         self._last_obs = obs
         return obs, reward, terminated, truncated, info
 
@@ -174,3 +181,27 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
 
     def render(self) -> None:
         """No-op; Clankers rendering is handled server-side."""
+
+
+def make_cartpole_gymnasium_env(
+    host: str = "127.0.0.1",
+    port: int = 9877,
+) -> ClankerGymnasiumEnv:
+    """Create a Gymnasium CartPole-v1 compatible environment.
+
+    Uses ConstantReward (+1 per step) and standard CartPole-v1 termination
+    conditions (pole angle > 12deg or cart position > 2.4m).
+
+    Parameters
+    ----------
+    host : str
+        Server address (default: 127.0.0.1).
+    port : int
+        Server port (default: 9877 for cartpole_gym).
+    """
+    return ClankerGymnasiumEnv(
+        host=host,
+        port=port,
+        reward_fn=ConstantReward(value=1.0),
+        termination_fn=cartpole_termination(),
+    )

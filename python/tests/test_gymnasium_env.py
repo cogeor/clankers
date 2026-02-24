@@ -10,9 +10,14 @@ import pytest
 # Skip entire module if gymnasium is not installed.
 gymnasium = pytest.importorskip("gymnasium")
 
-from clanker_gym.gymnasium_env import ClankerGymnasiumEnv, _to_gymnasium_space  # noqa: E402
-from clanker_gym.rewards import DistanceReward  # noqa: E402
+from clanker_gym.gymnasium_env import (  # noqa: E402
+    ClankerGymnasiumEnv,
+    _to_gymnasium_space,
+    make_cartpole_gymnasium_env,
+)
+from clanker_gym.rewards import ConstantReward, DistanceReward  # noqa: E402
 from clanker_gym.spaces import Box, Discrete  # noqa: E402
+from clanker_gym.terminations import BoundsTermination, cartpole_termination  # noqa: E402
 
 
 class TestToGymnasiumSpace:
@@ -31,12 +36,13 @@ class TestToGymnasiumSpace:
 
 
 class TestClankerGymnasiumEnv:
-    def _make_env(self, reward_fn=None):
+    def _make_env(self, reward_fn=None, termination_fn=None):
         """Create env with mocked client."""
         env = ClankerGymnasiumEnv.__new__(ClankerGymnasiumEnv)
         env._host = "127.0.0.1"
         env._port = 9876
         env._reward_fn = reward_fn
+        env._termination_fn = termination_fn
         env._client = MagicMock()
         env._step_count = 0
         env._last_obs = None
@@ -134,3 +140,61 @@ class TestClankerGymnasiumEnv:
         env.step(3)
         sent = env._client.send.call_args[0][0]
         assert sent["action"] == {"Discrete": 3}
+
+    def test_termination_fn_fires(self):
+        term_fn = BoundsTermination(obs_index=2, threshold=0.2, label="AngleLimit")
+        env = self._make_env(termination_fn=term_fn)
+        env._last_obs = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+        # Server says not terminated, but angle 0.3 > 0.2 threshold
+        env._client.send.return_value = {
+            "type": "step",
+            "observation": {"data": [0.0, 0.0, 0.3, 0.0]},
+            "terminated": False,
+            "truncated": False,
+            "info": {},
+        }
+
+        obs, reward, terminated, truncated, info = env.step(np.array([0.0, 0.0]))
+        assert terminated  # Python-side termination overrides
+
+    def test_termination_fn_does_not_override_server(self):
+        term_fn = BoundsTermination(obs_index=2, threshold=0.2, label="AngleLimit")
+        env = self._make_env(termination_fn=term_fn)
+        env._last_obs = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+        # Server says terminated, Python should not un-terminate
+        env._client.send.return_value = {
+            "type": "step",
+            "observation": {"data": [0.0, 0.0, 0.01, 0.0]},
+            "terminated": True,
+            "truncated": False,
+            "info": {},
+        }
+
+        obs, reward, terminated, truncated, info = env.step(np.array([0.0, 0.0]))
+        assert terminated  # Server says terminated, stays terminated
+
+    def test_no_termination_fn_no_override(self):
+        env = self._make_env(termination_fn=None)
+        env._last_obs = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+        env._client.send.return_value = {
+            "type": "step",
+            "observation": {"data": [0.0, 0.0, 0.3, 0.0]},
+            "terminated": False,
+            "truncated": False,
+            "info": {},
+        }
+
+        obs, reward, terminated, truncated, info = env.step(np.array([0.0, 0.0]))
+        assert not terminated  # No termination fn, server says false
+
+
+class TestMakeCartpoleGymnasiumEnv:
+    def test_returns_configured_env(self):
+        env = make_cartpole_gymnasium_env(port=9999)
+        assert isinstance(env, ClankerGymnasiumEnv)
+        assert isinstance(env._reward_fn, ConstantReward)
+        assert env._termination_fn is not None
+        assert env._port == 9999

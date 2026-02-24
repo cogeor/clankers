@@ -112,7 +112,7 @@ fn spawn_robot_meshes(
     // Rail: static, never moves
     commands.spawn((
         RailVisual,
-        Mesh3d(meshes.add(Cuboid::new(2.5, 0.04, 0.06))),
+        Mesh3d(meshes.add(Cuboid::new(5.0, 0.04, 0.06))),
         MeshMaterial3d(rail_mat),
         Transform::from_xyz(0.0, 0.02, 0.0),
     ));
@@ -142,14 +142,14 @@ fn spawn_robot_meshes(
         ))
         .with_children(|parent| {
             parent.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.02, 0.4))),
+                Mesh3d(meshes.add(Cylinder::new(0.02, 1.0))),
                 MeshMaterial3d(pole_mat.clone()),
-                Transform::from_xyz(0.0, 0.2, 0.0),
+                Transform::from_xyz(0.0, 0.5, 0.0),
             ));
             parent.spawn((
                 Mesh3d(meshes.add(Sphere::new(0.03))),
                 MeshMaterial3d(pole_mat),
-                Transform::from_xyz(0.0, 0.4, 0.0),
+                Transform::from_xyz(0.0, 1.0, 0.0),
             ));
         });
 }
@@ -332,7 +332,7 @@ fn main() {
     let teleop_config = TeleopConfig::new()
         .with_mapping(
             "joint_0",
-            JointMapping::new(cart).with_scale(15.0).with_dead_zone(0.05),
+            JointMapping::new(cart).with_scale(10.0).with_dead_zone(0.05),
         )
         .with_mapping(
             "joint_1",

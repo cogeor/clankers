@@ -1,13 +1,20 @@
 //! Integration test: verify raw rapier cart-pole dynamics.
 //!
-//! Creates a minimal cart-pole (fixed rail, prismatic cart, revolute pole)
+//! Creates a minimal cart-pole matching OpenAI Gym CartPole-v1 parameters
 //! directly in rapier and checks that:
 //! 1. Applying force to the cart causes it to accelerate
 //! 2. The pole tilts when the cart accelerates (inertial effect)
 //! 3. Gravity destabilizes the pole once tilted
+//!
+//! CartPole-v1 reference:
+//!   Cart mass: 1.0 kg, Pole mass: 0.1 kg, Pole half-length: 0.5 m
+//!   Force: 10 N, Gravity: 9.8 m/s², dt: 0.02 s, No damping
 
 use bevy::prelude::Vec3;
 use rapier3d::prelude::*;
+
+/// Gravity matching CartPole-v1 (9.8, not 9.81)
+const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
 
 fn build_cartpole() -> (
     RigidBodySet,
@@ -32,10 +39,11 @@ fn build_cartpole() -> (
     // Rail: fixed at origin
     let rail = rigid_body_set.insert(RigidBodyBuilder::fixed().build());
 
-    // Cart: dynamic at (0, 0, 0.035), mass 1.0 kg
+    // Cart: dynamic at (0, 0, 0.035), mass 1.0 kg (CartPole-v1 standard)
     let cart = rigid_body_set.insert(
         RigidBodyBuilder::dynamic()
             .translation(Vec3::new(0.0, 0.0, 0.035))
+            .can_sleep(false)
             .additional_mass_properties(MassProperties::new(
                 Vec3::ZERO,
                 1.0,
@@ -44,29 +52,31 @@ fn build_cartpole() -> (
             .build(),
     );
 
-    // Prismatic joint: cart slides along X, anchored on rail at (0,0,0.035)
+    // Prismatic joint: cart slides along X, limits ±2.4m (CartPole-v1 standard)
     let mut cart_joint: GenericJoint = PrismaticJointBuilder::new(Vec3::X)
         .local_anchor1(Vec3::new(0.0, 0.0, 0.035))
-        .limits([-1.0, 1.0])
+        .limits([-2.4, 2.4])
         .build()
         .into();
     cart_joint.set_motor_model(JointAxis::LinX, MotorModel::ForceBased);
     cart_joint.set_motor(JointAxis::LinX, 0.0, 0.0, 0.0, 0.0);
     let cart_jh = impulse_joint_set.insert(rail, cart, cart_joint, true);
 
-    // Pole: dynamic at (0, 0, 0.06), mass 0.1 kg, COM at local (0,0,0.2)
+    // Pole: dynamic, mass 0.1 kg, COM at 0.5m from pivot (CartPole-v1: half-length = 0.5m)
+    // Inertia of uniform rod about COM: I = mL²/12 = 0.1 * 1.0² / 12 = 0.00833
     let pole = rigid_body_set.insert(
         RigidBodyBuilder::dynamic()
             .translation(Vec3::new(0.0, 0.0, 0.06))
+            .can_sleep(false)
             .additional_mass_properties(MassProperties::new(
-                Vec3::new(0.0, 0.0, 0.2),
+                Vec3::new(0.0, 0.0, 0.5),
                 0.1,
-                Vec3::new(0.002, 0.002, 0.0001),
+                Vec3::new(0.00833, 0.00833, 0.0001),
             ))
             .build(),
     );
 
-    // Revolute joint: pole rotates around Y, anchored on cart at (0,0,0.025)
+    // Revolute joint: pole rotates around Y, no limits (continuous), no damping
     let mut pole_joint: GenericJoint = RevoluteJointBuilder::new(Vec3::Y)
         .local_anchor1(Vec3::new(0.0, 0.0, 0.025))
         .build()
@@ -139,19 +149,18 @@ fn cart_force_moves_cart() {
         cart, _pole, cart_jh, _pole_jh,
     ) = build_cartpole();
 
-    let gravity = Vec3::new(0.0, 0.0, -9.81);
     let mut params = IntegrationParameters::default();
     params.dt = 0.001;
 
-    // Apply 10N force to cart via motor trick
+    // Apply 10N force to cart via motor trick (CartPole-v1 force magnitude)
     if let Some(joint) = joints.get_mut(cart_jh, true) {
         joint.data.set_motor(JointAxis::LinX, 0.0, 1e10, 0.0, 1.0);
         joint.data.set_motor_max_force(JointAxis::LinX, 10.0);
     }
 
-    // Step 20 substeps (= 0.02s control step)
+    // Step 20 substeps (= 0.02s, one CartPole-v1 control step)
     for _ in 0..20 {
-        step(&mut pipeline, gravity, &params, &mut islands, &mut bp, &mut np,
+        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
              &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
     }
 
@@ -167,7 +176,6 @@ fn pole_tilts_from_cart_acceleration() {
         cart, pole, cart_jh, pole_jh,
     ) = build_cartpole();
 
-    let gravity = Vec3::new(0.0, 0.0, -9.81);
     let mut params = IntegrationParameters::default();
     params.dt = 0.001;
 
@@ -179,15 +187,15 @@ fn pole_tilts_from_cart_acceleration() {
 
     let angle_before = pole_angle(&bodies, cart, pole);
 
-    // Apply 15N force to cart (same as teleop at full command)
+    // Apply 10N force to cart (CartPole-v1 force magnitude)
     if let Some(joint) = joints.get_mut(cart_jh, true) {
         joint.data.set_motor(JointAxis::LinX, 0.0, 1e10, 0.0, 1.0);
-        joint.data.set_motor_max_force(JointAxis::LinX, 15.0);
+        joint.data.set_motor_max_force(JointAxis::LinX, 10.0);
     }
 
-    // Step 100 substeps (= 0.1s)
+    // Step 100 substeps (= 0.1s = 5 CartPole-v1 control steps)
     for _ in 0..100 {
-        step(&mut pipeline, gravity, &params, &mut islands, &mut bp, &mut np,
+        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
              &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
     }
 
@@ -205,7 +213,6 @@ fn pole_falls_under_gravity_when_perturbed() {
         cart, pole, _cart_jh, pole_jh,
     ) = build_cartpole();
 
-    let gravity = Vec3::new(0.0, 0.0, -9.81);
     let mut params = IntegrationParameters::default();
     params.dt = 0.001;
 
@@ -220,7 +227,7 @@ fn pole_falls_under_gravity_when_perturbed() {
 
     // Step 1000 substeps (= 1.0s)
     for _ in 0..1000 {
-        step(&mut pipeline, gravity, &params, &mut islands, &mut bp, &mut np,
+        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
              &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
     }
 
@@ -238,10 +245,9 @@ fn pole_mass_is_nonzero() {
     ) = build_cartpole();
 
     // Step once so rapier recomputes mass properties from additional_mass_properties
-    let gravity = Vec3::new(0.0, 0.0, -9.81);
     let mut params = IntegrationParameters::default();
     params.dt = 0.001;
-    step(&mut pipeline, gravity, &params, &mut islands, &mut bp, &mut np,
+    step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
          &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
 
     let pole_body = &bodies[pole];

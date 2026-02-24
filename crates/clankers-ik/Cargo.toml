@@ -7,10 +7,19 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+bevy = ["dep:bevy", "dep:clankers-core", "dep:clankers-actuator"]
+
 [dependencies]
 clankers-urdf.workspace = true
 nalgebra.workspace = true
 thiserror.workspace = true
+
+# Optional Bevy integration
+bevy = { workspace = true, optional = true }
+clankers-core = { workspace = true, optional = true }
+clankers-actuator = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = "0.5"

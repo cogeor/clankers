@@ -154,7 +154,7 @@ impl DlsSolver {
 
 /// Compute the error vector between current EE pose and target.
 ///
-/// Returns (position_error_norm, orientation_error_norm, error_vector).
+/// Returns `(pos_err, ori_err, error_vec)` for the solver loop.
 fn compute_error(
     ee_pose: &Isometry3<f32>,
     target: &IkTarget,
@@ -186,11 +186,8 @@ fn compute_error(
 
 /// Extract orientation error as a 3-vector (axis * angle) from a unit quaternion.
 fn orientation_error(q: &UnitQuaternion<f32>) -> Vector3<f32> {
-    if let Some(axis) = q.axis() {
-        axis.into_inner() * q.angle()
-    } else {
-        Vector3::zeros()
-    }
+    q.axis()
+        .map_or_else(Vector3::zeros, |axis| axis.into_inner() * q.angle())
 }
 
 /// Compute the geometric Jacobian for the current configuration.

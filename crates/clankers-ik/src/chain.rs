@@ -97,7 +97,7 @@ impl KinematicChain {
     }
 
     /// Number of actuated degrees of freedom.
-    pub fn dof(&self) -> usize {
+    pub const fn dof(&self) -> usize {
         self.joints.len()
     }
 
@@ -112,7 +112,7 @@ impl KinematicChain {
     }
 
     /// End-effector offset after the last joint.
-    pub fn ee_offset(&self) -> &Isometry3<f32> {
+    pub const fn ee_offset(&self) -> &Isometry3<f32> {
         &self.ee_offset
     }
 
@@ -139,7 +139,7 @@ impl KinematicChain {
 
     /// Compute per-joint transforms for Jacobian computation.
     ///
-    /// Returns (joint_origins_in_base, joint_axes_in_base, ee_position).
+    /// Returns `(origins, axes, ee_pos)` tuples for Jacobian computation.
     pub fn joint_frames(&self, q: &[f32]) -> (Vec<Vector3<f32>>, Vec<Vector3<f32>>, Vector3<f32>) {
         assert_eq!(q.len(), self.dof());
 
@@ -185,12 +185,12 @@ fn origin_to_isometry(origin: &Origin) -> Isometry3<f32> {
 }
 
 /// Build a rotation matrix from roll-pitch-yaw (intrinsic XYZ / extrinsic ZYX).
+#[allow(clippy::suboptimal_flops)]
 fn rotation_matrix_from_rpy(roll: f32, pitch: f32, yaw: f32) -> Matrix3<f32> {
     let (sr, cr) = roll.sin_cos();
     let (sp, cp) = pitch.sin_cos();
     let (sy, cy) = yaw.sin_cos();
 
-    // Extrinsic ZYX = Intrinsic XYZ
     Matrix3::new(
         cy * cp,
         cy * sp * sr - sy * cr,

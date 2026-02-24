@@ -14,6 +14,11 @@ clankers-actuator.workspace = true
 bevy.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+ort = { workspace = true, optional = true }
+serde_json.workspace = true
+
+[features]
+onnx = ["dep:ort"]
 
 [dev-dependencies]
 clankers-domain-rand.workspace = true

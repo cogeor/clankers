@@ -1955,6 +1955,7 @@ dependencies = [
  "clankers-env",
  "clankers-gym",
  "clankers-noise",
+ "clankers-physics",
  "clankers-policy",
  "clankers-sim",
  "clankers-teleop",

@@ -1,6 +1,9 @@
 <?xml version="1.0"?>
 <robot name="cartpole">
-    <!-- Classic cart-pole: prismatic cart on a rail + revolute pole -->
+    <!-- Classic cart-pole matching OpenAI Gym CartPole-v1 parameters.
+         Cart mass: 1.0 kg, Pole mass: 0.1 kg, Pole half-length: 0.5 m,
+         Force: 10 N, Gravity: 9.8 m/s², No damping/friction.
+         Reference: gymnasium/envs/classic_control/cartpole.py -->
 
     <link name="rail">
         <inertial>
@@ -9,7 +12,7 @@
         </inertial>
         <visual>
             <geometry>
-                <box size="2.0 0.05 0.02"/>
+                <box size="5.0 0.05 0.02"/>
             </geometry>
         </visual>
     </link>
@@ -33,39 +36,44 @@
 
     <link name="pole">
         <inertial>
-            <origin xyz="0 0 0.2"/>
+            <!-- COM at half-length = 0.5m from pivot (Gym standard) -->
+            <origin xyz="0 0 0.5"/>
             <mass value="0.1"/>
-            <inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.0001"/>
+            <!-- Uniform rod I = mL²/12 about COM: 0.1 * 1.0² / 12 = 0.00833
+                 I_pivot = mL²/3 = 0.0333 (for reference) -->
+            <inertia ixx="0.00833" ixy="0" ixz="0" iyy="0.00833" iyz="0" izz="0.0001"/>
         </inertial>
         <visual>
-            <origin xyz="0 0 0.2"/>
+            <origin xyz="0 0 0.5"/>
             <geometry>
-                <cylinder radius="0.01" length="0.4"/>
+                <cylinder radius="0.01" length="1.0"/>
             </geometry>
         </visual>
         <collision>
-            <origin xyz="0 0 0.2"/>
+            <origin xyz="0 0 0.5"/>
             <geometry>
-                <cylinder radius="0.01" length="0.4"/>
+                <cylinder radius="0.01" length="1.0"/>
             </geometry>
         </collision>
     </link>
 
+    <!-- Prismatic: cart slides along X. Gym uses ±2.4m position threshold. -->
     <joint name="cart_slide" type="prismatic">
         <parent link="rail"/>
         <child link="cart"/>
         <origin xyz="0 0 0.035"/>
         <axis xyz="1 0 0"/>
-        <limit lower="-1.0" upper="1.0" effort="20" velocity="5"/>
-        <dynamics damping="0.5" friction="0.1"/>
+        <limit lower="-2.4" upper="2.4" effort="10" velocity="10"/>
+        <dynamics damping="0" friction="0"/>
     </joint>
 
-    <joint name="pole_hinge" type="revolute">
+    <!-- Continuous: pole swings freely (no angle limits, termination in software). -->
+    <joint name="pole_hinge" type="continuous">
         <parent link="cart"/>
         <child link="pole"/>
         <origin xyz="0 0 0.025"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-0.418" upper="0.418" effort="0" velocity="10"/>
-        <dynamics damping="0.01" friction="0.001"/>
+        <limit effort="0" velocity="20"/>
+        <dynamics damping="0" friction="0"/>
     </joint>
 </robot>

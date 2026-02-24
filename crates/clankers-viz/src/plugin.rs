@@ -68,10 +68,14 @@ impl Plugin for ClankersVizPlugin {
             ),
         );
 
-        // Keyboard input: in Decide, before teleop apply.
+        // Teleop sync + keyboard input: in Decide, before teleop apply.
         app.add_systems(
             Update,
-            input::keyboard_teleop_system
+            (
+                systems::sync_teleop_to_robot,
+                input::keyboard_teleop_system,
+            )
+                .chain()
                 .in_set(ClankersSet::Decide)
                 .before(clankers_teleop::systems::apply_teleop_commands),
         );

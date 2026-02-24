@@ -38,6 +38,7 @@ pub struct GymEnv {
     obs_space: ObservationSpace,
     act_space: ActionSpace,
     applicator: Box<dyn ActionApplicator>,
+    reset_fn: Option<Box<dyn Fn(&mut World)>>,
 }
 
 impl GymEnv {
@@ -58,7 +59,14 @@ impl GymEnv {
             obs_space,
             act_space,
             applicator,
+            reset_fn: None,
         }
+    }
+
+    /// Set a callback that resets world state (physics, joints) on episode reset.
+    pub fn with_reset_fn(mut self, f: impl Fn(&mut World) + 'static) -> Self {
+        self.reset_fn = Some(Box::new(f));
+        self
     }
 
     /// Observation space descriptor.
@@ -80,6 +88,11 @@ impl GymEnv {
     /// the [`Episode`] to `Running` so subsequent [`step`](Self::step)
     /// calls correctly advance the counter from zero.
     pub fn reset(&mut self, seed: Option<u64>) -> ResetResult {
+        // Reset world state (physics, joint positions/velocities) if callback is set.
+        if let Some(ref reset_fn) = self.reset_fn {
+            (reset_fn)(self.app.world_mut());
+        }
+
         // Collect initial observations without advancing the episode.
         // observe_system runs regardless of episode state, while
         // episode_step_system only advances when Running.

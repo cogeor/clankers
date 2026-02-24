@@ -140,6 +140,9 @@ pub fn register_robot(
             queue.push_back(child_link_name.clone());
         }
     }
+
+    // Snapshot initial body positions for episode reset.
+    context.snapshot_initial_state();
 }
 
 // ---------------------------------------------------------------------------

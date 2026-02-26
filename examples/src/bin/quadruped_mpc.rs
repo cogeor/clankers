@@ -279,6 +279,7 @@ fn main() {
     let n_feet = legs.len();
     let mut swing_starts = vec![Vector3::zeros(); n_feet];
     let mut swing_targets = vec![Vector3::zeros(); n_feet];
+    let mut prev_contacts = vec![true; n_feet];
     let stabilize_steps = 100;
 
     // Override motor limits: URDF defaults (effort=20-30, velocity=10) are too
@@ -556,10 +557,13 @@ fn main() {
         for (leg_idx, leg) in legs.iter().enumerate() {
             let is_contact = gait.is_contact(leg_idx);
 
+            // Detect liftoff transition: set swing_starts at the exact moment
+            if prev_contacts[leg_idx] && !is_contact {
+                swing_starts[leg_idx] = foot_world[leg_idx];
+            }
+
             if is_contact && solution.converged {
                 // --- Stance: J^T feedforward with per-joint gains ---
-                // hip_ab: stiff PD keeps lateral stability (trot has zero margin)
-                // hip_pitch/knee: kp=0 lets MPC feedforward drive forward locomotion
                 let q = &all_joint_positions[leg_idx];
                 let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
                 let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
@@ -577,14 +581,10 @@ fn main() {
 
                 for (j, &entity) in leg.joint_entities.iter().enumerate() {
                     let q0 = init_joint_angles[leg_idx][j];
-                    // Per-joint gains:
-                    // j=0 (hip_ab): stiff PD for lateral stability (trot has zero
-                    //   lateral margin and the MPC doesn't yet stabilize it)
-                    // j=1,2 (hip_pitch, knee): feedforward-only for forward locomotion
                     let (kp_j, kd_j, max_f) = if j == 0 {
-                        (500.0_f32, 20.0_f32, 200.0_f32) // hip_ab: lock lateral
+                        (500.0_f32, 20.0_f32, 200.0_f32)
                     } else {
-                        (0.0_f32, 5.0_f32, 50.0_f32) // pitch/knee: MPC feedforward only
+                        (0.0_f32, 5.0_f32, 50.0_f32)
                     };
 
                     #[allow(clippy::cast_possible_truncation)]
@@ -599,10 +599,8 @@ fn main() {
                         max_force: max_f,
                     });
                 }
-
-                swing_starts[leg_idx] = foot_world[leg_idx];
             } else {
-                // --- Swing: Cartesian PD via J^T torque ---
+                // --- Swing: Cartesian PD via J^T torque with gain blending ---
                 let swing_phase = gait.swing_phase(leg_idx);
 
                 let swing_duration = (1.0 - gait.duty_factor()) * gait.cycle_time();
@@ -618,7 +616,6 @@ fn main() {
                         ground_height,
                         swing_config.raibert_kv,
                     );
-                    swing_starts[leg_idx] = foot_world[leg_idx];
                 }
                 let p_des = swing_foot_position(
                     &swing_starts[leg_idx], &swing_targets[leg_idx],
@@ -658,8 +655,10 @@ fn main() {
 
                 let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
+                // Blend motor gains from stance→swing over first 10% of swing
+                let blend = (swing_phase / 0.1).min(1.0) as f32;
+
                 for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                    // Swing: low stiffness to avoid destabilizing body
                     let q0 = init_joint_angles[leg_idx][j];
                     let kd_swing = 2.0_f32;
                     #[allow(clippy::cast_possible_truncation)]
@@ -669,16 +668,33 @@ fn main() {
                         0.0
                     };
 
+                    // Ramp gains: stance values at liftoff → swing values at 10% phase
+                    let (kp_j, kd_j, max_f) = if j == 0 {
+                        (
+                            500.0 * (1.0 - blend) + 20.0 * blend,
+                            20.0 * (1.0 - blend) + kd_swing * blend,
+                            200.0 * (1.0 - blend) + 30.0 * blend,
+                        )
+                    } else {
+                        (
+                            20.0 * blend,
+                            5.0 * (1.0 - blend) + kd_swing * blend,
+                            50.0 * (1.0 - blend) + 30.0 * blend,
+                        )
+                    };
+
                     motor_settings.push(MotorSetting {
                         entity,
                         target_pos: q0,
                         target_vel,
-                        stiffness: 20.0,  // Low stiffness for swing
-                        damping: kd_swing,
-                        max_force: 30.0,  // Higher for 10cm step height clearance
+                        stiffness: kp_j,
+                        damping: kd_j,
+                        max_force: max_f,
                     });
                 }
             }
+
+            prev_contacts[leg_idx] = is_contact;
         }
 
         // --- Step physics manually with position motors ---

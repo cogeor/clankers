@@ -137,6 +137,7 @@ struct QuadMpcState {
     legs: Vec<LegRuntime>,
     swing_starts: Vec<Vector3<f64>>,
     swing_targets: Vec<Vector3<f64>>,
+    prev_contacts: Vec<bool>,
     init_joint_angles: Vec<Vec<f32>>,
     step: usize,
     stabilize_steps: usize,
@@ -478,10 +479,13 @@ fn mpc_control_system(
     for (leg_idx, leg) in mpc.legs.iter().enumerate() {
         let is_contact = mpc.gait.is_contact(leg_idx);
 
+        // Detect liftoff transition: set swing_starts at the exact moment
+        if mpc.prev_contacts[leg_idx] && !is_contact {
+            mpc.swing_starts[leg_idx] = foot_world[leg_idx];
+        }
+
         if is_contact && solution.converged {
-            // --- Stance: J^T feedforward via position motors (matching headless) ---
-            // hip_ab: stiff PD keeps lateral stability (trot has zero margin)
-            // hip_pitch/knee: kp=0 lets MPC feedforward drive forward locomotion
+            // --- Stance: J^T feedforward via position motors ---
             let q = &all_joint_positions[leg_idx];
             let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
             let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
@@ -503,9 +507,6 @@ fn mpc_control_system(
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
                 let q0 = mpc.init_joint_angles[leg_idx][j];
-                // Per-joint gains matching headless:
-                // j=0 (hip_ab): stiff PD for lateral stability
-                // j=1,2 (hip_pitch, knee): feedforward-only for forward locomotion
                 let (kp_j, kd_j, max_f) = if j == 0 {
                     (500.0_f32, 20.0_f32, 200.0_f32)
                 } else {
@@ -515,7 +516,6 @@ fn mpc_control_system(
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques_ff[j] / f64::from(kd_j)) as f32;
 
-                // Use position motor override (evaluated at physics rate by Rapier)
                 motor_overrides.joints.insert(entity, MotorOverrideParams {
                     target_pos: q0,
                     target_vel,
@@ -524,15 +524,12 @@ fn mpc_control_system(
                     max_force: max_f,
                 });
 
-                // Zero the JointCommand so actuator pipeline doesn't interfere
                 if let Ok(mut cmd) = commands.get_mut(entity) {
                     cmd.value = 0.0;
                 }
             }
-
-            mpc.swing_starts[leg_idx] = foot_world[leg_idx];
         } else {
-            // --- Swing: Cartesian PD via J^T, encoded as position motor feedforward ---
+            // --- Swing: Cartesian PD via J^T, with gain blending ---
             let swing_phase = mpc.gait.swing_phase(leg_idx);
 
             let swing_duration = (1.0 - mpc.gait.duty_factor()) * mpc.gait.cycle_time();
@@ -548,7 +545,6 @@ fn mpc_control_system(
                     ground_height,
                     mpc.swing_config.raibert_kv,
                 );
-                mpc.swing_starts[leg_idx] = foot_world[leg_idx];
             }
 
             let p_des = swing_foot_position(
@@ -596,20 +592,36 @@ fn mpc_control_system(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
+            // Blend motor gains from stance→swing over first 10% of swing
+            let blend = (swing_phase / 0.1).min(1.0) as f32;
+
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                // Swing: encode Cartesian PD torques as position motor feedforward
-                // (matching headless: kp=20 mild spring to nominal, kd=2, max=10)
                 let q0 = mpc.init_joint_angles[leg_idx][j];
                 let kd_swing = 2.0_f32;
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques[j] / f64::from(kd_swing)) as f32;
 
+                // Ramp gains: stance values at liftoff → swing values at 10% phase
+                let (kp_j, kd_j, max_f) = if j == 0 {
+                    (
+                        500.0 * (1.0 - blend) + 20.0 * blend,
+                        20.0 * (1.0 - blend) + kd_swing * blend,
+                        200.0 * (1.0 - blend) + 30.0 * blend,
+                    )
+                } else {
+                    (
+                        20.0 * blend,
+                        5.0 * (1.0 - blend) + kd_swing * blend,
+                        50.0 * (1.0 - blend) + 30.0 * blend,
+                    )
+                };
+
                 motor_overrides.joints.insert(entity, MotorOverrideParams {
                     target_pos: q0,
                     target_vel,
-                    stiffness: 20.0,
-                    damping: kd_swing,
-                    max_force: 30.0,
+                    stiffness: kp_j,
+                    damping: kd_j,
+                    max_force: max_f,
                 });
 
                 if let Ok(mut cmd) = commands.get_mut(entity) {
@@ -617,6 +629,8 @@ fn mpc_control_system(
                 }
             }
         }
+
+        mpc.prev_contacts[leg_idx] = is_contact;
     }
 
     // Update UI display state
@@ -1347,6 +1361,7 @@ fn main() {
         legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
+        prev_contacts: vec![true; n_feet],
         init_joint_angles,
         step: 0,
         stabilize_steps: 100,

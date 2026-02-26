@@ -53,6 +53,7 @@ struct MpcTestHarness {
     swing_config: SwingConfig,
     swing_starts: Vec<Vector3<f64>>,
     swing_targets: Vec<Vector3<f64>>,
+    prev_contacts: Vec<bool>,
 }
 
 fn body_state_from_rapier(
@@ -238,6 +239,7 @@ fn setup_quadruped() -> MpcTestHarness {
         swing_config,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
+        prev_contacts: vec![true; n_feet],
     }
 }
 
@@ -311,6 +313,11 @@ fn run_mpc_step(
     for (leg_idx, leg) in harness.legs.iter().enumerate() {
         let is_contact = contacts[leg_idx];
 
+        // Detect liftoff transition: set swing_starts at the exact moment
+        if harness.prev_contacts[leg_idx] && !is_contact {
+            harness.swing_starts[leg_idx] = foot_world[leg_idx];
+        }
+
         if is_contact && solution.converged {
             let q = &all_joint_positions[leg_idx];
             let qd = &all_joint_velocities[leg_idx];
@@ -331,7 +338,6 @@ fn run_mpc_step(
             let force = &solution.forces[leg_idx];
             let torques_ff = jacobian_transpose_torques(&jacobian, force);
 
-            // Joint-space damping (MIT Cheetah: Kd = 0.2)
             let qd_f64: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();
             let torques_damp = stance_damping_torques(&qd_f64, 0.2);
 
@@ -340,12 +346,9 @@ fn run_mpc_step(
                     cmd.value = (torques_ff[j] + torques_damp[j]) as f32;
                 }
             }
-
-            harness.swing_starts[leg_idx] = foot_world[leg_idx];
         } else {
             let swing_phase = harness.gait.swing_phase(leg_idx);
 
-            // Cartesian PD swing control via Jacobian transpose
             let swing_duration =
                 (1.0 - harness.gait.duty_factor()) * harness.gait.cycle_time();
 
@@ -360,7 +363,6 @@ fn run_mpc_step(
                     ground_height,
                     harness.swing_config.raibert_kv,
                 );
-                harness.swing_starts[leg_idx] = foot_world[leg_idx];
             }
 
             let p_des = swing_foot_position(
@@ -390,7 +392,6 @@ fn run_mpc_step(
                 &origins_world, &axes_world, p_actual, &leg.is_prismatic,
             );
 
-            // Actual foot velocity: v = J * qdot
             let qd_f64: Vec<f64> = qd_vals.iter().map(|&v| f64::from(v)).collect();
             let v_actual = Vector3::new(
                 (0..jacobian.ncols()).map(|j| jacobian[(0, j)] * qd_f64[j]).sum::<f64>(),
@@ -408,12 +409,22 @@ fn run_mpc_step(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
+            // Blend: fade in swing + fade out stance damping over first 10%
+            let blend = (swing_phase / 0.1).min(1.0);
+            let damp_fade = 1.0 - blend;
+
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
                 if let Some(mut cmd) = harness.scene.app.world_mut().get_mut::<JointCommand>(entity) {
-                    cmd.value = torques[j] as f32;
+                    let damp = -0.2 * f64::from(qd_vals[j]);
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        cmd.value = (torques[j] + damp_fade * damp) as f32;
+                    }
                 }
             }
         }
+
+        harness.prev_contacts[leg_idx] = is_contact;
     }
 
     harness.scene.app.update();

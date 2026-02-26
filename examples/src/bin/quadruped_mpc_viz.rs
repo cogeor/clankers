@@ -444,7 +444,7 @@ fn mpc_control_system(
     let x0 = body_state.to_state_vector(mpc.config.gravity);
 
     // Velocity ramp: gradually increase from 0 to desired over 200 steps (matching headless)
-    let ramp_steps = 200;
+    let ramp_steps = 100;
     let current_vel_owned;
     let current_vel = if mpc.step < mpc.stabilize_steps {
         current_vel_owned = Vector3::zeros();
@@ -535,6 +535,8 @@ fn mpc_control_system(
             // --- Swing: Cartesian PD via J^T, encoded as position motor feedforward ---
             let swing_phase = mpc.gait.swing_phase(leg_idx);
 
+            let swing_duration = (1.0 - mpc.gait.duty_factor()) * mpc.gait.cycle_time();
+
             if swing_phase < 0.05 {
                 let hip_world = body_quat_na * leg.hip_offset + body_pos;
                 mpc.swing_targets[leg_idx] = raibert_foot_target(
@@ -542,13 +544,12 @@ fn mpc_control_system(
                     &body_state.linear_velocity,
                     &desired_velocity,
                     stance_duration,
+                    swing_duration,
                     ground_height,
                     mpc.swing_config.raibert_kv,
                 );
                 mpc.swing_starts[leg_idx] = foot_world[leg_idx];
             }
-
-            let swing_duration = (1.0 - mpc.gait.duty_factor()) * mpc.gait.cycle_time();
 
             let p_des = swing_foot_position(
                 &mpc.swing_starts[leg_idx],

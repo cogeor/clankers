@@ -299,6 +299,8 @@ fn mpc_control_system(
             // Swing leg: min-jerk trajectory with Cartesian PD via J^T
             let swing_phase = state.gait.swing_phase(leg_idx);
 
+            let swing_duration = (1.0 - state.gait.duty_factor()) * state.gait.cycle_time();
+
             if swing_phase < 0.05 {
                 let hip_world = body_quat * leg.hip_offset + body_pos;
                 state.swing_targets[leg_idx] = raibert_foot_target(
@@ -306,13 +308,12 @@ fn mpc_control_system(
                     &body_state.linear_velocity,
                     &config.desired_velocity,
                     stance_duration,
+                    swing_duration,
                     config.ground_height,
                     config.swing_config.raibert_kv,
                 );
                 state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
             }
-
-            let swing_duration = (1.0 - state.gait.duty_factor()) * state.gait.cycle_time();
 
             let p_des = swing_foot_position(
                 &state.swing_starts[leg_idx],

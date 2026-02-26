@@ -510,7 +510,7 @@ fn main() {
         // --- Build reference trajectory ---
         let x0 = body_state.to_state_vector(mpc_config.gravity);
         // Ramp velocity from 0 to desired over 200 steps (4s) after trot starts
-        let ramp_steps = 200;
+        let ramp_steps = 100;
         let current_vel_owned;
         let current_vel = if step < stabilize_steps {
             current_vel_owned = Vector3::zeros();
@@ -605,6 +605,8 @@ fn main() {
                 // --- Swing: Cartesian PD via J^T torque ---
                 let swing_phase = gait.swing_phase(leg_idx);
 
+                let swing_duration = (1.0 - gait.duty_factor()) * gait.cycle_time();
+
                 if swing_phase < 0.05 {
                     let hip_world = body_quat * leg.hip_offset + body_pos;
                     swing_targets[leg_idx] = raibert_foot_target(
@@ -612,13 +614,12 @@ fn main() {
                         &body_state.linear_velocity,
                         current_vel,
                         stance_duration,
+                        swing_duration,
                         ground_height,
                         swing_config.raibert_kv,
                     );
                     swing_starts[leg_idx] = foot_world[leg_idx];
                 }
-
-                let swing_duration = (1.0 - gait.duty_factor()) * gait.cycle_time();
                 let p_des = swing_foot_position(
                     &swing_starts[leg_idx], &swing_targets[leg_idx],
                     swing_phase, swing_config.step_height,

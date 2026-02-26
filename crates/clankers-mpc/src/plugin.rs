@@ -80,6 +80,8 @@ pub struct MpcPipelineState {
     pub swing_targets: Vec<Vector3<f64>>,
     /// Swing start positions (where feet lifted off).
     pub swing_starts: Vec<Vector3<f64>>,
+    /// Previous contact state per leg (for liftoff detection).
+    pub prev_contacts: Vec<bool>,
     /// Last MPC solve time in microseconds.
     pub last_solve_time_us: u64,
     /// Whether the last MPC solve converged.
@@ -96,6 +98,7 @@ impl MpcPipelineState {
             foot_positions: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],
             swing_starts: vec![Vector3::zeros(); n_feet],
+            prev_contacts: vec![true; n_feet],
             last_solve_time_us: 0,
             last_converged: false,
         }
@@ -264,6 +267,11 @@ fn mpc_control_system(
     for (leg_idx, leg) in config.legs.iter().enumerate() {
         let is_contact = state.gait.is_contact(leg_idx);
 
+        // Detect liftoff transition: set swing_starts at the exact moment
+        if state.prev_contacts[leg_idx] && !is_contact {
+            state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
+        }
+
         if is_contact && solution.converged {
             // Stance leg: J^T force feedforward + joint damping
             let q = &all_joint_positions[leg_idx];
@@ -293,8 +301,6 @@ fn mpc_control_system(
                     }
                 }
             }
-
-            state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
         } else {
             // Swing leg: min-jerk trajectory with Cartesian PD via J^T
             let swing_phase = state.gait.swing_phase(leg_idx);
@@ -312,7 +318,6 @@ fn mpc_control_system(
                     config.ground_height,
                     config.swing_config.raibert_kv,
                 );
-                state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
             }
 
             let p_des = swing_foot_position(
@@ -363,15 +368,22 @@ fn mpc_control_system(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
+            // Blend: fade in swing torques + fade out stance damping over first 10%
+            let blend = (swing_phase / 0.1).min(1.0);
+            let damp_fade = 1.0 - blend;
+
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
                 if let Ok((_, mut cmd)) = joints.get_mut(entity) {
+                    let damp = -config.stance_kd_joint * f64::from(qd[j]);
                     #[allow(clippy::cast_possible_truncation)]
                     {
-                        cmd.value = torques[j] as f32;
+                        cmd.value = (torques[j] + damp_fade * damp) as f32;
                     }
                 }
             }
         }
+
+        state.prev_contacts[leg_idx] = is_contact;
     }
 }
 

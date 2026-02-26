@@ -1,5 +1,7 @@
 //! Rapier physics step system.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use rapier3d::prelude::JointAxis;
 
@@ -7,13 +9,45 @@ use clankers_actuator::components::{JointState, JointTorque};
 
 use super::context::RapierContext;
 
+/// Position motor parameters for a single joint.
+///
+/// When a joint entity has an entry in [`MotorOverrides`], the physics step
+/// system uses these PD motor parameters (evaluated at physics rate by Rapier)
+/// instead of the torque motor trick (constant torque ZOH).
+#[derive(Clone, Debug)]
+pub struct MotorOverrideParams {
+    /// Target joint position (radians for revolute, meters for prismatic).
+    pub target_pos: f32,
+    /// Target joint velocity (also encodes feedforward: `target_vel = ff_torque / damping`).
+    pub target_vel: f32,
+    /// Position gain (spring stiffness).
+    pub stiffness: f32,
+    /// Velocity gain (damping).
+    pub damping: f32,
+    /// Maximum motor force/torque.
+    pub max_force: f32,
+}
+
+/// Per-joint position motor overrides.
+///
+/// Joints listed here bypass the torque motor trick in [`rapier_step_system`]
+/// and instead use Rapier's built-in PD motor evaluated at the physics rate.
+/// This is essential for stiff PD gains on light links where ZOH torque
+/// control at the frame rate would cause oscillation.
+#[derive(Resource, Default)]
+pub struct MotorOverrides {
+    /// Map from joint entity to position motor parameters.
+    pub joints: HashMap<Entity, MotorOverrideParams>,
+}
+
 /// Apply joint torques, step physics, read back joint state.
 #[allow(clippy::needless_pass_by_value)]
 pub fn rapier_step_system(
     mut context: ResMut<RapierContext>,
     mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
+    motor_overrides: Option<Res<MotorOverrides>>,
 ) {
-    // 1. Apply torques to rapier joints via motor trick
+    // 1. Apply torques to rapier joints via motor trick (or position motor override)
     for (entity, torque, _) in &joints {
         let Some(&joint_handle) = context.joint_handles.get(&entity) else {
             continue;
@@ -28,19 +62,27 @@ pub fn rapier_step_system(
             JointAxis::AngX
         };
 
-        let t = torque.value;
         if let Some(joint) = context.impulse_joint_set.get_mut(joint_handle, true) {
-            // Motor trick: ForceBased motor with huge target velocity,
-            // clamped to desired torque magnitude.
-            // API: set_motor(axis, target_pos, target_vel, stiffness, damping)
-            if t.abs() > 1e-10 {
-                let target_vel = t.signum() * 1e10;
-                joint.data.set_motor(axis, 0.0, target_vel, 0.0, 1.0);
-                joint.data.set_motor_max_force(axis, t.abs());
+            // Check for position motor override first
+            if let Some(ref overrides) = motor_overrides
+                && let Some(mo) = overrides.joints.get(&entity)
+            {
+                joint.data.set_motor(axis, mo.target_pos, mo.target_vel, mo.stiffness, mo.damping);
+                joint.data.set_motor_max_force(axis, mo.max_force);
             } else {
-                // Zero torque: fully disable motor so DOF is free.
-                joint.data.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
-                joint.data.set_motor_max_force(axis, 0.0);
+                // Motor trick: ForceBased motor with huge target velocity,
+                // clamped to desired torque magnitude.
+                // API: set_motor(axis, target_pos, target_vel, stiffness, damping)
+                let t = torque.value;
+                if t.abs() > 1e-10 {
+                    let target_vel = t.signum() * 1e10;
+                    joint.data.set_motor(axis, 0.0, target_vel, 0.0, 1.0);
+                    joint.data.set_motor_max_force(axis, t.abs());
+                } else {
+                    // Zero torque: fully disable motor so DOF is free.
+                    joint.data.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
+                    joint.data.set_motor_max_force(axis, 0.0);
+                }
             }
         }
     }

@@ -23,7 +23,8 @@ pub struct SwingConfig {
     /// Cartesian PD derivative gains [x, y, z] for swing foot tracking.
     pub kd_cartesian: Vector3<f64>,
     /// Velocity error feedback gain for Raibert foot placement.
-    /// Controls how aggressively foot placement compensates for velocity errors.
+    /// Derived from inverted pendulum capture point: `0.5 * sqrt(z/g)`.
+    /// For z=0.32m: 0.5 * sqrt(0.32/9.81) ≈ 0.09.
     pub raibert_kv: f64,
 }
 
@@ -32,9 +33,9 @@ impl Default for SwingConfig {
         Self {
             step_height: 0.10,
             default_step_length: 0.08,
-            kp_cartesian: Vector3::new(500.0, 500.0, 300.0),
+            kp_cartesian: Vector3::new(500.0, 500.0, 500.0),
             kd_cartesian: Vector3::new(20.0, 20.0, 20.0),
-            raibert_kv: 0.03,
+            raibert_kv: 0.1,
         }
     }
 }
@@ -115,28 +116,33 @@ pub fn swing_foot_velocity(
     Vector3::new(dxy.x, dxy.y, dz_interp + dh_dt)
 }
 
-/// Compute the target landing position for a foot using the enhanced
-/// Raibert heuristic.
+/// Compute the target landing position for a foot using the Raibert heuristic
+/// with swing compensation.
 ///
-/// Includes velocity error feedback for disturbance rejection:
+/// The foot target accounts for body displacement during swing:
 /// ```text
-/// target = hip_pos + v_body * (T_stance/2) + kv * (v_body - v_desired)
+/// hip_at_td = hip_now + v_body * T_swing       // predicted hip at touchdown
+/// target = hip_at_td + v_body * T_stance/2 + kv * (v_body - v_desired)
 /// ```
 ///
-/// This is closer to the MIT Cheetah implementation which adds a
-/// proportional correction based on the velocity error.
+/// Without the `v_body * T_swing` term, the foot lands behind where the hip
+/// will be at touchdown, producing steps that are ~3x too small.
 pub fn raibert_foot_target(
     hip_position: &Vector3<f64>,
     body_velocity: &Vector3<f64>,
     desired_velocity: &Vector3<f64>,
     stance_duration: f64,
+    swing_duration: f64,
     ground_height: f64,
     kv: f64,
 ) -> Vector3<f64> {
+    // Predict where the hip will be when the foot touches down
+    let hip_at_touchdown = hip_position + body_velocity * swing_duration;
+    // Raibert symmetry offset + velocity error correction
     let vel_offset = body_velocity * (stance_duration * 0.5);
     let vel_correction = (body_velocity - desired_velocity) * kv;
 
-    let mut target = hip_position + vel_offset + vel_correction;
+    let mut target = hip_at_touchdown + vel_offset + vel_correction;
     // Clamp foot placement to max 0.3m from hip (MIT Cheetah safety limit)
     let offset_xy = Vector3::new(target.x - hip_position.x, target.y - hip_position.y, 0.0);
     let dist = offset_xy.norm();
@@ -232,7 +238,7 @@ mod tests {
         let hip = Vector3::new(0.15, 0.08, 0.35);
         let vel = Vector3::zeros();
         let des_vel = Vector3::zeros();
-        let target = raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.0, 0.03);
+        let target = raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.03);
 
         assert_relative_eq!(target.x, hip.x, epsilon = 1e-10);
         assert_relative_eq!(target.y, hip.y, epsilon = 1e-10);
@@ -246,10 +252,12 @@ mod tests {
         let des_vel = Vector3::new(0.3, 0.0, 0.0); // want 0.3
         let kv = 0.03;
         let stance_dur = 0.2;
+        let swing_dur = 0.2;
 
-        let target = raibert_foot_target(&hip, &vel, &des_vel, stance_dur, 0.0, kv);
+        let target = raibert_foot_target(&hip, &vel, &des_vel, stance_dur, swing_dur, 0.0, kv);
 
-        // target_x = 0.15 + 0.5*0.1 + 0.03*(0.5-0.3) = 0.15 + 0.05 + 0.006 = 0.206
-        assert_relative_eq!(target.x, 0.206, epsilon = 1e-10);
+        // hip_at_td_x = 0.15 + 0.5*0.2 = 0.25
+        // target_x = 0.25 + 0.5*0.1 + 0.03*(0.5-0.3) = 0.25 + 0.05 + 0.006 = 0.306
+        assert_relative_eq!(target.x, 0.306, epsilon = 1e-10);
     }
 }

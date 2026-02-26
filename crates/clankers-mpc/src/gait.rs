@@ -39,7 +39,7 @@ impl GaitScheduler {
     pub fn quadruped(gait: GaitType) -> Self {
         let (offsets, duty_factor, cycle_time) = match gait {
             GaitType::Stand => (vec![0.0; 4], 1.0, 1.0),
-            GaitType::Trot => (vec![0.0, 0.5, 0.5, 0.0], 0.5, 0.4),
+            GaitType::Trot => (vec![0.0, 0.5, 0.5, 0.0], 0.5, 0.5),
             GaitType::Walk => (vec![0.0, 0.5, 0.25, 0.75], 0.75, 0.8),
             GaitType::Bound => (vec![0.0, 0.0, 0.5, 0.5], 0.5, 0.4),
         };
@@ -237,12 +237,12 @@ mod tests {
     #[test]
     fn advance_wraps_phase() {
         let mut sched = GaitScheduler::quadruped(GaitType::Trot);
-        // Cycle time = 0.4s, advance by 0.3s → phase = 0.75
+        // Cycle time = 0.5s, advance by 0.3s → phase = 0.6
         sched.advance(0.3);
-        assert!((sched.phase() - 0.75).abs() < 1e-10);
+        assert!((sched.phase() - 0.6).abs() < 1e-10);
 
-        // Advance another 0.2s → phase = 0.75 + 0.5 = 1.25 → 0.25
-        sched.advance(0.2);
-        assert!((sched.phase() - 0.25).abs() < 1e-10);
+        // Advance another 0.3s → phase = 0.6 + 0.6 = 1.2 → 0.2
+        sched.advance(0.3);
+        assert!((sched.phase() - 0.2).abs() < 1e-10);
     }
 }

@@ -1,3 +1,8 @@
+## Build & Test
+
+- Always limit parallelism when running cargo: `cargo test -j 24` / `cargo build -j 24`
+- Never use full CPU cores (machine has 32) — leave headroom for the OS
+
 ## Delegate
 
 This project uses Delegate for spec-driven development.

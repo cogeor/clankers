@@ -65,6 +65,8 @@ pub struct RapierContext {
     // -- Initial state for reset --
     /// Initial body translations, stored after register_robot.
     pub initial_body_positions: HashMap<RigidBodyHandle, Vec3>,
+    /// Initial body rotations, stored alongside translations.
+    pub initial_body_rotations: HashMap<RigidBodyHandle, Quat>,
 }
 
 impl RapierContext {
@@ -90,28 +92,37 @@ impl RapierContext {
             joint_info: HashMap::new(),
             body_handles: HashMap::new(),
             initial_body_positions: HashMap::new(),
+            initial_body_rotations: HashMap::new(),
         }
     }
 
-    /// Store current body positions as the initial state for reset.
+    /// Store current body positions and rotations as the initial state for reset.
     pub fn snapshot_initial_state(&mut self) {
         self.initial_body_positions.clear();
+        self.initial_body_rotations.clear();
         for (name, &handle) in &self.body_handles {
             if let Some(body) = self.rigid_body_set.get(handle) {
                 let t = body.translation();
                 self.initial_body_positions
                     .insert(handle, Vec3::new(t.x, t.y, t.z));
+                self.initial_body_rotations
+                    .insert(handle, *body.rotation());
             }
             let _ = name; // suppress unused warning
         }
     }
 
-    /// Reset all rigid bodies to their initial positions with zero velocity.
+    /// Reset all rigid bodies to their initial poses with zero velocity.
     pub fn reset_to_initial(&mut self) {
         for (&handle, &initial_pos) in &self.initial_body_positions {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {
                 body.set_translation(initial_pos, true);
-                body.set_rotation(Quat::IDENTITY, true);
+                let rotation = self
+                    .initial_body_rotations
+                    .get(&handle)
+                    .copied()
+                    .unwrap_or(Quat::IDENTITY);
+                body.set_rotation(rotation, true);
                 body.set_linvel(Vec3::ZERO, true);
                 body.set_angvel(Vec3::ZERO, true);
                 body.wake_up(true);

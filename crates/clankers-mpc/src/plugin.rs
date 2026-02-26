@@ -15,14 +15,14 @@ use clankers_urdf::{RobotModel, SpawnedRobot};
 
 use crate::gait::{GaitScheduler, GaitType};
 use crate::solver::MpcSolver;
-use crate::swing::{SwingConfig, raibert_foot_target, swing_foot_position};
+use crate::swing::{SwingConfig, raibert_foot_target, swing_foot_position, swing_foot_velocity};
 use crate::types::{BodyState, MpcConfig, ReferenceTrajectory};
-use crate::wbc::{compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques};
+use crate::wbc::{
+    compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques,
+    stance_damping_torques, transform_frames_to_world,
+};
 
 /// Bevy plugin for MPC-based locomotion control.
-///
-/// Add this plugin to your app, then insert [`MpcPipelineConfig`] and
-/// [`MpcPipelineState`] resources after spawning the robot.
 pub struct ClankersMpcPlugin;
 
 impl Plugin for ClankersMpcPlugin {
@@ -63,6 +63,8 @@ pub struct MpcPipelineConfig {
     pub desired_yaw: f64,
     /// Ground height (z coordinate of ground plane).
     pub ground_height: f64,
+    /// Joint-space damping gain for stance legs (MIT uses 0.2).
+    pub stance_kd_joint: f64,
 }
 
 /// Runtime state for the MPC pipeline.
@@ -101,9 +103,6 @@ impl MpcPipelineState {
 }
 
 /// Build leg configurations from a URDF model and spawned robot.
-///
-/// `foot_links` maps leg index to the foot link name in the URDF.
-/// `hip_offsets` are the nominal hip positions relative to body center.
 pub fn build_leg_configs(
     model: &RobotModel,
     spawned: &SpawnedRobot,
@@ -143,20 +142,33 @@ pub fn build_leg_configs(
     legs
 }
 
-/// Extract body state from a Bevy Transform component.
+/// Extract body state and rotation quaternion from a Bevy Transform component.
 ///
-/// Assumes the body entity has a GlobalTransform. Angular velocity is
-/// approximated as zero (would need physics velocity for accurate estimate).
-pub fn body_state_from_transform(transform: &GlobalTransform) -> BodyState {
+/// Angular velocity is approximated as zero (use Rapier's body.angvel()
+/// for accurate values in the headless example).
+pub fn body_state_from_transform(
+    transform: &GlobalTransform,
+) -> (BodyState, nalgebra::UnitQuaternion<f64>) {
     let t = transform.translation();
-    let (yaw, pitch, roll) = transform.to_scale_rotation_translation().1.to_euler(EulerRot::ZYX);
+    let bevy_rot = transform.to_scale_rotation_translation().1;
+    let (yaw, pitch, roll) = bevy_rot.to_euler(EulerRot::ZYX);
 
-    BodyState {
-        orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
-        position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
-        angular_velocity: Vector3::zeros(),
-        linear_velocity: Vector3::zeros(),
-    }
+    let body_quat = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+        f64::from(bevy_rot.w),
+        f64::from(bevy_rot.x),
+        f64::from(bevy_rot.y),
+        f64::from(bevy_rot.z),
+    ));
+
+    (
+        BodyState {
+            orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
+            position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
+            angular_velocity: Vector3::zeros(),
+            linear_velocity: Vector3::zeros(),
+        },
+        body_quat,
+    )
 }
 
 /// The main MPC control system.
@@ -167,7 +179,7 @@ pub fn body_state_from_transform(transform: &GlobalTransform) -> BodyState {
 /// 3. Compute FK for each foot
 /// 4. Advance gait and generate contact sequence
 /// 5. Solve centroidal MPC for optimal forces
-/// 6. WBC: stance legs get torques, swing legs get position commands
+/// 6. WBC: stance legs get J^T torques + damping, swing legs get Cartesian PD
 #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
 fn mpc_control_system(
     config: Option<Res<MpcPipelineConfig>>,
@@ -183,37 +195,41 @@ fn mpc_control_system(
     let Ok(body_tf) = transforms.get(config.body_entity) else {
         return;
     };
-    let body_state = body_state_from_transform(body_tf);
+    let (body_state, body_quat) = body_state_from_transform(body_tf);
     let body_pos = body_state.position;
 
     // 2. Read joint states and compute foot positions via FK
     let n_feet = config.legs.len();
     let mut all_joint_positions: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
+    let mut all_joint_velocities: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
     let mut foot_positions_world: Vec<Vector3<f64>> = Vec::with_capacity(n_feet);
 
     for leg in &config.legs {
         let mut q = Vec::with_capacity(leg.joint_entities.len());
+        let mut qd = Vec::with_capacity(leg.joint_entities.len());
         for &entity in &leg.joint_entities {
             if let Ok((js, _)) = joints.get(entity) {
                 q.push(js.position);
+                qd.push(js.velocity);
             } else {
                 q.push(0.0);
+                qd.push(0.0);
             }
         }
 
-        // FK: foot position in body frame, then transform to world
         let ee_body = leg.chain.forward_kinematics(&q);
-        let foot_world = body_pos + Vector3::new(
+        let ee_body_vec = Vector3::new(
             f64::from(ee_body.translation.x),
             f64::from(ee_body.translation.y),
             f64::from(ee_body.translation.z),
         );
+        let foot_world = body_quat * ee_body_vec + body_pos;
 
         foot_positions_world.push(foot_world);
         all_joint_positions.push(q);
+        all_joint_velocities.push(qd);
     }
 
-    // Update stored foot positions
     state.foot_positions.clone_from(&foot_positions_world);
 
     // 3. Advance gait
@@ -236,73 +252,122 @@ fn mpc_control_system(
     );
 
     // 6. Solve MPC
-    let solution = state.solver.solve(&x0, &foot_positions_world, &contacts, &reference);
+    let solution = state
+        .solver
+        .solve(&x0, &foot_positions_world, &contacts, &reference);
     state.last_solve_time_us = solution.solve_time_us;
     state.last_converged = solution.converged;
 
-    // 7. Apply control: WBC for stance legs, swing trajectory for swing legs
+    // 7. Apply control
     let stance_duration = state.gait.duty_factor() * state.gait.cycle_time();
 
     for (leg_idx, leg) in config.legs.iter().enumerate() {
         let is_contact = state.gait.is_contact(leg_idx);
 
         if is_contact && solution.converged {
-            // Stance leg: compute torques via Jacobian transpose
+            // Stance leg: J^T force feedforward + joint damping
             let q = &all_joint_positions[leg_idx];
+            let qd = &all_joint_velocities[leg_idx];
             let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
-            let (origins_f64, axes_f64, _ee_f64) = frames_f32_to_f64(&origins, &axes, &ee_pos);
+            let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
+
+            let (origins_world, axes_world) =
+                transform_frames_to_world(&origins_f64, &axes_f64, &body_quat, &body_pos);
 
             let foot_world = &foot_positions_world[leg_idx];
-            let jacobian = compute_leg_jacobian(
-                &origins_f64,
-                &axes_f64,
-                foot_world,
-                &leg.is_prismatic,
-            );
+            let jacobian =
+                compute_leg_jacobian(&origins_world, &axes_world, foot_world, &leg.is_prismatic);
 
             let force = &solution.forces[leg_idx];
-            let torques = jacobian_transpose_torques(&jacobian, force);
+            let torques_ff = jacobian_transpose_torques(&jacobian, force);
 
-            // Write torque commands
+            // Joint-space damping (MIT Cheetah: Kd = 0.2 * I)
+            let qd_f64: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();
+            let torques_damp = stance_damping_torques(&qd_f64, config.stance_kd_joint);
+
+            for (j, &entity) in leg.joint_entities.iter().enumerate() {
+                if let Ok((_, mut cmd)) = joints.get_mut(entity) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        cmd.value = (torques_ff[j] + torques_damp[j]) as f32;
+                    }
+                }
+            }
+
+            state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
+        } else {
+            // Swing leg: min-jerk trajectory with Cartesian PD via J^T
+            let swing_phase = state.gait.swing_phase(leg_idx);
+
+            if swing_phase < 0.05 {
+                let hip_world = body_quat * leg.hip_offset + body_pos;
+                state.swing_targets[leg_idx] = raibert_foot_target(
+                    &hip_world,
+                    &body_state.linear_velocity,
+                    &config.desired_velocity,
+                    stance_duration,
+                    config.ground_height,
+                    config.swing_config.raibert_kv,
+                );
+                state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
+            }
+
+            let swing_duration = (1.0 - state.gait.duty_factor()) * state.gait.cycle_time();
+
+            let p_des = swing_foot_position(
+                &state.swing_starts[leg_idx],
+                &state.swing_targets[leg_idx],
+                swing_phase,
+                config.swing_config.step_height,
+            );
+            let v_des = swing_foot_velocity(
+                &state.swing_starts[leg_idx],
+                &state.swing_targets[leg_idx],
+                swing_phase,
+                config.swing_config.step_height,
+                swing_duration,
+            );
+
+            let p_actual = &foot_positions_world[leg_idx];
+
+            let q = &all_joint_positions[leg_idx];
+            let qd = &all_joint_velocities[leg_idx];
+            let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
+            let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
+            let (origins_world, axes_world) =
+                transform_frames_to_world(&origins_f64, &axes_f64, &body_quat, &body_pos);
+            let jacobian =
+                compute_leg_jacobian(&origins_world, &axes_world, p_actual, &leg.is_prismatic);
+
+            let qd_vec: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();
+            let v_actual = Vector3::new(
+                (0..jacobian.ncols())
+                    .map(|j| jacobian[(0, j)] * qd_vec[j])
+                    .sum::<f64>(),
+                (0..jacobian.ncols())
+                    .map(|j| jacobian[(1, j)] * qd_vec[j])
+                    .sum::<f64>(),
+                (0..jacobian.ncols())
+                    .map(|j| jacobian[(2, j)] * qd_vec[j])
+                    .sum::<f64>(),
+            );
+
+            let kp = &config.swing_config.kp_cartesian;
+            let kd = &config.swing_config.kd_cartesian;
+            let foot_force = Vector3::new(
+                kp.x * (p_des.x - p_actual.x) + kd.x * (v_des.x - v_actual.x),
+                kp.y * (p_des.y - p_actual.y) + kd.y * (v_des.y - v_actual.y),
+                kp.z * (p_des.z - p_actual.z) + kd.z * (v_des.z - v_actual.z),
+            );
+
+            let torques = jacobian_transpose_torques(&jacobian, &foot_force);
+
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
                 if let Ok((_, mut cmd)) = joints.get_mut(entity) {
                     #[allow(clippy::cast_possible_truncation)]
                     {
                         cmd.value = torques[j] as f32;
                     }
-                }
-            }
-
-            // Update swing start (in case leg was just put down)
-            state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
-        } else {
-            // Swing leg: follow Bezier trajectory
-            let swing_phase = state.gait.swing_phase(leg_idx);
-
-            // Update targets at swing start
-            if swing_phase < 0.05 {
-                let hip_world = body_pos + leg.hip_offset;
-                state.swing_targets[leg_idx] = raibert_foot_target(
-                    &hip_world,
-                    &config.desired_velocity,
-                    stance_duration,
-                    config.ground_height,
-                );
-                state.swing_starts[leg_idx] = foot_positions_world[leg_idx];
-            }
-
-            let _target_pos = swing_foot_position(
-                &state.swing_starts[leg_idx],
-                &state.swing_targets[leg_idx],
-                swing_phase,
-                config.swing_config.step_height,
-            );
-
-            // For swing legs, write zero torque (let gravity bring them down)
-            // In a full implementation, we'd use IK to track the trajectory
-            for &entity in &leg.joint_entities {
-                if let Ok((_, mut cmd)) = joints.get_mut(entity) {
-                    cmd.value = 0.0;
                 }
             }
         }
@@ -316,7 +381,6 @@ mod tests {
 
     #[test]
     fn body_state_extraction() {
-        // Just test the conversion function with identity
         let state = BodyState {
             orientation: Vector3::zeros(),
             position: Vector3::new(1.0, 2.0, 0.35),

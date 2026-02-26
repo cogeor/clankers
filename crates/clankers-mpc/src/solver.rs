@@ -1,21 +1,17 @@
-//! MPC solver: builds and solves the centroidal dynamics QP.
+//! MPC solver: condensed QP formulation for centroidal dynamics.
 //!
-//! Uses Clarabel (pure Rust interior-point solver) to find optimal
-//! ground reaction forces that track a desired body trajectory while
-//! respecting friction cone and unilateral contact constraints.
+//! Uses the MIT Cheetah condensed (single-shooting) approach where state
+//! variables are eliminated, leaving only forces as decision variables:
 //!
-//! # QP Formulation
+//! ```text
+//! X = A_qp x_0 + B_qp U          (state prediction)
+//! min  (1/2) U^T H U + g^T U     (condensed QP)
+//! H = 2 (B_qp^T S B_qp + α I)
+//! g = 2 B_qp^T S (A_qp x_0 - X_ref)
+//! ```
 //!
-//! Decision variables: z = [x_1, ..., x_H, u_0, ..., u_{H-1}]
-//! where x_k is the predicted 13D state and u_k are the 3D foot forces.
-//!
-//! Cost: sum over k of (x_k - x_ref_k)^T Q (x_k - x_ref_k) + u_k^T R u_k
-//!
-//! Subject to:
-//! - Dynamics: x_{k+1} = A_d x_k + B_d u_k (equality)
-//! - Friction cone: |fx| <= mu * fz, |fy| <= mu * fz (inequality)
-//! - Unilateral contact: 0 <= fz <= fmax (inequality)
-//! - Swing feet: f = 0 (equality)
+//! Subject to linearized friction pyramid constraints per stance foot
+//! and zero-force equality constraints for swing feet.
 
 use std::time::Instant;
 
@@ -26,10 +22,10 @@ use clarabel::solver::{
 };
 use nalgebra::{DMatrix, DVector, Vector3};
 
-use crate::centroidal::{build_continuous_dynamics, discretize};
+use crate::centroidal::{build_continuous_dynamics, discretize_matrix_exp};
 use crate::types::{MpcConfig, MpcSolution, ReferenceTrajectory, STATE_DIM};
 
-/// Centroidal MPC solver.
+/// Centroidal MPC solver using condensed QP formulation.
 pub struct MpcSolver {
     config: MpcConfig,
 }
@@ -47,14 +43,14 @@ impl MpcSolver {
 
     /// Solve the MPC problem for optimal foot forces.
     ///
+    /// Uses the condensed (single-shooting) formulation from MIT Cheetah:
+    /// decision variables are only forces U (12*H), states are eliminated.
+    ///
     /// # Arguments
     /// * `x0` - Current 13D state vector
     /// * `foot_positions` - World-frame foot positions (one per foot)
-    /// * `contacts` - Contact flags: contacts[step][foot], size horizon x n_feet
+    /// * `contacts` - Contact flags: `contacts[step][foot]`, size horizon × n_feet
     /// * `reference` - Desired state trajectory over the horizon
-    ///
-    /// # Returns
-    /// `MpcSolution` with optimal foot forces and convergence info.
     pub fn solve(
         &self,
         x0: &DVector<f64>,
@@ -67,60 +63,60 @@ impl MpcSolver {
         let h = self.config.horizon;
         let n_feet = foot_positions.len();
         let n_u_step = 3 * n_feet;
-        let n_x = STATE_DIM * h;
-        let n_u = n_u_step * h;
-        let n_z = n_x + n_u;
+        let n_u_total = n_u_step * h;
 
         // 1. Build dynamics matrices at current linearization point
         let yaw = x0[2];
         let com = Vector3::new(x0[3], x0[4], x0[5]);
-        let inertia_inv = self
-            .config
-            .inertia
-            .try_inverse()
-            .expect("inertia tensor must be invertible");
         let (a_c, b_c) = build_continuous_dynamics(
             yaw,
             foot_positions,
             &com,
-            &inertia_inv,
+            &self.config.inertia,
             self.config.mass,
         );
-        let (a_d, b_d) = discretize(&a_c, &b_c, self.config.dt);
+        let (a_d, b_d) = discretize_matrix_exp(&a_c, &b_c, self.config.dt);
 
-        // 2. Build cost matrices (P upper triangular, q vector)
-        let (p_mat, q_vec) = self.build_cost(h, n_feet, n_z, reference);
+        // 2. Build condensed prediction matrices
+        //    A_qp = [A_d; A_d^2; ...; A_d^H]   (13H × 13)
+        //    B_qp = lower block-triangular       (13H × 12H)
+        let (a_qp, b_qp) = build_prediction_matrices(&a_d, &b_d, h);
 
-        // 3. Build all constraints
-        let (a_all, b_all, n_eq, n_ineq) =
-            self.build_constraints(&a_d, &b_d, x0, contacts, h, n_feet, n_z);
+        // 3. Build QP cost: H = 2(B_qp^T S B_qp + alpha I), g = 2 B_qp^T S (A_qp x0 - Xref)
+        let (p_mat, q_vec) =
+            self.build_condensed_cost(&a_qp, &b_qp, x0, reference, h, n_u_total);
 
-        // 4. Convert to Clarabel format
+        // 4. Build constraints (friction cone + swing zero-force)
+        let (a_con, b_con, n_eq, n_ineq) =
+            self.build_constraints(contacts, h, n_feet, n_u_total);
+
+        // 5. Convert to Clarabel CSC format
         let p_csc = dmatrix_to_csc_upper_tri(&p_mat);
-        let a_csc = dmatrix_to_csc(&a_all);
+        let a_csc = dmatrix_to_csc(&a_con);
 
-        // 5. Define cones
+        // 6. Define cones: equalities first, then inequalities
         let cones = vec![ZeroConeT(n_eq), NonnegativeConeT(n_ineq)];
 
-        // 6. Solve
+        // 7. Solve
         let settings = DefaultSettingsBuilder::default()
             .max_iter(self.config.max_solver_iters)
             .verbose(false)
-            .tol_gap_abs(1e-5)
-            .tol_gap_rel(1e-5)
-            .tol_feas(1e-5)
+            .tol_gap_abs(1e-6)
+            .tol_gap_rel(1e-6)
+            .tol_feas(1e-6)
             .build()
             .expect("valid solver settings");
 
         let q_slice: Vec<f64> = q_vec.iter().copied().collect();
-        let b_slice: Vec<f64> = b_all.iter().copied().collect();
+        let b_slice: Vec<f64> = b_con.iter().copied().collect();
 
-        let solver_result = DefaultSolver::new(&p_csc, &q_slice, &a_csc, &b_slice, &cones, settings);
+        let solver_result =
+            DefaultSolver::new(&p_csc, &q_slice, &a_csc, &b_slice, &cones, settings);
 
         let converged;
         let mut forces = vec![Vector3::zeros(); n_feet];
-        let mut force_trajectory = DVector::zeros(n_u);
-        let mut state_trajectory = DVector::zeros(n_x);
+        let mut force_trajectory = DVector::zeros(n_u_total);
+        let mut state_trajectory = DVector::zeros(STATE_DIM * h);
 
         match solver_result {
             Ok(mut solver) => {
@@ -133,25 +129,23 @@ impl MpcSolver {
                 );
 
                 if converged {
-                    // Extract state trajectory
-                    for i in 0..n_x {
-                        state_trajectory[i] = sol.x[i];
-                    }
-
-                    // Extract full force trajectory
-                    for i in 0..n_u {
-                        force_trajectory[i] = sol.x[n_x + i];
+                    // Solution is U = [f_0, f_1, ..., f_{H-1}]
+                    for i in 0..n_u_total {
+                        force_trajectory[i] = sol.x[i];
                     }
 
                     // Extract first-step foot forces
                     for (foot, force) in forces.iter_mut().enumerate() {
-                        let base = n_x; // u_0 starts after all states
                         *force = Vector3::new(
-                            sol.x[base + 3 * foot],
-                            sol.x[base + 3 * foot + 1],
-                            sol.x[base + 3 * foot + 2],
+                            sol.x[3 * foot],
+                            sol.x[3 * foot + 1],
+                            sol.x[3 * foot + 2],
                         );
                     }
+
+                    // Reconstruct state trajectory: X = A_qp x0 + B_qp U
+                    let u_vec = DVector::from_column_slice(&sol.x[..n_u_total]);
+                    state_trajectory = &a_qp * x0 + &b_qp * u_vec;
                 }
             }
             Err(_) => {
@@ -170,141 +164,104 @@ impl MpcSolver {
         }
     }
 
-    /// Build the cost matrices P (upper triangular) and q.
-    fn build_cost(
+    /// Build the condensed QP cost matrices.
+    ///
+    /// P = 2 (B_qp^T S B_qp + alpha I)
+    /// q = 2 B_qp^T S (A_qp x0 - X_ref)
+    fn build_condensed_cost(
         &self,
-        h: usize,
-        n_feet: usize,
-        n_z: usize,
+        a_qp: &DMatrix<f64>,
+        b_qp: &DMatrix<f64>,
+        x0: &DVector<f64>,
         reference: &ReferenceTrajectory,
+        h: usize,
+        n_u_total: usize,
     ) -> (DMatrix<f64>, DVector<f64>) {
-        let n_u_step = 3 * n_feet;
-        let n_x = STATE_DIM * h;
+        let n_x_total = STATE_DIM * h;
 
-        let mut p = DMatrix::zeros(n_z, n_z);
-        let mut q = DVector::zeros(n_z);
-
-        // State cost: Q diagonal for each horizon step
+        // Build diagonal weight vector for S (block-diagonal Q repeated H times)
+        let mut s_diag = DVector::zeros(n_x_total);
         for k in 0..h {
-            let x_off = k * STATE_DIM;
+            let off = k * STATE_DIM;
             for i in 0..12 {
-                p[(x_off + i, x_off + i)] = self.config.q_weights[i];
+                s_diag[off + i] = self.config.q_weights[i];
             }
-            // State 12 (gravity constant): zero weight
+            // s_diag[off + 12] = 0.0; // gravity state: zero weight
+        }
 
-            // Linear cost term: q_x = -Q * x_ref
-            let ref_off = k * STATE_DIM;
-            for i in 0..12 {
-                q[x_off + i] = -self.config.q_weights[i] * reference.states[ref_off + i];
+        // Compute S * B_qp efficiently (scale each row by diagonal weight)
+        let mut sb = b_qp.clone();
+        for i in 0..n_x_total {
+            let w = s_diag[i];
+            if w.abs() > 1e-20 {
+                for j in 0..n_u_total {
+                    sb[(i, j)] *= w;
+                }
+            } else {
+                for j in 0..n_u_total {
+                    sb[(i, j)] = 0.0;
+                }
             }
         }
 
-        // Control cost: R diagonal for each horizon step
-        for k in 0..h {
-            let u_off = n_x + k * n_u_step;
-            for j in 0..n_u_step {
-                p[(u_off + j, u_off + j)] = self.config.r_weight;
-            }
-        }
+        // P = 2 * (B_qp^T * S * B_qp + alpha * I)
+        let btsb = b_qp.transpose() * &sb;
+        let p_mat = 2.0 * (btsb + DMatrix::identity(n_u_total, n_u_total) * self.config.r_weight);
 
-        (p, q)
+        // q = 2 * B_qp^T * S * (A_qp * x0 - X_ref)
+        let error = a_qp * x0 - &reference.states;
+        let mut s_error = error;
+        for i in 0..n_x_total {
+            s_error[i] *= s_diag[i];
+        }
+        let q_vec = 2.0 * b_qp.transpose() * s_error;
+
+        (p_mat, q_vec)
     }
 
-    /// Build all constraint matrices (dynamics + contact).
+    /// Build constraint matrices for friction cone and swing feet.
     ///
-    /// Returns (A_all, b_all, n_eq, n_ineq) where equalities come first.
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+    /// Equalities (ZeroCone) first, then inequalities (NonnegativeCone).
     fn build_constraints(
         &self,
-        a_d: &DMatrix<f64>,
-        b_d: &DMatrix<f64>,
-        x0: &DVector<f64>,
         contacts: &[Vec<bool>],
         h: usize,
         n_feet: usize,
-        n_z: usize,
+        n_u_total: usize,
     ) -> (DMatrix<f64>, DVector<f64>, usize, usize) {
         let n_u_step = 3 * n_feet;
-        let n_x = STATE_DIM * h;
 
         // Count constraints
-        let n_dyn_eq = STATE_DIM * h;
         let mut n_swing_eq = 0;
         let mut n_friction_ineq = 0;
 
         for step_contacts in contacts.iter().take(h) {
             for &in_contact in step_contacts {
                 if in_contact {
-                    n_friction_ineq += 6; // 4 friction + 2 force limits
+                    n_friction_ineq += 6; // 4 friction pyramid + fz>=0 + fz<=fmax
                 } else {
-                    n_swing_eq += 3; // fx=0, fy=0, fz=0
+                    n_swing_eq += 3; // fx=fy=fz=0
                 }
             }
         }
 
-        let n_eq = n_dyn_eq + n_swing_eq;
+        let n_eq = n_swing_eq;
         let n_ineq = n_friction_ineq;
         let n_constraints = n_eq + n_ineq;
 
-        let mut a_all = DMatrix::zeros(n_constraints, n_z);
-        let mut b_all = DVector::zeros(n_constraints);
+        let mut a_con = DMatrix::zeros(n_constraints, n_u_total);
+        let mut b_con = DVector::zeros(n_constraints);
 
         let mut row = 0;
-
-        // --- Dynamics equality constraints ---
-        // k=0: I * x_1 - B_d * u_0 = A_d * x_0
-        // k=j (j>=1): -A_d * x_j + I * x_{j+1} - B_d * u_j = 0
-
-        for k in 0..h {
-            let x_k1_off = k * STATE_DIM; // x_{k+1} column offset
-            let u_k_off = n_x + k * n_u_step; // u_k column offset
-
-            // I * x_{k+1}
-            for i in 0..STATE_DIM {
-                a_all[(row + i, x_k1_off + i)] = 1.0;
-            }
-
-            // -B_d * u_k
-            for i in 0..STATE_DIM {
-                for j in 0..n_u_step {
-                    let val = b_d[(i, j)];
-                    if val.abs() > 1e-15 {
-                        a_all[(row + i, u_k_off + j)] = -val;
-                    }
-                }
-            }
-
-            if k == 0 {
-                // b = A_d * x_0
-                let ax0 = a_d * x0;
-                for i in 0..STATE_DIM {
-                    b_all[row + i] = ax0[i];
-                }
-            } else {
-                // -A_d * x_k
-                let x_k_off = (k - 1) * STATE_DIM;
-                for i in 0..STATE_DIM {
-                    for j in 0..STATE_DIM {
-                        let val = a_d[(i, j)];
-                        if val.abs() > 1e-15 {
-                            a_all[(row + i, x_k_off + j)] = -val;
-                        }
-                    }
-                }
-                // b = 0 (already zero)
-            }
-
-            row += STATE_DIM;
-        }
 
         // --- Swing foot equality constraints (f = 0) ---
         for (k, step_contacts) in contacts.iter().enumerate().take(h) {
             for (foot, &in_contact) in step_contacts.iter().enumerate() {
                 if !in_contact {
-                    let u_off = n_x + k * n_u_step + 3 * foot;
+                    let u_off = k * n_u_step + 3 * foot;
                     for j in 0..3 {
-                        a_all[(row, u_off + j)] = 1.0;
-                        b_all[row] = 0.0;
+                        a_con[(row, u_off + j)] = 1.0;
+                        // b_con[row] = 0.0 (already zero)
                         row += 1;
                     }
                 }
@@ -314,49 +271,44 @@ impl MpcSolver {
         assert_eq!(row, n_eq, "Equality constraint count mismatch");
 
         // --- Friction cone inequality constraints ---
-        // For Clarabel NonnegativeCone: A z + s = b with s >= 0 means A z <= b
+        // Clarabel NonnegativeCone: A z + s = b, s >= 0  ⟹  A z <= b
         let mu = self.config.friction_coeff;
         let f_max = self.config.f_max;
 
         for (k, step_contacts) in contacts.iter().enumerate().take(h) {
             for (foot, &in_contact) in step_contacts.iter().enumerate() {
                 if in_contact {
-                    let fx_idx = n_x + k * n_u_step + 3 * foot;
+                    let fx_idx = k * n_u_step + 3 * foot;
                     let fy_idx = fx_idx + 1;
                     let fz_idx = fx_idx + 2;
 
                     // 1. fx - mu*fz <= 0
-                    a_all[(row, fx_idx)] = 1.0;
-                    a_all[(row, fz_idx)] = -mu;
-                    b_all[row] = 0.0;
+                    a_con[(row, fx_idx)] = 1.0;
+                    a_con[(row, fz_idx)] = -mu;
                     row += 1;
 
                     // 2. -fx - mu*fz <= 0
-                    a_all[(row, fx_idx)] = -1.0;
-                    a_all[(row, fz_idx)] = -mu;
-                    b_all[row] = 0.0;
+                    a_con[(row, fx_idx)] = -1.0;
+                    a_con[(row, fz_idx)] = -mu;
                     row += 1;
 
                     // 3. fy - mu*fz <= 0
-                    a_all[(row, fy_idx)] = 1.0;
-                    a_all[(row, fz_idx)] = -mu;
-                    b_all[row] = 0.0;
+                    a_con[(row, fy_idx)] = 1.0;
+                    a_con[(row, fz_idx)] = -mu;
                     row += 1;
 
                     // 4. -fy - mu*fz <= 0
-                    a_all[(row, fy_idx)] = -1.0;
-                    a_all[(row, fz_idx)] = -mu;
-                    b_all[row] = 0.0;
+                    a_con[(row, fy_idx)] = -1.0;
+                    a_con[(row, fz_idx)] = -mu;
                     row += 1;
 
                     // 5. -fz <= 0  (fz >= 0)
-                    a_all[(row, fz_idx)] = -1.0;
-                    b_all[row] = 0.0;
+                    a_con[(row, fz_idx)] = -1.0;
                     row += 1;
 
                     // 6. fz <= f_max
-                    a_all[(row, fz_idx)] = 1.0;
-                    b_all[row] = f_max;
+                    a_con[(row, fz_idx)] = 1.0;
+                    b_con[row] = f_max;
                     row += 1;
                 }
             }
@@ -364,8 +316,63 @@ impl MpcSolver {
 
         assert_eq!(row, n_constraints, "Total constraint count mismatch");
 
-        (a_all, b_all, n_eq, n_ineq)
+        (a_con, b_con, n_eq, n_ineq)
     }
+}
+
+/// Build the condensed prediction matrices A_qp and B_qp.
+///
+/// A_qp stacks powers of A_d:
+/// ```text
+/// A_qp = [A_d; A_d^2; ...; A_d^H]     (13H × 13)
+/// ```
+///
+/// B_qp is lower block-triangular:
+/// ```text
+/// B_qp = [B_d,      0,      ...  0    ]
+///        [A_d B_d,   B_d,    ...  0    ]
+///        [A_d^2 B_d, A_d B_d, ... 0    ]
+///        [ ...                    B_d  ]     (13H × 12H)
+/// ```
+fn build_prediction_matrices(
+    a_d: &DMatrix<f64>,
+    b_d: &DMatrix<f64>,
+    horizon: usize,
+) -> (DMatrix<f64>, DMatrix<f64>) {
+    let n_x = a_d.nrows();
+    let n_u = b_d.ncols();
+
+    // Precompute A^k for k = 0..H
+    let mut a_powers: Vec<DMatrix<f64>> = Vec::with_capacity(horizon + 1);
+    a_powers.push(DMatrix::identity(n_x, n_x)); // A^0 = I
+    for i in 1..=horizon {
+        a_powers.push(a_d * &a_powers[i - 1]);
+    }
+
+    // Precompute A^k * B for k = 0..H-1
+    let mut ab_products: Vec<DMatrix<f64>> = Vec::with_capacity(horizon);
+    for i in 0..horizon {
+        ab_products.push(&a_powers[i] * b_d);
+    }
+
+    // Build A_qp (13H × 13)
+    let mut a_qp = DMatrix::zeros(n_x * horizon, n_x);
+    for k in 0..horizon {
+        a_qp.view_mut((k * n_x, 0), (n_x, n_x))
+            .copy_from(&a_powers[k + 1]);
+    }
+
+    // Build B_qp (13H × 12H) - lower block triangular
+    let mut b_qp = DMatrix::zeros(n_x * horizon, n_u * horizon);
+    for k in 0..horizon {
+        for j in 0..=k {
+            let power = k - j; // A^(k-j) * B
+            b_qp.view_mut((k * n_x, j * n_u), (n_x, n_u))
+                .copy_from(&ab_products[power]);
+        }
+    }
+
+    (a_qp, b_qp)
 }
 
 /// Convert a nalgebra `DMatrix<f64>` to a Clarabel `CscMatrix<f64>` (full matrix).
@@ -389,7 +396,7 @@ fn dmatrix_to_csc(m: &DMatrix<f64>) -> CscMatrix<f64> {
     CscMatrix::new(nrows, ncols, colptr, rowval, nzval)
 }
 
-/// Convert a symmetric nalgebra `DMatrix<f64>` to upper-triangular `CscMatrix<f64>`.
+/// Convert a symmetric `DMatrix<f64>` to upper-triangular `CscMatrix<f64>`.
 fn dmatrix_to_csc_upper_tri(m: &DMatrix<f64>) -> CscMatrix<f64> {
     let (nrows, ncols) = m.shape();
     let mut colptr = vec![0usize; ncols + 1];
@@ -415,21 +422,8 @@ mod tests {
     use super::*;
     use crate::types::BodyState;
     use approx::assert_relative_eq;
-    use nalgebra::Matrix3;
-
     fn test_config() -> MpcConfig {
-        MpcConfig {
-            horizon: 5,
-            dt: 0.02,
-            mass: 8.6,
-            inertia: Matrix3::new(0.07, 0.0, 0.0, 0.0, 0.26, 0.0, 0.0, 0.0, 0.28),
-            gravity: 9.81,
-            friction_coeff: 0.6,
-            f_max: 200.0,
-            q_weights: [50.0, 50.0, 10.0, 1.0, 1.0, 50.0, 1.0, 1.0, 1.0, 10.0, 10.0, 1.0],
-            r_weight: 1e-4,
-            max_solver_iters: 100,
-        }
+        MpcConfig::default()
     }
 
     fn quadruped_feet_standing() -> Vec<Vector3<f64>> {
@@ -442,26 +436,25 @@ mod tests {
     }
 
     #[test]
-    fn standing_balance() {
+    fn standing_balance_forces_support_gravity() {
         let config = test_config();
         let solver = MpcSolver::new(config.clone());
 
         let state = BodyState {
             orientation: Vector3::zeros(),
-            position: Vector3::new(0.0, 0.0, 0.35),
+            position: Vector3::new(0.0, 0.0, 0.30),
             angular_velocity: Vector3::zeros(),
             linear_velocity: Vector3::zeros(),
         };
         let x0 = state.to_state_vector(config.gravity);
 
         let feet = quadruped_feet_standing();
-        // All feet in contact for all horizon steps
         let contacts: Vec<Vec<bool>> = vec![vec![true; 4]; config.horizon];
 
         let reference = ReferenceTrajectory::constant_velocity(
             &state,
             &Vector3::zeros(),
-            0.35,
+            0.30,
             0.0,
             config.horizon,
             config.dt,
@@ -472,17 +465,25 @@ mod tests {
 
         assert!(solution.converged, "QP must converge for standing balance");
 
-        // Forces should roughly balance gravity: sum of fz ≈ m*g = 8.6*9.81 ≈ 84.4N
-        // Tolerance is generous because short horizon + control cost means forces
-        // slightly undercompensate gravity (the MPC correctly trades state error vs effort).
+        // Total vertical force should closely balance gravity: m*g = 9.0*9.81 ≈ 88.3N
+        // Slight overshoot is expected since the MPC also tracks the reference trajectory
         let total_fz: f64 = solution.forces.iter().map(|f| f.z).sum();
-        assert_relative_eq!(total_fz, config.mass * config.gravity, epsilon = 15.0);
+        assert_relative_eq!(total_fz, config.mass * config.gravity, epsilon = 10.0);
 
-        // Horizontal forces should be near zero (no desired velocity)
+        // Each foot should carry roughly equal load
+        for (i, f) in solution.forces.iter().enumerate() {
+            assert!(
+                f.z > 10.0,
+                "Foot {i}: fz={:.1} should be positive (supporting weight)",
+                f.z
+            );
+        }
+
+        // Horizontal forces should be near zero
         let total_fx: f64 = solution.forces.iter().map(|f| f.x.abs()).sum();
         let total_fy: f64 = solution.forces.iter().map(|f| f.y.abs()).sum();
-        assert!(total_fx < 10.0, "Horizontal force fx should be small: {total_fx}");
-        assert!(total_fy < 10.0, "Horizontal force fy should be small: {total_fy}");
+        assert!(total_fx < 5.0, "fx should be small: {total_fx}");
+        assert!(total_fy < 5.0, "fy should be small: {total_fy}");
     }
 
     #[test]
@@ -492,7 +493,7 @@ mod tests {
 
         let state = BodyState {
             orientation: Vector3::zeros(),
-            position: Vector3::new(0.0, 0.0, 0.35),
+            position: Vector3::new(0.0, 0.0, 0.29),
             angular_velocity: Vector3::zeros(),
             linear_velocity: Vector3::new(0.3, 0.0, 0.0),
         };
@@ -503,7 +504,7 @@ mod tests {
         let reference = ReferenceTrajectory::constant_velocity(
             &state,
             &Vector3::new(0.5, 0.0, 0.0),
-            0.35,
+            0.29,
             0.0,
             config.horizon,
             config.dt,
@@ -515,16 +516,13 @@ mod tests {
 
         let mu = config.friction_coeff;
         for (i, f) in solution.forces.iter().enumerate() {
-            // fz >= 0
             assert!(f.z >= -1e-3, "Foot {i}: fz={} must be >= 0", f.z);
-            // |fx| <= mu * fz
             assert!(
                 f.x.abs() <= mu * f.z + 1e-3,
                 "Foot {i}: |fx|={} > mu*fz={}",
                 f.x.abs(),
                 mu * f.z
             );
-            // |fy| <= mu * fz
             assert!(
                 f.y.abs() <= mu * f.z + 1e-3,
                 "Foot {i}: |fy|={} > mu*fz={}",
@@ -541,7 +539,7 @@ mod tests {
 
         let state = BodyState {
             orientation: Vector3::zeros(),
-            position: Vector3::new(0.0, 0.0, 0.35),
+            position: Vector3::new(0.0, 0.0, 0.29),
             angular_velocity: Vector3::zeros(),
             linear_velocity: Vector3::zeros(),
         };
@@ -549,13 +547,12 @@ mod tests {
         let feet = quadruped_feet_standing();
 
         // Trot: FL+RR stance, FR+RL swing
-        let contacts: Vec<Vec<bool>> =
-            vec![vec![true, false, false, true]; config.horizon];
+        let contacts: Vec<Vec<bool>> = vec![vec![true, false, false, true]; config.horizon];
 
         let reference = ReferenceTrajectory::constant_velocity(
             &state,
             &Vector3::zeros(),
-            0.35,
+            0.29,
             0.0,
             config.horizon,
             config.dt,
@@ -565,27 +562,23 @@ mod tests {
         let solution = solver.solve(&x0, &feet, &contacts, &reference);
         assert!(solution.converged);
 
-        // Swing feet (1=FR, 2=RL) should have zero force
+        // Swing feet should have zero force
         assert!(solution.forces[1].norm() < 1e-3, "FR swing force should be ~0");
         assert!(solution.forces[2].norm() < 1e-3, "RL swing force should be ~0");
 
-        // Stance feet (0=FL, 3=RR) should support the robot
-        // 2 feet supporting full weight — tolerance generous for short horizon
+        // Stance feet should support the robot (2 feet carry all weight)
         let stance_fz = solution.forces[0].z + solution.forces[3].z;
-        assert_relative_eq!(stance_fz, config.mass * config.gravity, epsilon = 30.0);
+        assert_relative_eq!(stance_fz, config.mass * config.gravity, epsilon = 15.0);
     }
 
     #[test]
     fn solve_time_reasonable() {
-        let config = MpcConfig {
-            horizon: 10,
-            ..test_config()
-        };
+        let config = test_config();
         let solver = MpcSolver::new(config.clone());
 
         let state = BodyState {
             orientation: Vector3::zeros(),
-            position: Vector3::new(0.0, 0.0, 0.35),
+            position: Vector3::new(0.0, 0.0, 0.29),
             angular_velocity: Vector3::zeros(),
             linear_velocity: Vector3::zeros(),
         };
@@ -596,7 +589,7 @@ mod tests {
         let reference = ReferenceTrajectory::constant_velocity(
             &state,
             &Vector3::zeros(),
-            0.35,
+            0.29,
             0.0,
             config.horizon,
             config.dt,
@@ -606,11 +599,83 @@ mod tests {
         let solution = solver.solve(&x0, &feet, &contacts, &reference);
         assert!(solution.converged);
 
-        // Should solve in under 50ms (typically < 5ms)
         assert!(
-            solution.solve_time_us < 50_000,
-            "Solve took {}us, expected < 50000us",
+            solution.solve_time_us < 200_000,
+            "Solve took {}us, expected < 200000us (debug mode is slow)",
             solution.solve_time_us
+        );
+    }
+
+    #[test]
+    fn prediction_matrices_dimensions() {
+        let n_x = STATE_DIM;
+        let n_u = 12;
+        let h = 5;
+
+        let a_d = DMatrix::identity(n_x, n_x);
+        let b_d = DMatrix::zeros(n_x, n_u);
+
+        let (a_qp, b_qp) = build_prediction_matrices(&a_d, &b_d, h);
+
+        assert_eq!(a_qp.nrows(), n_x * h);
+        assert_eq!(a_qp.ncols(), n_x);
+        assert_eq!(b_qp.nrows(), n_x * h);
+        assert_eq!(b_qp.ncols(), n_u * h);
+    }
+
+    #[test]
+    fn prediction_with_identity_dynamics() {
+        // With A_d = I and B_d = 0, A_qp should be stacked identities
+        let n_x = STATE_DIM;
+        let n_u = 12;
+        let h = 3;
+
+        let a_d = DMatrix::identity(n_x, n_x);
+        let b_d = DMatrix::zeros(n_x, n_u);
+
+        let (a_qp, _b_qp) = build_prediction_matrices(&a_d, &b_d, h);
+
+        // Each block of A_qp should be identity (I^k = I)
+        for k in 0..h {
+            let block = a_qp.view((k * n_x, 0), (n_x, n_x));
+            let identity = DMatrix::identity(n_x, n_x);
+            assert_relative_eq!(block.clone_owned(), identity, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn forward_velocity_produces_positive_fx() {
+        let config = test_config();
+        let solver = MpcSolver::new(config.clone());
+
+        let state = BodyState {
+            orientation: Vector3::zeros(),
+            position: Vector3::new(0.0, 0.0, 0.29),
+            angular_velocity: Vector3::zeros(),
+            linear_velocity: Vector3::zeros(), // starting from rest
+        };
+        let x0 = state.to_state_vector(config.gravity);
+        let feet = quadruped_feet_standing();
+        let contacts: Vec<Vec<bool>> = vec![vec![true; 4]; config.horizon];
+
+        let reference = ReferenceTrajectory::constant_velocity(
+            &state,
+            &Vector3::new(0.5, 0.0, 0.0), // want to go forward
+            0.29,
+            0.0,
+            config.horizon,
+            config.dt,
+            config.gravity,
+        );
+
+        let solution = solver.solve(&x0, &feet, &contacts, &reference);
+        assert!(solution.converged);
+
+        // Total forward force should be positive (accelerating forward)
+        let total_fx: f64 = solution.forces.iter().map(|f| f.x).sum();
+        assert!(
+            total_fx > 0.0,
+            "Total fx={total_fx} should be positive for forward acceleration"
         );
     }
 }

@@ -92,7 +92,7 @@ impl MpcPipelineState {
         let n_feet = 4;
         Self {
             gait: GaitScheduler::quadruped(gait),
-            solver: MpcSolver::new(mpc_config),
+            solver: MpcSolver::new(mpc_config, 4),
             foot_positions: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],
             swing_starts: vec![Vector3::zeros(); n_feet],

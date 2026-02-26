@@ -275,7 +275,7 @@ fn main() {
     // (Walk keeps 3+ feet on ground, providing a triangle of support for lateral stability.
     //  Trot only has 2 feet in diagonal, which is a line — zero lateral stability margin.)
     let mut gait = GaitScheduler::quadruped(GaitType::Stand);
-    let solver = MpcSolver::new(mpc_config.clone());
+    let mut solver = MpcSolver::new(mpc_config.clone(), 4);
     let n_feet = legs.len();
     let mut swing_starts = vec![Vector3::zeros(); n_feet];
     let mut swing_targets = vec![Vector3::zeros(); n_feet];

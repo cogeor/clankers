@@ -1,16 +1,5 @@
 //! Quadruped MPC visualization with windowed Bevy rendering.
 //!
-//! Extends the headless `quadruped_mpc` example with 3D visualization:
-//! colored meshes for body and legs, orbit camera, and egui status panel.
-//!
-//! The MPC pipeline runs as a Bevy system (same logic as the headless
-//! example), reading body state directly from `RapierContext` to avoid
-//! the one-frame `GlobalTransform` propagation lag.
-//!
-//! Physics uses Z-up coordinates (MPC convention). Visual meshes are
-//! synced with a Z-up to Y-up coordinate swap so they render correctly
-//! under Bevy's default Y-up camera.
-//!
 //! ## Visual sync strategy
 //!
 //! Rapier places each link rigid body at the **joint position** (where it
@@ -19,51 +8,61 @@
 //! consecutive rigid body positions (hip-to-knee, knee-to-ankle) so the
 //! mesh always spans the full link regardless of joint angle.
 //!
+//! ## 3-DOF legs
+//!
+//! Each leg has hip_ab (X-axis) + hip_pitch (Y-axis) + knee_pitch (Y-axis).
+//! The hip_link and upper_leg are co-located (hip_pitch origin is 0,0,0
+//! relative to hip_link), so visuals use upper_leg position for the hip sphere.
+//!
 //! Run: `cargo run -p clankers-examples --bin quadruped_mpc_viz`
 
 use std::collections::HashMap;
 
 use bevy::math::EulerRot;
 use bevy::prelude::*;
-use clankers_actuator::components::{JointCommand, JointState};
+use bevy_egui::{EguiContexts, egui};
+use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
+use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
     BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, ReferenceTrajectory, SwingConfig,
-    raibert_foot_target, swing_foot_position,
-    wbc::{compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques},
+    raibert_foot_target, swing_foot_position, swing_foot_velocity,
+    wbc::{compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques, transform_frames_to_world},
 };
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
+use clankers_physics::rapier::{bridge::register_robot, MotorOverrideParams, MotorOverrides, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::SceneBuilder;
 use clankers_teleop::ClankersTeleopPlugin;
-use clankers_viz::ClankersVizPlugin;
+use clankers_teleop::TeleopConfig;
+use clankers_viz::{ClankersVizPlugin, VizMode};
+use clankers_viz::systems::VizSimGate;
 use nalgebra::Vector3;
-use rapier3d::prelude::{ColliderBuilder, MassProperties, RigidBodyBuilder};
+use rapier3d::prelude::{
+    ColliderBuilder, Group, InteractionGroups, InteractionTestMode, JointAxis, MassProperties,
+    RigidBodyBuilder,
+};
 
 // ---------------------------------------------------------------------------
 // Visual markers
 // ---------------------------------------------------------------------------
 
-/// Body cuboid — synced from the "body" rigid body (position + rotation).
 #[derive(Component)]
 struct BodyVisual;
 
-/// Leg segment capsule — drawn between two rigid body positions.
-/// The capsule midpoint and orientation are recomputed each frame from
-/// the start/end link positions in Rapier.
 #[derive(Component)]
 struct SegmentVisual {
     start_link: &'static str,
     end_link: &'static str,
 }
 
-/// Point visual (sphere) — synced to a single rigid body position.
-/// Used for joint markers and foot spheres.
 #[derive(Component)]
 struct PointVisual(&'static str);
+
+/// Warmup body height, passed from setup to MPC config.
+struct WarmupHeight(f32);
 
 // ---------------------------------------------------------------------------
 // MPC runtime state
@@ -77,6 +76,59 @@ struct LegRuntime {
 }
 
 #[derive(Resource)]
+struct MpcUiState {
+    mpc_enabled: bool,
+    desired_velocity_x: f32,
+    desired_velocity_y: f32,
+    desired_height: f32,
+    desired_yaw: f32,
+    gait: GaitType,
+    last_converged: bool,
+    last_solve_time_us: u64,
+    n_stance: usize,
+    body_pos: [f32; 3],
+    step: usize,
+    diag_joint_cmds: Vec<f32>,
+    diag_joint_torques: Vec<f32>,
+    diag_joint_positions: Vec<f32>,
+    diag_joint_velocities: Vec<f32>,
+    diag_teleop_mappings: usize,
+    diag_teleop_enabled: bool,
+    reinit_requested: bool,
+    diag_should_step: bool,
+    diag_rapier_joint_count: usize,
+    diag_frame: u64,
+}
+
+impl Default for MpcUiState {
+    fn default() -> Self {
+        Self {
+            mpc_enabled: true,
+            desired_velocity_x: 0.0,
+            desired_velocity_y: 0.0,
+            desired_height: 0.326,
+            desired_yaw: 0.0,
+            gait: GaitType::Stand,
+            last_converged: false,
+            last_solve_time_us: 0,
+            n_stance: 0,
+            body_pos: [0.0; 3],
+            step: 0,
+            diag_joint_cmds: Vec::new(),
+            diag_joint_torques: Vec::new(),
+            diag_joint_positions: Vec::new(),
+            diag_joint_velocities: Vec::new(),
+            diag_teleop_mappings: 0,
+            diag_teleop_enabled: false,
+            reinit_requested: false,
+            diag_should_step: false,
+            diag_rapier_joint_count: 0,
+            diag_frame: 0,
+        }
+    }
+}
+
+#[derive(Resource)]
 struct QuadMpcState {
     gait: GaitScheduler,
     solver: MpcSolver,
@@ -85,21 +137,17 @@ struct QuadMpcState {
     legs: Vec<LegRuntime>,
     swing_starts: Vec<Vector3<f64>>,
     swing_targets: Vec<Vector3<f64>>,
-    desired_velocity: Vector3<f64>,
-    desired_height: f64,
-    desired_yaw: f64,
-    ground_height: f64,
+    init_joint_angles: Vec<Vec<f32>>,
     step: usize,
     stabilize_steps: usize,
-    switched_to_trot: bool,
+    current_gait_type: GaitType,
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Read body state from Rapier rigid body set (same as headless example).
-fn body_state_from_rapier(ctx: &RapierContext, link_name: &str) -> Option<BodyState> {
+fn body_state_from_rapier(ctx: &RapierContext, link_name: &str) -> Option<(BodyState, Quat)> {
     let handle = ctx.body_handles.get(link_name)?;
     let body = ctx.rigid_body_set.get(*handle)?;
 
@@ -110,38 +158,57 @@ fn body_state_from_rapier(ctx: &RapierContext, link_name: &str) -> Option<BodySt
     let lv = body.linvel();
     let av = body.angvel();
 
-    Some(BodyState {
-        orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
-        position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
-        angular_velocity: Vector3::new(f64::from(av.x), f64::from(av.y), f64::from(av.z)),
-        linear_velocity: Vector3::new(f64::from(lv.x), f64::from(lv.y), f64::from(lv.z)),
-    })
+    Some((
+        BodyState {
+            orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
+            position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
+            angular_velocity: Vector3::new(f64::from(av.x), f64::from(av.y), f64::from(av.z)),
+            linear_velocity: Vector3::new(f64::from(lv.x), f64::from(lv.y), f64::from(lv.z)),
+        },
+        *r,
+    ))
 }
 
-/// Convert a physics position (Z-up) to Bevy visual position (Y-up).
 fn phys_to_vis(pos: Vec3) -> Vec3 {
     Vec3::new(pos.x, pos.z, -pos.y)
 }
 
-/// Get a Rapier rigid body's world position, converted to Bevy Y-up.
 fn link_vis_pos(rapier: &RapierContext, link_name: &str) -> Option<Vec3> {
     let handle = rapier.body_handles.get(link_name)?;
     let body = rapier.rigid_body_set.get(*handle)?;
     Some(phys_to_vis(body.translation()))
 }
 
-/// Compute a quaternion that rotates the Y-axis to align with `dir`.
 fn rotation_align_y(dir: Vec3) -> Quat {
     let d = dir.normalize_or_zero();
     let dot = Vec3::Y.dot(d);
     if dot > 0.9999 {
         Quat::IDENTITY
     } else if dot < -0.9999 {
-        // Antiparallel — rotate 180 deg around X (arbitrary stable axis)
         Quat::from_rotation_x(std::f32::consts::PI)
     } else {
         Quat::from_rotation_arc(Vec3::Y, d)
     }
+}
+
+fn foot_world_from_fk(
+    chain: &KinematicChain,
+    q: &[f32],
+    body_translation: &Vec3,
+    body_rotation: &Quat,
+) -> Vector3<f64> {
+    let ee_body = chain.forward_kinematics(q);
+    let ee_body_vec = Vec3::new(
+        ee_body.translation.x,
+        ee_body.translation.y,
+        ee_body.translation.z,
+    );
+    let ee_world = *body_rotation * ee_body_vec + *body_translation;
+    Vector3::new(
+        f64::from(ee_world.x),
+        f64::from(ee_world.y),
+        f64::from(ee_world.z),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +233,7 @@ fn spawn_quadruped_meshes(
         ..default()
     });
 
-    // Body: blue cuboid (0.4m long × 0.1m tall × 0.2m wide in Bevy Y-up)
+    // Body cuboid
     commands.spawn((
         BodyVisual,
         Mesh3d(meshes.add(Cuboid::new(0.4, 0.1, 0.2))),
@@ -174,14 +241,13 @@ fn spawn_quadruped_meshes(
         Transform::from_xyz(0.0, 0.35, 0.0),
     ));
 
-    // Shared meshes
     let capsule_mesh = meshes.add(Capsule3d::new(0.018, 0.12));
     let joint_sphere = meshes.add(Sphere::new(0.022));
     let foot_sphere = meshes.add(Sphere::new(0.025));
 
-    // Leg segment definitions: (start_link, end_link)
+    // Per-leg visuals: hip_link and upper_leg are co-located (hip_pitch
+    // origin is 0,0,0), so we use upper_leg for the hip joint sphere.
     let leg_segments: &[(&str, &str, &str, &str)] = &[
-        // (prefix, upper_link, lower_link, foot_link)
         ("fl", "fl_upper_leg", "fl_lower_leg", "fl_foot"),
         ("fr", "fr_upper_leg", "fr_lower_leg", "fr_foot"),
         ("rl", "rl_upper_leg", "rl_lower_leg", "rl_foot"),
@@ -189,15 +255,14 @@ fn spawn_quadruped_meshes(
     ];
 
     for &(_prefix, upper, lower, foot) in leg_segments {
-        // Hip joint sphere (at upper_leg rigid body = hip joint position)
+        // Hip joint sphere (at upper_leg position = hip_link position)
         commands.spawn((
             PointVisual(upper),
             Mesh3d(joint_sphere.clone()),
             MeshMaterial3d(joint_mat.clone()),
             Transform::default(),
         ));
-
-        // Upper leg capsule: hip → knee
+        // Upper leg capsule: hip -> knee
         commands.spawn((
             SegmentVisual {
                 start_link: leak_str(upper),
@@ -207,16 +272,14 @@ fn spawn_quadruped_meshes(
             MeshMaterial3d(leg_mat.clone()),
             Transform::default(),
         ));
-
-        // Knee joint sphere (at lower_leg rigid body = knee joint position)
+        // Knee joint sphere
         commands.spawn((
             PointVisual(lower),
             Mesh3d(joint_sphere.clone()),
             MeshMaterial3d(joint_mat.clone()),
             Transform::default(),
         ));
-
-        // Lower leg capsule: knee → ankle
+        // Lower leg capsule: knee -> foot
         commands.spawn((
             SegmentVisual {
                 start_link: leak_str(lower),
@@ -226,8 +289,7 @@ fn spawn_quadruped_meshes(
             MeshMaterial3d(leg_mat.clone()),
             Transform::default(),
         ));
-
-        // Foot sphere (at foot rigid body = ankle joint position)
+        // Foot sphere
         commands.spawn((
             PointVisual(foot),
             Mesh3d(foot_sphere.clone()),
@@ -237,8 +299,6 @@ fn spawn_quadruped_meshes(
     }
 }
 
-/// Convert a known static &str to &'static str for SegmentVisual fields.
-/// These are compile-time link name constants so the leak is bounded.
 fn leak_str(s: &str) -> &'static str {
     match s {
         "fl_upper_leg" => "fl_upper_leg",
@@ -263,66 +323,142 @@ fn leak_str(s: &str) -> &'static str {
 
 #[allow(clippy::needless_pass_by_value)]
 fn mpc_control_system(
-    rapier: Res<RapierContext>,
+    mut rapier: ResMut<RapierContext>,
     mut mpc: ResMut<QuadMpcState>,
-    states: Query<&JointState>,
+    mut mpc_ui: ResMut<MpcUiState>,
+    mut motor_overrides: ResMut<MotorOverrides>,
+    mut states: Query<&mut JointState>,
     mut commands: Query<&mut JointCommand>,
 ) {
-    let mpc = &mut *mpc;
+    // --- Reinitialize: reset physics and MPC state to post-warmup config ---
+    if mpc_ui.reinit_requested {
+        mpc_ui.reinit_requested = false;
+        rapier.reset_to_initial();
 
-    // Switch from Stand to Trot after stabilization
-    if mpc.step == mpc.stabilize_steps && !mpc.switched_to_trot {
-        mpc.gait = GaitScheduler::quadruped(GaitType::Trot);
-        mpc.switched_to_trot = true;
-        println!("  >>> Switching to Trot gait at step {}", mpc.step);
+        // Read back joint states from the reset Rapier bodies
+        for leg in &mpc.legs {
+            for &entity in &leg.joint_entities {
+                if let Some(info) = rapier.joint_info.get(&entity)
+                    && let Some(pb) = rapier.rigid_body_set.get(info.parent_body)
+                    && let Some(cb) = rapier.rigid_body_set.get(info.child_body)
+                {
+                    let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
+                    let sin_half = Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
+                    let sin_proj = sin_half.dot(info.axis);
+                    let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
+
+                    if let Ok(mut js) = states.get_mut(entity) {
+                        js.position = angle;
+                        js.velocity = 0.0;
+                    }
+                }
+            }
+        }
+
+        // Reset MPC state
+        let mpc = &mut *mpc;
+        mpc.step = 0;
+        mpc.gait = GaitScheduler::quadruped(GaitType::Stand);
+        mpc.current_gait_type = GaitType::Stand;
+        for v in &mut mpc.swing_starts {
+            *v = Vector3::zeros();
+        }
+        for v in &mut mpc.swing_targets {
+            *v = Vector3::zeros();
+        }
+
+        // Reset UI controls
+        mpc_ui.gait = GaitType::Stand;
+        mpc_ui.desired_velocity_x = 0.0;
+        mpc_ui.desired_velocity_y = 0.0;
+        mpc_ui.desired_yaw = 0.0;
+        mpc_ui.step = 0;
+
+        // Clear motor overrides
+        motor_overrides.joints.clear();
+
+        println!("  >>> Reinitialized to post-warmup state");
+        return;
     }
 
-    let Some(body_state) = body_state_from_rapier(&rapier, "body") else {
+    if !mpc_ui.mpc_enabled {
+        return;
+    }
+
+    let mpc = &mut *mpc;
+
+    let desired_velocity = Vector3::new(
+        f64::from(mpc_ui.desired_velocity_x).clamp(-0.5, 0.5),
+        f64::from(mpc_ui.desired_velocity_y).clamp(-0.3, 0.3),
+        0.0,
+    );
+    let desired_height = f64::from(mpc_ui.desired_height);
+    let desired_yaw = f64::from(mpc_ui.desired_yaw);
+    let ground_height = 0.0;
+
+    // Auto-switch to Trot at stabilize_steps (matching headless)
+    if mpc.step == mpc.stabilize_steps && mpc.current_gait_type == GaitType::Stand {
+        mpc_ui.gait = GaitType::Trot;
+        mpc_ui.desired_velocity_x = 0.3;
+    }
+
+    if mpc_ui.gait != mpc.current_gait_type {
+        mpc.gait = GaitScheduler::quadruped(mpc_ui.gait);
+        mpc.current_gait_type = mpc_ui.gait;
+        println!("  >>> Switched to {:?} at step {}", mpc_ui.gait, mpc.step);
+    }
+
+    let Some((body_state, body_rot)) = body_state_from_rapier(&rapier, "body") else {
         return;
     };
     let body_pos = body_state.position;
+    let body_t = Vec3::new(body_pos.x as f32, body_pos.y as f32, body_pos.z as f32);
     let n_feet = mpc.legs.len();
 
-    // Read joint states and compute foot FK
     let mut all_joint_positions: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
+    let mut all_joint_velocities: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
     let mut foot_world: Vec<Vector3<f64>> = Vec::with_capacity(n_feet);
 
     for leg in &mpc.legs {
         let mut q = Vec::with_capacity(leg.joint_entities.len());
+        let mut qd = Vec::with_capacity(leg.joint_entities.len());
         for &entity in &leg.joint_entities {
             if let Ok(js) = states.get(entity) {
                 q.push(js.position);
+                qd.push(js.velocity);
             } else {
                 q.push(0.0);
+                qd.push(0.0);
             }
         }
 
-        let ee_body = leg.chain.forward_kinematics(&q);
-        let fw = body_pos
-            + Vector3::new(
-                f64::from(ee_body.translation.x),
-                f64::from(ee_body.translation.y),
-                f64::from(ee_body.translation.z),
-            );
+        let fw = foot_world_from_fk(&leg.chain, &q, &body_t, &body_rot);
         foot_world.push(fw);
         all_joint_positions.push(q);
+        all_joint_velocities.push(qd);
     }
 
-    // Advance gait and solve MPC
     mpc.gait.advance(mpc.config.dt);
 
     let contacts = mpc.gait.contact_sequence(mpc.config.horizon, mpc.config.dt);
     let x0 = body_state.to_state_vector(mpc.config.gravity);
+
+    // Velocity ramp: gradually increase from 0 to desired over 200 steps (matching headless)
+    let ramp_steps = 200;
+    let current_vel_owned;
     let current_vel = if mpc.step < mpc.stabilize_steps {
-        &Vector3::zeros()
+        current_vel_owned = Vector3::zeros();
+        &current_vel_owned
     } else {
-        &mpc.desired_velocity
+        let ramp_frac = ((mpc.step - mpc.stabilize_steps) as f64 / ramp_steps as f64).min(1.0);
+        current_vel_owned = desired_velocity * ramp_frac;
+        &current_vel_owned
     };
     let reference = ReferenceTrajectory::constant_velocity(
         &body_state,
         current_vel,
-        mpc.desired_height,
-        mpc.desired_yaw,
+        desired_height,
+        desired_yaw,
         mpc.config.horizon,
         mpc.config.dt,
         mpc.config.gravity,
@@ -331,56 +467,150 @@ fn mpc_control_system(
     let solution = mpc.solver.solve(&x0, &foot_world, &contacts, &reference);
     let stance_duration = mpc.gait.duty_factor() * mpc.gait.cycle_time();
 
-    // Apply control per leg
+    // Build body quaternion for frame transforms (reused across legs)
+    let body_quat_na = nalgebra::UnitQuaternion::from_quaternion(
+        nalgebra::Quaternion::new(
+            f64::from(body_rot.w), f64::from(body_rot.x),
+            f64::from(body_rot.y), f64::from(body_rot.z),
+        ),
+    );
+
     for (leg_idx, leg) in mpc.legs.iter().enumerate() {
         let is_contact = mpc.gait.is_contact(leg_idx);
 
         if is_contact && solution.converged {
-            // Stance: WBC torques via Jacobian transpose
+            // --- Stance: J^T feedforward via position motors (matching headless) ---
+            // hip_ab: stiff PD keeps lateral stability (trot has zero margin)
+            // hip_pitch/knee: kp=0 lets MPC feedforward drive forward locomotion
             let q = &all_joint_positions[leg_idx];
             let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
             let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
 
+            let (origins_world, axes_world) = transform_frames_to_world(
+                &origins_f64, &axes_f64, &body_quat_na, &body_pos,
+            );
+
             let jacobian = compute_leg_jacobian(
-                &origins_f64,
-                &axes_f64,
+                &origins_world,
+                &axes_world,
                 &foot_world[leg_idx],
                 &leg.is_prismatic,
             );
 
             let force = &solution.forces[leg_idx];
-            let torques = jacobian_transpose_torques(&jacobian, force);
+            let neg_force = -force;
+            let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
+                let q0 = mpc.init_joint_angles[leg_idx][j];
+                // Per-joint gains matching headless:
+                // j=0 (hip_ab): stiff PD for lateral stability
+                // j=1,2 (hip_pitch, knee): feedforward-only for forward locomotion
+                let (kp_j, kd_j, max_f) = if j == 0 {
+                    (500.0_f32, 20.0_f32, 200.0_f32)
+                } else {
+                    (0.0_f32, 5.0_f32, 50.0_f32)
+                };
+
+                #[allow(clippy::cast_possible_truncation)]
+                let target_vel = (torques_ff[j] / f64::from(kd_j)) as f32;
+
+                // Use position motor override (evaluated at physics rate by Rapier)
+                motor_overrides.joints.insert(entity, MotorOverrideParams {
+                    target_pos: q0,
+                    target_vel,
+                    stiffness: kp_j,
+                    damping: kd_j,
+                    max_force: max_f,
+                });
+
+                // Zero the JointCommand so actuator pipeline doesn't interfere
                 if let Ok(mut cmd) = commands.get_mut(entity) {
-                    cmd.value = torques[j] as f32;
+                    cmd.value = 0.0;
                 }
             }
 
             mpc.swing_starts[leg_idx] = foot_world[leg_idx];
         } else {
-            // Swing: Bezier trajectory (zero torque for now)
+            // --- Swing: Cartesian PD via J^T, encoded as position motor feedforward ---
             let swing_phase = mpc.gait.swing_phase(leg_idx);
 
             if swing_phase < 0.05 {
-                let hip_world = body_pos + leg.hip_offset;
+                let hip_world = body_quat_na * leg.hip_offset + body_pos;
                 mpc.swing_targets[leg_idx] = raibert_foot_target(
                     &hip_world,
-                    &mpc.desired_velocity,
+                    &body_state.linear_velocity,
+                    &desired_velocity,
                     stance_duration,
-                    mpc.ground_height,
+                    ground_height,
+                    mpc.swing_config.raibert_kv,
                 );
                 mpc.swing_starts[leg_idx] = foot_world[leg_idx];
             }
 
-            let _target_pos = swing_foot_position(
+            let swing_duration = (1.0 - mpc.gait.duty_factor()) * mpc.gait.cycle_time();
+
+            let p_des = swing_foot_position(
                 &mpc.swing_starts[leg_idx],
                 &mpc.swing_targets[leg_idx],
                 swing_phase,
                 mpc.swing_config.step_height,
             );
+            let v_des = swing_foot_velocity(
+                &mpc.swing_starts[leg_idx],
+                &mpc.swing_targets[leg_idx],
+                swing_phase,
+                mpc.swing_config.step_height,
+                swing_duration,
+            );
 
-            for &entity in &leg.joint_entities {
+            let p_actual = &foot_world[leg_idx];
+
+            let q = &all_joint_positions[leg_idx];
+            let qd_vals = &all_joint_velocities[leg_idx];
+            let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
+            let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
+
+            let (origins_world, axes_world) = transform_frames_to_world(
+                &origins_f64, &axes_f64, &body_quat_na, &body_pos,
+            );
+            let jacobian = compute_leg_jacobian(
+                &origins_world, &axes_world, p_actual, &leg.is_prismatic,
+            );
+
+            let qd_f64: Vec<f64> = qd_vals.iter().map(|&v| f64::from(v)).collect();
+            let v_actual = Vector3::new(
+                (0..jacobian.ncols()).map(|j| jacobian[(0, j)] * qd_f64[j]).sum::<f64>(),
+                (0..jacobian.ncols()).map(|j| jacobian[(1, j)] * qd_f64[j]).sum::<f64>(),
+                (0..jacobian.ncols()).map(|j| jacobian[(2, j)] * qd_f64[j]).sum::<f64>(),
+            );
+
+            let kp = &mpc.swing_config.kp_cartesian;
+            let kd = &mpc.swing_config.kd_cartesian;
+            let foot_force = Vector3::new(
+                kp.x * (p_des.x - p_actual.x) + kd.x * (v_des.x - v_actual.x),
+                kp.y * (p_des.y - p_actual.y) + kd.y * (v_des.y - v_actual.y),
+                kp.z * (p_des.z - p_actual.z) + kd.z * (v_des.z - v_actual.z),
+            );
+
+            let torques = jacobian_transpose_torques(&jacobian, &foot_force);
+
+            for (j, &entity) in leg.joint_entities.iter().enumerate() {
+                // Swing: encode Cartesian PD torques as position motor feedforward
+                // (matching headless: kp=20 mild spring to nominal, kd=2, max=10)
+                let q0 = mpc.init_joint_angles[leg_idx][j];
+                let kd_swing = 2.0_f32;
+                #[allow(clippy::cast_possible_truncation)]
+                let target_vel = (torques[j] / f64::from(kd_swing)) as f32;
+
+                motor_overrides.joints.insert(entity, MotorOverrideParams {
+                    target_pos: q0,
+                    target_vel,
+                    stiffness: 20.0,
+                    damping: kd_swing,
+                    max_force: 30.0,
+                });
+
                 if let Ok(mut cmd) = commands.get_mut(entity) {
                     cmd.value = 0.0;
                 }
@@ -388,50 +618,261 @@ fn mpc_control_system(
         }
     }
 
-    // Telemetry
+    // Update UI display state
+    let n_stance: usize = (0..n_feet).filter(|&i| mpc.gait.is_contact(i)).count();
+    mpc_ui.last_converged = solution.converged;
+    mpc_ui.last_solve_time_us = solution.solve_time_us;
+    mpc_ui.n_stance = n_stance;
+    mpc_ui.body_pos = [body_pos.x as f32, body_pos.y as f32, body_pos.z as f32];
+    mpc_ui.step = mpc.step;
+
     if mpc.step.is_multiple_of(50) {
-        let n_stance: usize = (0..n_feet).filter(|&i| mpc.gait.is_contact(i)).count();
         println!(
-            "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  stance={}/{}  mpc={:>4}us  {}",
+            "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  vel=[{:+.3}, {:+.3}, {:+.3}]  stance={}/{}  mpc={:>4}us  {}  cmd_vel=[{:.2}, {:.2}]",
             mpc.step,
             body_pos.x,
             body_pos.y,
             body_pos.z,
+            body_state.linear_velocity.x,
+            body_state.linear_velocity.y,
+            body_state.linear_velocity.z,
             n_stance,
             n_feet,
             solution.solve_time_us,
             if solution.converged { "OK" } else { "FAIL" },
+            current_vel.x,
+            current_vel.y,
         );
+        if solution.converged {
+            for (i, f) in solution.forces.iter().enumerate() {
+                let contact = mpc.gait.is_contact(i);
+                println!(
+                    "    foot {i}: F=[{:+.2}, {:+.2}, {:+.2}]  {}",
+                    f.x, f.y, f.z,
+                    if contact { "STANCE" } else { "swing" },
+                );
+            }
+        }
     }
 
     mpc.step += 1;
 }
 
 // ---------------------------------------------------------------------------
-// Visual sync systems (after Simulate)
+// MPC egui panel
 // ---------------------------------------------------------------------------
 
-/// Sync body cuboid from Rapier rigid body position + rotation.
 #[allow(clippy::needless_pass_by_value)]
-fn sync_body_visual(
-    rapier: Res<RapierContext>,
-    mut query: Query<&mut Transform, With<BodyVisual>>,
-) {
+fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, mode: Res<VizMode>) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+
+    egui::Window::new("MPC Control")
+        .default_pos([320.0, 10.0])
+        .default_width(280.0)
+        .resizable(true)
+        .show(ctx, |ui| {
+            let toggle_text = if mpc_ui.mpc_enabled {
+                "MPC: ON (click to disable)"
+            } else {
+                "MPC: OFF (click to enable)"
+            };
+            let toggle_color = if mpc_ui.mpc_enabled {
+                egui::Color32::from_rgb(50, 200, 50)
+            } else {
+                egui::Color32::from_rgb(200, 50, 50)
+            };
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new(toggle_text).color(toggle_color).strong())
+                            .min_size(egui::vec2(190.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    mpc_ui.mpc_enabled = !mpc_ui.mpc_enabled;
+                }
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("Reset").strong())
+                            .min_size(egui::vec2(60.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    mpc_ui.reinit_requested = true;
+                }
+            });
+            ui.separator();
+
+            ui.label("Gait");
+            ui.horizontal(|ui| {
+                for gait in [GaitType::Stand, GaitType::Trot, GaitType::Walk, GaitType::Bound] {
+                    let label = match gait {
+                        GaitType::Stand => "Stand",
+                        GaitType::Trot => "Trot",
+                        GaitType::Walk => "Walk",
+                        GaitType::Bound => "Bound",
+                    };
+                    if ui
+                        .add(egui::Button::new(label).selected(mpc_ui.gait == gait))
+                        .clicked()
+                    {
+                        mpc_ui.gait = gait;
+                    }
+                }
+            });
+            ui.separator();
+
+            ui.label("Body Velocity");
+            ui.add(
+                egui::Slider::new(&mut mpc_ui.desired_velocity_x, -0.5..=0.5)
+                    .text("Vx (m/s)")
+                    .step_by(0.05),
+            );
+            ui.add(
+                egui::Slider::new(&mut mpc_ui.desired_velocity_y, -0.3..=0.3)
+                    .text("Vy (m/s)")
+                    .step_by(0.05),
+            );
+            ui.separator();
+
+            ui.add(
+                egui::Slider::new(&mut mpc_ui.desired_height, 0.15..=0.35)
+                    .text("Height (m)")
+                    .step_by(0.01),
+            );
+
+            ui.add(
+                egui::Slider::new(&mut mpc_ui.desired_yaw, -1.0..=1.0)
+                    .text("Yaw (rad)")
+                    .step_by(0.05),
+            );
+            ui.separator();
+
+            ui.label("Status");
+            egui::Grid::new("mpc_status")
+                .num_columns(2)
+                .spacing([16.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("Mode:");
+                    ui.label(format!("{:?}", *mode));
+                    ui.end_row();
+
+                    ui.label("Step:");
+                    ui.label(format!("{}", mpc_ui.step));
+                    ui.end_row();
+
+                    ui.label("MPC:");
+                    ui.label(if mpc_ui.last_converged { "OK" } else { "FAIL" });
+                    ui.end_row();
+
+                    ui.label("Solve:");
+                    ui.label(format!("{} us", mpc_ui.last_solve_time_us));
+                    ui.end_row();
+
+                    ui.label("Stance:");
+                    ui.label(format!("{}/4", mpc_ui.n_stance));
+                    ui.end_row();
+
+                    ui.label("Body pos:");
+                    ui.label(format!(
+                        "[{:+.3}, {:+.3}, {:+.3}]",
+                        mpc_ui.body_pos[0], mpc_ui.body_pos[1], mpc_ui.body_pos[2],
+                    ));
+                    ui.end_row();
+                });
+
+            if !mpc_ui.mpc_enabled {
+                ui.separator();
+                ui.colored_label(egui::Color32::YELLOW, "MPC disabled — sliders control joints");
+            }
+
+            ui.separator();
+            egui::CollapsingHeader::new("Pipeline Diagnostics")
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("diag_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            ui.label("SimGate:");
+                            ui.label(if mpc_ui.diag_should_step { "STEPPING" } else { "BLOCKED" });
+                            ui.end_row();
+
+                            ui.label("Teleop:");
+                            ui.label(format!(
+                                "{} ({} mappings)",
+                                if mpc_ui.diag_teleop_enabled { "ON" } else { "OFF" },
+                                mpc_ui.diag_teleop_mappings,
+                            ));
+                            ui.end_row();
+
+                            ui.label("Rapier joints:");
+                            ui.label(format!("{}", mpc_ui.diag_rapier_joint_count));
+                            ui.end_row();
+
+                            ui.label("Frame:");
+                            ui.label(format!("{}", mpc_ui.diag_frame));
+                            ui.end_row();
+                        });
+
+                    if !mpc_ui.diag_joint_cmds.is_empty() {
+                        ui.separator();
+                        ui.label("Per-joint pipeline:");
+                        egui::Grid::new("joint_diag_grid")
+                            .num_columns(5)
+                            .spacing([6.0, 1.0])
+                            .show(ui, |ui| {
+                                ui.strong("J#");
+                                ui.strong("Cmd");
+                                ui.strong("Trq");
+                                ui.strong("Pos");
+                                ui.strong("Vel");
+                                ui.end_row();
+
+                                let n = mpc_ui.diag_joint_cmds.len();
+                                for i in 0..n {
+                                    ui.label(format!("{i}"));
+                                    ui.label(format!("{:+.3}", mpc_ui.diag_joint_cmds[i]));
+                                    ui.label(format!(
+                                        "{:+.3}",
+                                        mpc_ui.diag_joint_torques.get(i).unwrap_or(&0.0)
+                                    ));
+                                    ui.label(format!(
+                                        "{:+.3}",
+                                        mpc_ui.diag_joint_positions.get(i).unwrap_or(&0.0)
+                                    ));
+                                    ui.label(format!(
+                                        "{:+.3}",
+                                        mpc_ui.diag_joint_velocities.get(i).unwrap_or(&0.0)
+                                    ));
+                                    ui.end_row();
+                                }
+                            });
+                    }
+                });
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Visual sync systems
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::needless_pass_by_value)]
+fn sync_body_visual(rapier: Res<RapierContext>, mut query: Query<&mut Transform, With<BodyVisual>>) {
     if let Some(&handle) = rapier.body_handles.get("body")
         && let Some(body) = rapier.rigid_body_set.get(handle)
     {
         let t = body.translation();
         let r = body.rotation();
         for mut transform in &mut query {
-            // Z-up -> Y-up position
             transform.translation = phys_to_vis(t);
-            // Z-up -> Y-up quaternion: (qx,qy,qz,qw) -> (qx,qz,-qy,qw)
             transform.rotation = Quat::from_xyzw(r.x, r.z, -r.y, r.w);
         }
     }
 }
 
-/// Sync leg segment capsules: position at midpoint, orient along the segment.
 #[allow(clippy::needless_pass_by_value)]
 fn sync_segment_visuals(
     rapier: Res<RapierContext>,
@@ -450,7 +891,6 @@ fn sync_segment_visuals(
     }
 }
 
-/// Sync point visuals (joint spheres, foot spheres) to rigid body position.
 #[allow(clippy::needless_pass_by_value)]
 fn sync_point_visuals(
     rapier: Res<RapierContext>,
@@ -461,6 +901,91 @@ fn sync_point_visuals(
             transform.translation = pos;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline diagnostic system
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::needless_pass_by_value)]
+fn diagnostic_readback_system(
+    mut mpc_ui: ResMut<MpcUiState>,
+    gate: Res<VizSimGate>,
+    teleop_config: Res<TeleopConfig>,
+    rapier: Res<RapierContext>,
+    joints: Query<(&JointCommand, &JointState, &JointTorque)>,
+    mpc_state: Option<Res<QuadMpcState>>,
+) {
+    mpc_ui.diag_should_step = gate.should_step;
+    mpc_ui.diag_teleop_enabled = teleop_config.enabled;
+    mpc_ui.diag_teleop_mappings = teleop_config.mappings.len();
+    mpc_ui.diag_rapier_joint_count = rapier.joint_handles.len();
+    mpc_ui.diag_frame += 1;
+
+    let mut cmds = Vec::new();
+    let mut trqs = Vec::new();
+    let mut poss = Vec::new();
+    let mut vels = Vec::new();
+
+    if let Some(ref mpc) = mpc_state {
+        for leg in &mpc.legs {
+            for &entity in &leg.joint_entities {
+                if let Ok((cmd, state, torque)) = joints.get(entity) {
+                    cmds.push(cmd.value);
+                    trqs.push(torque.value);
+                    poss.push(state.position);
+                    vels.push(state.velocity);
+                } else {
+                    cmds.push(f32::NAN);
+                    trqs.push(f32::NAN);
+                    poss.push(f32::NAN);
+                    vels.push(f32::NAN);
+                }
+            }
+        }
+    } else {
+        for (cmd, state, torque) in &joints {
+            cmds.push(cmd.value);
+            trqs.push(torque.value);
+            poss.push(state.position);
+            vels.push(state.velocity);
+        }
+    }
+
+    let frame = mpc_ui.diag_frame;
+    if frame <= 5 || frame.is_multiple_of(120) {
+        println!("=== DIAG frame {frame} ===");
+        println!(
+            "  gate.should_step={} teleop.enabled={} teleop.mappings={} rapier.joints={}",
+            gate.should_step,
+            teleop_config.enabled,
+            teleop_config.mappings.len(),
+            rapier.joint_handles.len(),
+        );
+        println!("  mpc_enabled={}", mpc_ui.mpc_enabled);
+        for i in 0..cmds.len() {
+            println!(
+                "  J{i}: cmd={:+.4} trq={:+.4} pos={:+.4} vel={:+.4}",
+                cmds[i], trqs[i], poss[i], vels[i],
+            );
+        }
+
+        for (ch, mapping) in &teleop_config.mappings {
+            let in_rapier = rapier.joint_handles.contains_key(&mapping.entity);
+            let has_components = joints.get(mapping.entity).is_ok();
+            if !in_rapier || !has_components {
+                println!(
+                    "  WARNING: teleop {ch} entity {:?} rapier={in_rapier} components={has_components}",
+                    mapping.entity,
+                );
+            }
+        }
+    }
+
+    mpc_ui.diag_joint_cmds = cmds;
+    mpc_ui.diag_joint_torques = trqs;
+    mpc_ui.diag_joint_positions = poss;
+    mpc_ui.diag_joint_velocities = vels;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,34 +1010,67 @@ fn main() {
         .app
         .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
 
+    // Initial configuration: 3-DOF legs (hip_ab=0, hip_pitch=0.4, knee_pitch=-1.0)
+    let init_hip_ab: f32 = 0.0;
+    let init_hip_pitch: f32 = 0.4;
+    let init_knee_pitch: f32 = -1.0;
+
     {
         let world = scene.app.world_mut();
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
-        // fixed_base = false: body is dynamic, controlled by ground reaction forces
         register_robot(&mut ctx, &model, spawned, world, false);
 
-        // Set mass properties on root body
+        // Increase solver iterations from default 4 to 50.
+        // With 12 revolute joints (60 locked-DOF constraints), 4 iterations
+        // causes slow constraint drift that leads to catastrophic lateral tipping.
+        ctx.integration_parameters.num_solver_iterations = 50;
+
+        let body_offset = Vec3::new(0.0, 0.0, 0.35);
+
         if let Some(&root_handle) = ctx.body_handles.get("body")
             && let Some(root_body) = ctx.rigid_body_set.get_mut(root_handle)
         {
+            // Body link mass from URDF (5.0kg). Child links add 4.0kg
+            // via register_robot, for total 9.0kg matching MPC config.
             let body_mass = 5.0_f32;
-            let inertia = Vec3::new(0.07, 0.26, 0.28);
+            let inertia = Vec3::new(0.02083, 0.07083, 0.08333);
             root_body.set_additional_mass_properties(
                 MassProperties::new(Vec3::ZERO, body_mass, inertia),
                 true,
             );
-            // Start the body at standing height
-            root_body.set_translation(Vec3::new(0.0, 0.0, 0.35), true);
+            root_body.set_translation(body_offset, true);
         }
 
-        // Ground plane: fixed body with large cuboid at z=-0.05 (top at z=0)
+        for (link_name, &handle) in &ctx.body_handles {
+            if link_name == "body" {
+                continue;
+            }
+            if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
+                let current = body.translation();
+                body.set_translation(current + body_offset, true);
+            }
+        }
+
+        // Collision groups: robot links only collide with ground
+        let robot_group = InteractionGroups::new(
+            Group::GROUP_1,
+            Group::GROUP_2,
+            InteractionTestMode::And,
+        );
+        let ground_group = InteractionGroups::new(
+            Group::GROUP_2,
+            Group::GROUP_1,
+            InteractionTestMode::And,
+        );
+
         let ground_body = RigidBodyBuilder::fixed()
             .translation(Vec3::new(0.0, 0.0, -0.05))
             .build();
         let ground_handle = ctx.rigid_body_set.insert(ground_body);
         let ground_collider = ColliderBuilder::cuboid(50.0, 50.0, 0.05)
-            .friction(0.8)
+            .friction(1.0)
             .restitution(0.0)
+            .collision_groups(ground_group)
             .build();
         ctx.collider_set.insert_with_parent(
             ground_collider,
@@ -520,55 +1078,71 @@ fn main() {
             &mut ctx.rigid_body_set,
         );
 
-        // Add colliders to all robot links
+        // Add colliders to all robot links (including hip_link)
         let link_colliders: &[(&str, ColliderBuilder)] = &[
             (
                 "fl_foot",
-                ColliderBuilder::ball(0.02).friction(0.8).restitution(0.0),
+                ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group),
             ),
             (
                 "fr_foot",
-                ColliderBuilder::ball(0.02).friction(0.8).restitution(0.0),
+                ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group),
             ),
             (
                 "rl_foot",
-                ColliderBuilder::ball(0.02).friction(0.8).restitution(0.0),
+                ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group),
             ),
             (
                 "rr_foot",
-                ColliderBuilder::ball(0.02).friction(0.8).restitution(0.0),
+                ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group),
+            ),
+            (
+                "fl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group),
+            ),
+            (
+                "fr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group),
+            ),
+            (
+                "rl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group),
+            ),
+            (
+                "rr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "fl_upper_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "fr_upper_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "rl_upper_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "rr_upper_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "fl_lower_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "fr_lower_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "rl_lower_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
             (
                 "rr_lower_leg",
-                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3),
+                ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group),
             ),
         ];
         for (name, builder) in link_colliders {
@@ -581,10 +1155,10 @@ fn main() {
             }
         }
 
-        // Add box collider to body
         if let Some(&body_handle) = ctx.body_handles.get("body") {
             let body_collider = ColliderBuilder::cuboid(0.2, 0.1, 0.05)
                 .friction(0.5)
+                .collision_groups(robot_group)
                 .build();
             ctx.collider_set.insert_with_parent(
                 body_collider,
@@ -593,12 +1167,93 @@ fn main() {
             );
         }
 
-        // Re-snapshot after setting initial position
+        // Warmup: bend knees with position motors before MPC starts
+        let joint_names = [
+            "fl_hip_ab", "fl_hip_pitch", "fl_knee_pitch",
+            "fr_hip_ab", "fr_hip_pitch", "fr_knee_pitch",
+            "rl_hip_ab", "rl_hip_pitch", "rl_knee_pitch",
+            "rr_hip_ab", "rr_hip_pitch", "rr_knee_pitch",
+        ];
+        for name in &joint_names {
+            if let Some(entity) = spawned.joint_entity(name) {
+                if let Some(&jh) = ctx.joint_handles.get(&entity) {
+                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
+                        let target = if name.contains("knee") {
+                            init_knee_pitch
+                        } else if name.contains("hip_pitch") {
+                            init_hip_pitch
+                        } else {
+                            init_hip_ab
+                        };
+                        joint.data.set_motor(JointAxis::AngX, target, 0.0, 500.0, 50.0);
+                        joint.data.set_motor_max_force(JointAxis::AngX, 100.0);
+                    }
+                }
+            }
+        }
+
+        for _ in 0..1000 {
+            ctx.step();
+        }
+
+        // Switch motors back to torque mode
+        for name in &joint_names {
+            if let Some(entity) = spawned.joint_entity(name) {
+                if let Some(&jh) = ctx.joint_handles.get(&entity) {
+                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
+                        joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
+                        joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
+                    }
+                }
+            }
+        }
+
+        // Zero all rigid body velocities so MPC starts from rest.
+        for (_, &handle) in &ctx.body_handles {
+            if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
+                body.set_linvel(Vec3::ZERO, true);
+                body.set_angvel(Vec3::ZERO, true);
+            }
+        }
+
+        // Read back joint positions from Rapier after warmup
+        for name in &joint_names {
+            if let Some(entity) = spawned.joint_entity(name) {
+                if let Some(info) = ctx.joint_info.get(&entity) {
+                    let parent_body = ctx.rigid_body_set.get(info.parent_body);
+                    let child_body = ctx.rigid_body_set.get(info.child_body);
+                    if let (Some(pb), Some(cb)) = (parent_body, child_body) {
+                        let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
+                        let sin_half = Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
+                        let sin_proj = sin_half.dot(info.axis);
+                        let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
+
+                        if let Some(mut js) = world.get_mut::<JointState>(entity) {
+                            js.position = angle;
+                        }
+                    }
+                }
+            }
+        }
+
+        let warmup_body_z = if let Some(&bh) = ctx.body_handles.get("body")
+            && let Some(body) = ctx.rigid_body_set.get(bh)
+        {
+            let t = body.translation();
+            println!("Body after warmup: pos=[{:.3}, {:.3}, {:.3}]", t.x, t.y, t.z);
+            t.z
+        } else {
+            0.32
+        };
+
         ctx.snapshot_initial_state();
         world.insert_resource(ctx);
+
+        // Store warmup height for MPC desired height
+        world.insert_non_send_resource(WarmupHeight(warmup_body_z));
     }
 
-    // 4. Build per-leg IK chains
+    // 4. Build per-leg IK chains (3 DOF each)
     let foot_link_names = ["fl_foot", "fr_foot", "rl_foot", "rr_foot"];
     let hip_offsets = [
         Vector3::new(0.15, 0.08, -0.05),
@@ -637,22 +1292,48 @@ fn main() {
 
     let n_feet = legs.len();
 
-    // 5. Configure MPC
-    let config = MpcConfig {
-        horizon: 10,
-        dt: 0.02,
-        mass: 8.6,
-        gravity: 9.81,
-        friction_coeff: 0.6,
-        f_max: 200.0,
-        max_solver_iters: 50,
-        ..MpcConfig::default()
-    };
+    let all_joint_entities: Vec<Entity> = legs.iter().flat_map(|leg| leg.joint_entities.clone()).collect();
 
-    let swing_config = SwingConfig {
-        step_height: 0.04,
-        default_step_length: 0.06,
-    };
+    // Override motor limits: URDF defaults (effort=20-30, velocity=10) are too
+    // restrictive. The IdealMotor's linear torque-speed curve drops to zero at
+    // max_velocity, causing loss of control when joints move at >5 rad/s.
+    for leg in &legs {
+        for &entity in &leg.joint_entities {
+            if let Some(mut actuator) = scene.app.world_mut().get_mut::<Actuator>(entity) {
+                actuator.motor = MotorType::Ideal(IdealMotor::new(100.0, 100.0));
+            }
+        }
+    }
+
+    // Store initial joint angles AFTER warmup for PD stance control.
+    let init_joint_angles: Vec<Vec<f32>> = legs
+        .iter()
+        .map(|leg| {
+            leg.joint_entities
+                .iter()
+                .map(|&entity| {
+                    scene
+                        .app
+                        .world()
+                        .get::<JointState>(entity)
+                        .map_or(0.0, |js| js.position)
+                })
+                .collect()
+        })
+        .collect();
+    println!("  Init joint angles (all legs):");
+    let leg_names = ["FL", "FR", "RL", "RR"];
+    for (i, angles) in init_joint_angles.iter().enumerate() {
+        println!(
+            "    {}: hip_ab={:+.4} hip_pitch={:+.4} knee={:+.4}",
+            leg_names[i], angles[0], angles[1], angles[2],
+        );
+    }
+
+    // 5. Configure MPC
+    let config = MpcConfig::default();
+
+    let swing_config = SwingConfig::default();
 
     let gait = GaitScheduler::quadruped(GaitType::Stand);
     let solver = MpcSolver::new(config.clone());
@@ -665,29 +1346,41 @@ fn main() {
         legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
-        desired_velocity: Vector3::new(0.3, 0.0, 0.0),
-        desired_height: 0.30,
-        desired_yaw: 0.0,
-        ground_height: 0.0,
+        init_joint_angles,
         step: 0,
         stabilize_steps: 100,
-        switched_to_trot: false,
+        current_gait_type: GaitType::Stand,
     });
 
-    // 6. Register sensors
+    // Insert MotorOverrides resource for position motor control
+    scene.app.insert_resource(MotorOverrides::default());
+
+    let warmup_height = scene.app.world_mut()
+        .remove_non_send_resource::<WarmupHeight>()
+        .map_or(0.32, |h| h.0);
+    scene.app.insert_resource(MpcUiState {
+        desired_height: warmup_height,
+        ..Default::default()
+    });
+
+    // 6. Register sensors, set initial joint states, and RobotGroup
     {
         let world = scene.app.world_mut();
+
+        world.resource_mut::<clankers_core::types::RobotGroup>().allocate("quadruped".to_string(), all_joint_entities.clone());
+
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(8)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(12)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
+
     }
 
     // 7. Windowed rendering
     scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "Clankers \u{2014} Quadruped MPC".to_string(),
+            title: "Clankers \u{2014} Quadruped MPC (3-DOF)".to_string(),
             resolution: (1280, 720).into(),
             ..default()
         }),
@@ -698,10 +1391,13 @@ fn main() {
     scene.app.add_plugins(ClankersTeleopPlugin);
     scene.app.add_plugins(ClankersVizPlugin);
 
+    // Hide default viz panel (we use our own MPC panel)
+    scene.app.world_mut().resource_mut::<clankers_viz::config::VizConfig>().show_panel = false;
+
     // 9. Visual meshes
     scene.app.add_systems(Startup, spawn_quadruped_meshes);
 
-    // 10. MPC control (Decide phase, AFTER teleop so MPC commands are final)
+    // 10. MPC control (Decide phase)
     scene.app.add_systems(
         Update,
         mpc_control_system
@@ -709,18 +1405,30 @@ fn main() {
             .after(clankers_teleop::systems::apply_teleop_commands),
     );
 
-    // 11. Visual sync (after physics — three independent systems)
+    // 11. MPC egui panel
+    scene
+        .app
+        .add_systems(bevy_egui::EguiPrimaryContextPass, mpc_panel_system);
+
+    // 12. Visual sync + diagnostics
     scene.app.add_systems(
         Update,
-        (sync_body_visual, sync_segment_visuals, sync_point_visuals)
+        (
+            sync_body_visual,
+            sync_segment_visuals,
+            sync_point_visuals,
+            diagnostic_readback_system,
+        )
             .after(ClankersSet::Simulate),
     );
 
-    // 12. Start episode
+    // 13. Start episode
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
 
-    println!("Quadruped MPC Visualization");
+    println!("Quadruped MPC Visualization (3-DOF legs, 12 DOF)");
     println!("  Camera: mouse (orbit/pan/zoom)");
-    println!("  Phase 1: Stand (stabilize) -> Phase 2: Trot");
+    println!("  MPC toggle: ON by default (MPC controls legs)");
+    println!("  MPC OFF + Teleop mode: sliders control joints directly");
+    println!("  MPC panel: toggle MPC, adjust velocity/height/yaw/gait");
     scene.app.run();
 }

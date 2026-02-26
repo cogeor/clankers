@@ -12,5 +12,5 @@ pub const CARTPOLE_URDF: &str = include_str!("../urdf/cartpole.urdf");
 /// 6-DOF articulated arm: 6 revolute joints with alternating axes.
 pub const SIX_DOF_ARM_URDF: &str = include_str!("../urdf/six_dof_arm.urdf");
 
-/// Quadruped robot: 4 legs × 2 joints (hip pitch + knee pitch) = 8 DOF.
+/// Quadruped robot: 4 legs × 3 joints (hip ab + hip pitch + knee pitch) = 12 DOF.
 pub const QUADRUPED_URDF: &str = include_str!("../urdf/quadruped.urdf");

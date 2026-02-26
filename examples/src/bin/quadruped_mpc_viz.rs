@@ -1337,7 +1337,7 @@ fn main() {
     let swing_config = SwingConfig::default();
 
     let gait = GaitScheduler::quadruped(GaitType::Stand);
-    let solver = MpcSolver::new(config.clone());
+    let solver = MpcSolver::new(config.clone(), 4);
 
     scene.app.insert_resource(QuadMpcState {
         gait,

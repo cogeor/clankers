@@ -1,0 +1,18 @@
+loops:
+  - id: "01"
+    summary: "Performance: optimize dependency build profile + solver workspace pre-allocation"
+    scope: "perf(mpc)"
+    description: |
+      1. Add [profile.dev.package."*"] opt-level=2 to root Cargo.toml
+         (optimizes nalgebra, clarabel, rapier in debug builds = ~10x speedup)
+      2. Pre-allocate solver workspace matrices in MpcSolver::new()
+         (eliminates ~772KB allocation per solve call)
+
+  - id: "02"
+    summary: "Smoothness: fix liftoff timing + smooth motor gain transitions"
+    scope: "fix(mpc)"
+    description: |
+      1. Only set swing_starts at actual liftoff transition (not every stance frame)
+         Track previous contact state per leg, detect transition
+      2. Blend motor gains over early swing phase (first 10%) to avoid jerk
+      3. Both examples + plugin must be updated

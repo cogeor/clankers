@@ -36,21 +36,28 @@ impl Default for MpcConfig {
         Self {
             horizon: 10,
             dt: 0.02,
-            mass: 8.6,
+            mass: 9.0,
+            // Composite inertia: body (5kg) + 4 legs (1kg each at hip offsets).
+            // Computed via parallel axis theorem from URDF link inertias.
             inertia: Matrix3::new(
-                0.07, 0.0, 0.0, 0.0, 0.26, 0.0, 0.0, 0.0, 0.28,
+                0.048, 0.0, 0.0, 0.0, 0.122, 0.0, 0.0, 0.0, 0.135,
             ),
             gravity: 9.81,
-            friction_coeff: 0.6,
-            f_max: 200.0,
+            friction_coeff: 0.4,
+            f_max: 120.0,
+            // Tuned for standing/trotting stability (Di Carlo et al. guidance).
+            // With dt=0.02, m=9.0: B_entry = dt/m ≈ 0.002, so the Hessian
+            // contribution from velocity tracking is q_v * B^2 ≈ q_v * 5e-6.
+            // r_weight must be << this so tracking dominates over force
+            // regularization. r_weight=1e-6 is standard for convex MPC.
             q_weights: [
-                50.0, 50.0, 10.0, // orientation (roll, pitch, yaw)
-                1.0, 1.0, 50.0, // position (x, y, z)
-                1.0, 1.0, 1.0, // angular velocity
-                10.0, 10.0, 1.0, // linear velocity (vx, vy, vz)
+                25.0, 25.0, 10.0,  // orientation: roll/pitch critical for balance
+                5.0, 5.0, 50.0,    // position: track x,y + height dominant
+                1.0, 1.0, 0.3,     // angular velocity: damp rotations
+                5.0, 5.0, 1.0,     // linear velocity: track vx,vy for locomotion
             ],
-            r_weight: 1e-4,
-            max_solver_iters: 50,
+            r_weight: 1e-6,
+            max_solver_iters: 100,
         }
     }
 }

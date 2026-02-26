@@ -26,6 +26,7 @@ clankers-ik = { workspace = true, features = ["bevy"] }
 clankers-mpc = { workspace = true, features = ["bevy"] }
 clap.workspace = true
 bevy = { workspace = true, features = ["default"] }
+bevy_egui.workspace = true
 nalgebra.workspace = true
 rapier3d.workspace = true
 rand.workspace = true

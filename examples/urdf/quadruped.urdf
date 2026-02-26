@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <robot name="quadruped">
-    <!-- Simple quadruped: 4 legs × 2 joints (hip pitch + knee pitch) = 8 DOF
+    <!-- 3-DOF quadruped: 4 legs × 3 joints (hip_ab + hip_pitch + knee_pitch) = 12 DOF
          Body: 0.4m × 0.2m × 0.1m box, 5kg
-         Legs: 0.15m upper + 0.15m lower, standing height ~0.35m
+         Legs: hip_link + 0.15m upper + 0.15m lower + foot sphere
+         Total mass: 9.0 kg (body 5 + 4 × 1.0 per leg)
+         Per-leg chain: body → hip_ab (X) → hip_link → hip_pitch (Y) → upper_leg
+                        → knee_pitch (Y) → lower_leg → foot_fixed → foot
          Hip positions relative to body center:
            FL: (+0.15, +0.08, -0.05)  FR: (+0.15, -0.08, -0.05)
            RL: (-0.15, +0.08, -0.05)  RR: (-0.15, -0.08, -0.05) -->
@@ -13,7 +16,6 @@
             <mass value="5.0"/>
             <inertia ixx="0.02083" ixy="0" ixz="0"
                      iyy="0.07083" iyz="0" izz="0.08333"/>
-            <!-- box inertia: 1/12*m*(h²+d²), 1/12*m*(w²+d²), 1/12*m*(w²+h²) -->
         </inertial>
         <visual>
             <geometry>
@@ -28,6 +30,23 @@
     </link>
 
     <!-- ============ FRONT LEFT LEG ============ -->
+    <link name="fl_hip_link">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.00003" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00003"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
     <link name="fl_upper_leg">
         <inertial>
             <origin xyz="0 0 -0.075"/>
@@ -85,12 +104,21 @@
         </collision>
     </link>
 
-    <joint name="fl_hip_pitch" type="revolute">
+    <joint name="fl_hip_ab" type="revolute">
         <parent link="body"/>
-        <child link="fl_upper_leg"/>
+        <child link="fl_hip_link"/>
         <origin xyz="0.15 0.08 -0.05"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-0.5" upper="0.5" effort="20" velocity="10"/>
+        <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <joint name="fl_hip_pitch" type="revolute">
+        <parent link="fl_hip_link"/>
+        <child link="fl_upper_leg"/>
+        <origin xyz="0 0 0"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-1.0" upper="1.0" effort="20" velocity="10"/>
+        <limit lower="-1.0" upper="1.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -99,7 +127,7 @@
         <child link="fl_lower_leg"/>
         <origin xyz="0 0 -0.15"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-2.5" upper="0.0" effort="20" velocity="10"/>
+        <limit lower="-2.5" upper="0.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -110,6 +138,23 @@
     </joint>
 
     <!-- ============ FRONT RIGHT LEG ============ -->
+    <link name="fr_hip_link">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.00003" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00003"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
     <link name="fr_upper_leg">
         <inertial>
             <origin xyz="0 0 -0.075"/>
@@ -167,12 +212,21 @@
         </collision>
     </link>
 
-    <joint name="fr_hip_pitch" type="revolute">
+    <joint name="fr_hip_ab" type="revolute">
         <parent link="body"/>
-        <child link="fr_upper_leg"/>
+        <child link="fr_hip_link"/>
         <origin xyz="0.15 -0.08 -0.05"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-0.5" upper="0.5" effort="20" velocity="10"/>
+        <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <joint name="fr_hip_pitch" type="revolute">
+        <parent link="fr_hip_link"/>
+        <child link="fr_upper_leg"/>
+        <origin xyz="0 0 0"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-1.0" upper="1.0" effort="20" velocity="10"/>
+        <limit lower="-1.0" upper="1.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -181,7 +235,7 @@
         <child link="fr_lower_leg"/>
         <origin xyz="0 0 -0.15"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-2.5" upper="0.0" effort="20" velocity="10"/>
+        <limit lower="-2.5" upper="0.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -192,6 +246,23 @@
     </joint>
 
     <!-- ============ REAR LEFT LEG ============ -->
+    <link name="rl_hip_link">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.00003" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00003"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
     <link name="rl_upper_leg">
         <inertial>
             <origin xyz="0 0 -0.075"/>
@@ -249,12 +320,21 @@
         </collision>
     </link>
 
-    <joint name="rl_hip_pitch" type="revolute">
+    <joint name="rl_hip_ab" type="revolute">
         <parent link="body"/>
-        <child link="rl_upper_leg"/>
+        <child link="rl_hip_link"/>
         <origin xyz="-0.15 0.08 -0.05"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-0.5" upper="0.5" effort="20" velocity="10"/>
+        <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <joint name="rl_hip_pitch" type="revolute">
+        <parent link="rl_hip_link"/>
+        <child link="rl_upper_leg"/>
+        <origin xyz="0 0 0"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-1.0" upper="1.0" effort="20" velocity="10"/>
+        <limit lower="-1.0" upper="1.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -263,7 +343,7 @@
         <child link="rl_lower_leg"/>
         <origin xyz="0 0 -0.15"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-2.5" upper="0.0" effort="20" velocity="10"/>
+        <limit lower="-2.5" upper="0.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -274,6 +354,23 @@
     </joint>
 
     <!-- ============ REAR RIGHT LEG ============ -->
+    <link name="rr_hip_link">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.00003" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00003"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.04 0.04 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
     <link name="rr_upper_leg">
         <inertial>
             <origin xyz="0 0 -0.075"/>
@@ -331,12 +428,21 @@
         </collision>
     </link>
 
-    <joint name="rr_hip_pitch" type="revolute">
+    <joint name="rr_hip_ab" type="revolute">
         <parent link="body"/>
-        <child link="rr_upper_leg"/>
+        <child link="rr_hip_link"/>
         <origin xyz="-0.15 -0.08 -0.05"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-0.5" upper="0.5" effort="20" velocity="10"/>
+        <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <joint name="rr_hip_pitch" type="revolute">
+        <parent link="rr_hip_link"/>
+        <child link="rr_upper_leg"/>
+        <origin xyz="0 0 0"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-1.0" upper="1.0" effort="20" velocity="10"/>
+        <limit lower="-1.0" upper="1.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 
@@ -345,7 +451,7 @@
         <child link="rr_lower_leg"/>
         <origin xyz="0 0 -0.15"/>
         <axis xyz="0 1 0"/>
-        <limit lower="-2.5" upper="0.0" effort="20" velocity="10"/>
+        <limit lower="-2.5" upper="0.0" effort="30" velocity="10"/>
         <dynamics damping="0.1" friction="0.05"/>
     </joint>
 

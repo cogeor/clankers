@@ -655,8 +655,8 @@ fn main() {
 
                 let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
-                // Blend motor gains from stance→swing over first 10% of swing
-                let blend = (swing_phase / 0.1).min(1.0) as f32;
+                // Blend motor gains from stance→swing over first 20% of swing
+                let blend = (swing_phase / 0.2).min(1.0) as f32;
 
                 for (j, &entity) in leg.joint_entities.iter().enumerate() {
                     let q0 = init_joint_angles[leg_idx][j];
@@ -668,18 +668,20 @@ fn main() {
                         0.0
                     };
 
-                    // Ramp gains: stance values at liftoff → swing values at 10% phase
+                    // Ramp gains: stance values at liftoff → swing values at 20% phase
                     let (kp_j, kd_j, max_f) = if j == 0 {
+                        // Hip abduction: keep more lateral stiffness during swing
                         (
-                            500.0 * (1.0 - blend) + 20.0 * blend,
+                            500.0 * (1.0 - blend) + 80.0 * blend,
                             20.0 * (1.0 - blend) + kd_swing * blend,
-                            200.0 * (1.0 - blend) + 30.0 * blend,
+                            200.0 * (1.0 - blend) + 60.0 * blend,
                         )
                     } else {
+                        // Hip pitch / knee
                         (
                             20.0 * blend,
                             5.0 * (1.0 - blend) + kd_swing * blend,
-                            50.0 * (1.0 - blend) + 30.0 * blend,
+                            50.0 * (1.0 - blend) + 60.0 * blend,
                         )
                     };
 

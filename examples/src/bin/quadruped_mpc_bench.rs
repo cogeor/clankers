@@ -1,26 +1,25 @@
-//! Quadruped robot walking with Model Predictive Control.
+//! Headless MPC benchmark for quadruped locomotion.
 //!
-//! Demonstrates the full MPC locomotion pipeline on a headless simulation:
-//! 1. Load quadruped URDF (4 legs × 3 joints = 12 DOF, floating base)
-//! 2. Set up Rapier physics with dynamic base (not fixed)
-//! 3. Run centroidal MPC → WBC → swing planner each step
-//! 4. Print telemetry: body pose, foot forces, solve time
+//! Uses the shared `mpc_control` module with position motors, matching the
+//! real headless/viz examples exactly. Reports performance metrics.
 //!
-//! This example calls the MPC solver directly (not via the Bevy plugin)
-//! so it works headless without a transform hierarchy.
-//!
-//! Run: `cargo run -p clankers-examples --bin quadruped_mpc`
+//! Usage:
+//!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.3
+//!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.5 --gait trot --steps 500
 
 use std::collections::HashMap;
 
 use bevy::math::EulerRot;
-use clankers_actuator::components::{Actuator, JointCommand, JointState};
+use clap::Parser;
+use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
 use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, StanceConfig, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
-use clankers_mpc::{BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
+use clankers_mpc::{
+    BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+};
 use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::SceneBuilder;
@@ -30,7 +29,99 @@ use rapier3d::prelude::{
     RigidBodyBuilder,
 };
 
-/// Read body state and rotation quaternion from Rapier's rigid body set.
+#[derive(Parser)]
+#[command(about = "Headless MPC benchmark for quadruped locomotion")]
+struct Args {
+    /// Target forward velocity (m/s)
+    #[arg(long, default_value_t = 0.3)]
+    velocity: f64,
+
+    /// Gait type: stand, trot, walk, bound
+    #[arg(long, default_value = "trot")]
+    gait: String,
+
+    /// Number of locomotion steps (at 50Hz)
+    #[arg(long, default_value_t = 500)]
+    steps: u32,
+
+    /// Stabilization steps before locomotion
+    #[arg(long, default_value_t = 100)]
+    stabilize: u32,
+
+    /// Velocity ramp steps after gait switch
+    #[arg(long, default_value_t = 100)]
+    ramp: u32,
+
+    /// Override q_weights[9] and [10] (vx, vy velocity tracking)
+    #[arg(long)]
+    q_vx: Option<f64>,
+
+    /// Override q_weights[5] (pz height tracking)
+    #[arg(long)]
+    q_pz: Option<f64>,
+
+    /// Override r_weight (control effort cost)
+    #[arg(long)]
+    r_weight: Option<f64>,
+
+    /// Override MPC horizon (solver re-created with correct dimensions)
+    #[arg(long)]
+    horizon: Option<usize>,
+
+    /// Override friction coefficient (Coulomb)
+    #[arg(long)]
+    mu: Option<f64>,
+
+    /// Override max normal force per foot (N)
+    #[arg(long)]
+    f_max: Option<f64>,
+
+    /// Override stance pitch/knee kp
+    #[arg(long)]
+    stance_kp: Option<f32>,
+
+    /// Override stance pitch/knee max_force
+    #[arg(long)]
+    stance_max_f: Option<f32>,
+
+    /// Override Raibert velocity error gain
+    #[arg(long)]
+    raibert_kv: Option<f64>,
+
+    /// Override q_weights[0,1] (roll, pitch orientation tracking)
+    #[arg(long)]
+    q_roll: Option<f64>,
+
+    /// Override q_weights[6,7] (wx, wy angular velocity damping)
+    #[arg(long)]
+    q_omega: Option<f64>,
+
+    /// Override trot gait cycle time in seconds (default 0.35)
+    #[arg(long)]
+    cycle_time: Option<f64>,
+
+    /// Override trot gait duty factor (default 0.5)
+    #[arg(long)]
+    duty_factor: Option<f64>,
+
+    /// Override swing step height in meters (default 0.10)
+    #[arg(long)]
+    step_height: Option<f64>,
+}
+
+fn parse_gait(s: &str) -> GaitType {
+    match s.to_lowercase().as_str() {
+        "stand" => GaitType::Stand,
+        "trot" => GaitType::Trot,
+        "walk" => GaitType::Walk,
+        "bound" => GaitType::Bound,
+        _ => {
+            eprintln!("Unknown gait '{s}', using Trot");
+            GaitType::Trot
+        }
+    }
+}
+
 fn body_state_from_rapier(
     ctx: &RapierContext,
     link_name: &str,
@@ -64,31 +155,34 @@ fn body_state_from_rapier(
 }
 
 fn main() {
-    println!("=== Quadruped MPC Example (3-DOF legs) ===\n");
+    let args = Args::parse();
+    let gait_type = parse_gait(&args.gait);
+    let desired_velocity = Vector3::new(args.velocity, 0.0, 0.0);
+    let stabilize_steps = args.stabilize as usize;
+    let ramp_steps = args.ramp as usize;
+    let total_steps = args.steps as usize;
 
-    // 1. Parse URDF
+    println!("=== Quadruped MPC Benchmark ===");
+    println!("  Gait: {:?}", gait_type);
+    println!("  Velocity: {:.2} m/s", args.velocity);
+    println!("  Steps: {} stabilize + {} locomotion", stabilize_steps, total_steps);
+    println!();
+
+    // --- Setup (identical to headless example) ---
     let model =
         clankers_urdf::parse_string(QUADRUPED_URDF).expect("failed to parse quadruped URDF");
 
-    // 2. Build scene
     let mut scene = SceneBuilder::new()
-        .with_max_episode_steps(5000)
+        .with_max_episode_steps(50_000)
         .with_robot(model.clone(), HashMap::new())
         .build();
 
     let spawned = &scene.robots["quadruped"];
-    println!(
-        "Robot '{}' loaded: {} actuated joints",
-        spawned.name,
-        spawned.joint_count()
-    );
 
-    // 3. Add Rapier physics with floating base
     scene
         .app
         .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
 
-    // Initial configuration: hip_ab=0, hip_pitch=1.05, knee_pitch=-2.10
     let init_hip_ab: f32 = 0.0;
     let init_hip_pitch: f32 = 1.05;
     let init_knee_pitch: f32 = -2.10;
@@ -96,10 +190,8 @@ fn main() {
     {
         let world = scene.app.world_mut();
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
-        // fixed_base = false: body is dynamic, controlled by ground reaction forces
         register_robot(&mut ctx, &model, spawned, world, false);
 
-        // Increase solver iterations from default 4 to 50.
         ctx.integration_parameters.num_solver_iterations = 50;
 
         let body_offset = bevy::math::Vec3::new(0.0, 0.0, 0.35);
@@ -126,7 +218,6 @@ fn main() {
             }
         }
 
-        // Collision groups: robot links only collide with ground, not each other.
         let robot_group = InteractionGroups::new(
             Group::GROUP_1,
             Group::GROUP_2,
@@ -194,7 +285,7 @@ fn main() {
         world.insert_resource(ctx);
     }
 
-    // 4. Build per-leg IK chains (3 DOF each: hip_ab, hip_pitch, knee_pitch)
+    // Build per-leg IK chains
     let foot_link_names = ["fl_foot", "fr_foot", "rl_foot", "rr_foot"];
     let hip_offsets = [
         Vector3::new(0.15, 0.08, -0.05),
@@ -222,14 +313,6 @@ fn main() {
 
             let is_prismatic = chain.joints().iter().map(|j| j.is_prismatic).collect();
 
-            println!(
-                "  Leg {} ({}): {} DOF, joints {:?}",
-                i,
-                foot_link,
-                chain.dof(),
-                chain.joint_names(),
-            );
-
             LegRuntime {
                 chain,
                 joint_entities,
@@ -239,16 +322,7 @@ fn main() {
         })
         .collect();
 
-    // 5. Configure MPC
-    let mpc_config = MpcConfig::default();
-    let swing_config = SwingConfig::default();
-    let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let desired_height: f64;
-    let desired_yaw = 0.0;
-    let ground_height = 0.0;
-
     let n_feet = legs.len();
-    let stabilize_steps = 100;
 
     // Override motor limits
     for leg in &legs {
@@ -259,11 +333,7 @@ fn main() {
         }
     }
 
-    println!("\nMPC config: horizon={}, dt={}, mass={:.1}kg", mpc_config.horizon, mpc_config.dt, mpc_config.mass);
-    println!("Phase 1: Stand (stabilize) for {stabilize_steps} steps");
-    println!("Phase 2: Walk at [{:.1}, {:.1}, {:.1}] m/s", desired_velocity.x, desired_velocity.y, desired_velocity.z);
-
-    // 6. Register sensors (12 DOF)
+    // Register sensors
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
@@ -273,10 +343,9 @@ fn main() {
         world.insert_resource(registry);
     }
 
-    // 7. Warmup: use position-mode motors to bend knees before MPC starts.
-    println!("\nWarmup: bending knees with position motors...");
+    // Warmup: bend knees
+    println!("Warmup: bending knees...");
     {
-        let warmup_steps = 1000;
         let world = scene.app.world_mut();
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
 
@@ -304,7 +373,7 @@ fn main() {
             }
         }
 
-        for _ in 0..warmup_steps {
+        for _ in 0..1000 {
             ctx.step();
         }
 
@@ -345,29 +414,19 @@ fn main() {
             }
         }
 
-        if let Some(&bh) = ctx.body_handles.get("body") {
-            if let Some(body) = ctx.rigid_body_set.get(bh) {
-                let t = body.translation();
-                println!(
-                    "  Body after warmup: pos=[{:.3}, {:.3}, {:.3}]",
-                    t.x, t.y, t.z,
-                );
-            }
-        }
-
         ctx.snapshot_initial_state();
         world.insert_resource(ctx);
     }
 
-    desired_height = {
+    let desired_height = {
         let ctx = scene.app.world().resource::<RapierContext>();
         let handle = ctx.body_handles.get("body").unwrap();
         let body = ctx.rigid_body_set.get(*handle).unwrap();
         f64::from(body.translation().z)
     };
-    println!("  Desired height (post-warmup): {desired_height:.3}");
+    println!("  Desired height: {desired_height:.3}");
 
-    // Store initial joint angles AFTER warmup for PD stance control.
+    // Store initial joint angles AFTER warmup
     let init_joint_angles: Vec<Vec<f32>> = legs
         .iter()
         .map(|leg| {
@@ -383,26 +442,90 @@ fn main() {
                 .collect()
         })
         .collect();
-    let leg_names = ["FL", "FR", "RL", "RR"];
-    println!("  Init joint angles (all legs):");
-    for (i, angles) in init_joint_angles.iter().enumerate() {
-        println!(
-            "    {}: hip_ab={:+.4} hip_pitch={:+.4} knee={:+.4}",
-            leg_names[i], angles[0], angles[1], angles[2],
-        );
-    }
-    println!(
-        "  Warmup targets: hip_ab={:.1} hip_pitch={:.1} knee={:.1}",
-        init_hip_ab, init_hip_pitch, init_knee_pitch,
-    );
 
-    // 8. Build MPC loop state
+    // Build MPC config with CLI overrides BEFORE creating solver
+    let mut mpc_config = MpcConfig::default();
+    if let Some(v) = args.q_vx {
+        mpc_config.q_weights[9] = v;
+        mpc_config.q_weights[10] = v;
+    }
+    if let Some(v) = args.q_pz {
+        mpc_config.q_weights[5] = v;
+    }
+    if let Some(v) = args.r_weight {
+        mpc_config.r_weight = v;
+    }
+    if let Some(h) = args.horizon {
+        mpc_config.horizon = h;
+    }
+    if let Some(v) = args.mu {
+        mpc_config.friction_coeff = v;
+    }
+    if let Some(v) = args.f_max {
+        mpc_config.f_max = v;
+    }
+    if let Some(v) = args.q_roll {
+        mpc_config.q_weights[0] = v; // roll
+        mpc_config.q_weights[1] = v; // pitch
+    }
+    if let Some(v) = args.q_omega {
+        mpc_config.q_weights[6] = v; // wx
+        mpc_config.q_weights[7] = v; // wy
+    }
+    let dt = mpc_config.dt;
+
+    // Build swing config with CLI overrides
+    let mut swing_config = SwingConfig::default();
+    if let Some(v) = args.raibert_kv {
+        swing_config.raibert_kv = v;
+    }
+    if let Some(v) = args.step_height {
+        swing_config.step_height = v;
+    }
+
+    // Build stance config with CLI overrides
+    let mut stance_config = StanceConfig::default();
+    if let Some(v) = args.stance_kp {
+        stance_config.pitch_knee_kp = v;
+    }
+    if let Some(v) = args.stance_max_f {
+        stance_config.pitch_knee_max_f = v;
+    }
+
+    // Print active overrides
+    {
+        let has_overrides = args.q_vx.is_some() || args.q_pz.is_some() || args.r_weight.is_some()
+            || args.horizon.is_some() || args.mu.is_some() || args.f_max.is_some()
+            || args.stance_kp.is_some() || args.stance_max_f.is_some() || args.raibert_kv.is_some()
+            || args.q_roll.is_some() || args.q_omega.is_some()
+            || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some();
+        if has_overrides {
+            println!("Overrides:");
+            if let Some(v) = args.q_vx { println!("  q_vx={v}"); }
+            if let Some(v) = args.q_pz { println!("  q_pz={v}"); }
+            if let Some(v) = args.r_weight { println!("  r_weight={v}"); }
+            if let Some(h) = args.horizon { println!("  horizon={h}"); }
+            if let Some(v) = args.mu { println!("  mu={v}"); }
+            if let Some(v) = args.f_max { println!("  f_max={v}"); }
+            if let Some(v) = args.stance_kp { println!("  stance_kp={v}"); }
+            if let Some(v) = args.stance_max_f { println!("  stance_max_f={v}"); }
+            if let Some(v) = args.raibert_kv { println!("  raibert_kv={v}"); }
+            if let Some(v) = args.q_roll { println!("  q_roll={v}"); }
+            if let Some(v) = args.q_omega { println!("  q_omega={v}"); }
+            if let Some(v) = args.cycle_time { println!("  cycle_time={v}"); }
+            if let Some(v) = args.duty_factor { println!("  duty_factor={v}"); }
+            if let Some(v) = args.step_height { println!("  step_height={v}"); }
+            println!();
+        }
+    }
+
+    // Create solver AFTER all config overrides (pre-allocates matrices sized by horizon)
     let mut mpc_state = MpcLoopState {
         gait: GaitScheduler::quadruped(GaitType::Stand),
         solver: MpcSolver::new(mpc_config.clone(), 4),
         config: mpc_config,
         swing_config,
-        stance_config: StanceConfig::default(),
+        stance_config,
         legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
@@ -410,31 +533,44 @@ fn main() {
         init_joint_angles,
     };
 
-    // 9. Start episode
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
 
-    println!("\nRunning for 500 steps (10s at 50Hz)...\n");
+    // --- Run simulation ---
+    let mut min_z = f64::MAX;
+    let mut max_roll = 0.0_f64;
+    let mut max_pitch = 0.0_f64;
+    let mut total_solve_us: u64 = 0;
+    let mut solve_count: u64 = 0;
+    let all_steps = stabilize_steps + total_steps;
 
-    // 10. Main simulation loop
-    let total_steps = 500;
-    let ramp_steps = 100;
-    let mut switched_to_trot = false;
+    println!("\nRunning {} total steps ({:.1}s)...", all_steps, all_steps as f64 * dt);
 
-    for step in 0..total_steps {
-        // Switch from Stand to Trot after stabilization
-        if step == stabilize_steps && !switched_to_trot {
-            switched_to_trot = true;
-            mpc_state.gait = GaitScheduler::quadruped(GaitType::Trot);
-            println!("  >>> Switched to Trot at step {step}");
+    for step in 0..all_steps {
+        // Switch gait after stabilization
+        if step == stabilize_steps {
+            let mut gait = GaitScheduler::quadruped(gait_type);
+            // Apply gait overrides if any
+            if args.cycle_time.is_some() || args.duty_factor.is_some() {
+                let base = GaitScheduler::quadruped(gait_type);
+                let ct = args.cycle_time.unwrap_or(base.cycle_time());
+                let df = args.duty_factor.unwrap_or(base.duty_factor());
+                let offsets = match gait_type {
+                    GaitType::Trot => vec![0.0, 0.5, 0.5, 0.0],
+                    GaitType::Walk => vec![0.0, 0.5, 0.25, 0.75],
+                    GaitType::Bound => vec![0.0, 0.0, 0.5, 0.5],
+                    GaitType::Stand => vec![0.0; 4],
+                };
+                gait = GaitScheduler::custom(offsets, df, ct);
+            }
+            mpc_state.gait = gait;
+            println!("  >>> Switched to {:?} at step {step}", gait_type);
         }
 
-        // --- Read body state from Rapier ---
         let (body_state, body_quat) = {
             let ctx = scene.app.world().resource::<RapierContext>();
-            body_state_from_rapier(ctx, "body").expect("body not found in Rapier")
+            body_state_from_rapier(ctx, "body").expect("body not found")
         };
 
-        // --- Read joint states ---
         let mut all_joint_positions: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
         let mut all_joint_velocities: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
         for leg in &mpc_state.legs {
@@ -453,7 +589,7 @@ fn main() {
             all_joint_velocities.push(qd);
         }
 
-        // --- Ramp velocity ---
+        // Ramp velocity
         let current_vel = if step < stabilize_steps {
             Vector3::zeros()
         } else {
@@ -461,7 +597,6 @@ fn main() {
             desired_velocity * ramp_frac
         };
 
-        // --- Compute MPC step ---
         let result = compute_mpc_step(
             &mut mpc_state,
             &body_state,
@@ -470,11 +605,11 @@ fn main() {
             &all_joint_velocities,
             &current_vel,
             desired_height,
-            desired_yaw,
-            ground_height,
+            0.0,
+            0.0,
         );
 
-        // --- Apply motor commands + step physics manually ---
+        // Apply motor commands via manual Rapier stepping (matching headless)
         {
             let world = scene.app.world_mut();
             let mut ctx = world.remove_resource::<RapierContext>().unwrap();
@@ -523,80 +658,55 @@ fn main() {
             world.insert_resource(ctx);
         }
 
-        // --- Telemetry ---
-        let body_pos = body_state.position;
-        if step % 50 == 0 || step < 5 || (step >= stabilize_steps && step < stabilize_steps + 5) {
-            let n_stance: usize = result.contacts.iter().filter(|&&c| c).count();
+        // Track metrics (only during locomotion phase)
+        if step >= stabilize_steps {
+            min_z = min_z.min(body_state.position.z);
+            max_roll = max_roll.max(body_state.orientation.x.abs());
+            max_pitch = max_pitch.max(body_state.orientation.y.abs());
+            total_solve_us += result.solution.solve_time_us;
+            solve_count += 1;
+        }
+
+        // Periodic telemetry
+        if step % 100 == 0 {
             println!(
-                "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  vel=[{:+.3}, {:+.3}, {:+.3}]  stance={}/{}  mpc={:>4}us  {}",
+                "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  vel=[{:+.3}, {:+.3}, {:+.3}]  mpc={:>4}us  {}",
                 step,
-                body_pos.x, body_pos.y, body_pos.z,
+                body_state.position.x, body_state.position.y, body_state.position.z,
                 body_state.linear_velocity.x, body_state.linear_velocity.y, body_state.linear_velocity.z,
-                n_stance, n_feet,
                 result.solution.solve_time_us,
                 if result.solution.converged { "OK" } else { "FAIL" },
             );
-            for (i, fw) in result.foot_world.iter().enumerate() {
-                let contact = result.contacts[i];
-                let force_str = if result.solution.converged {
-                    let f = &result.solution.forces[i];
-                    format!("F=[{:+.2}, {:+.2}, {:+.2}]", f.x, f.y, f.z)
-                } else {
-                    "F=FAIL".to_string()
-                };
-                println!(
-                    "    foot {i}: pos=[{:+.4}, {:+.4}, {:+.4}]  {force_str}  {}",
-                    fw.x, fw.y, fw.z,
-                    if contact { "STANCE" } else { "swing" },
-                );
-            }
-        }
-
-        if scene.app.world().resource::<Episode>().is_done() {
-            println!("\nEpisode ended at step {step}");
-            break;
         }
     }
 
-    // 11. Final report
+    // --- Final report ---
     let (final_state, _) = {
         let ctx = scene.app.world().resource::<RapierContext>();
         body_state_from_rapier(ctx, "body").expect("body not found")
     };
 
-    println!("\n=== Summary ===");
-    println!(
-        "Final body position: [{:.3}, {:.3}, {:.3}]",
-        final_state.position.x, final_state.position.y, final_state.position.z,
-    );
-    println!(
-        "Final body velocity: [{:.3}, {:.3}, {:.3}]",
-        final_state.linear_velocity.x, final_state.linear_velocity.y, final_state.linear_velocity.z,
-    );
-    println!("Steps simulated: {total_steps}");
-    println!("Simulation time: {:.1}s", f64::from(total_steps) * mpc_state.config.dt);
+    let sim_time = total_steps as f64 * dt;
+    let avg_speed = final_state.position.x / (all_steps as f64 * dt);
+    let avg_solve = if solve_count > 0 { total_solve_us / solve_count } else { 0 };
 
-    println!("\nFinal joint states:");
-    let joint_names = [
-        "fl_hip_ab", "fl_hip_pitch", "fl_knee_pitch",
-        "fr_hip_ab", "fr_hip_pitch", "fr_knee_pitch",
-        "rl_hip_ab", "rl_hip_pitch", "rl_knee_pitch",
-        "rr_hip_ab", "rr_hip_pitch", "rr_knee_pitch",
-    ];
-    for name in &joint_names {
-        if let Some(entity) = spawned.joint_entity(name)
-            && let Some(state) = scene.app.world().get::<JointState>(entity)
-        {
-            let cmd = scene.app.world().get::<JointCommand>(entity);
-            println!(
-                "  {:<16}: pos={:+.3} rad  vel={:+.3} rad/s  cmd={:+.3}",
-                name,
-                state.position,
-                state.velocity,
-                cmd.map_or(0.0, |c| c.value),
-            );
-        }
+    println!("\n{}", "=".repeat(60));
+    println!("BENCHMARK RESULTS");
+    println!("{}", "=".repeat(60));
+    println!("  Gait:          {:?}", gait_type);
+    println!("  Target vel:    {:.2} m/s", args.velocity);
+    println!("  Sim time:      {:.1}s ({} loco steps)", sim_time, total_steps);
+    println!("  Final X:       {:+.3} m", final_state.position.x);
+    println!("  Final Z:       {:+.3} m", final_state.position.z);
+    println!("  Avg speed:     {:.3} m/s", avg_speed);
+    println!("  Min Z:         {:.3} m", min_z);
+    println!("  Max roll:      {:.3} rad ({:.1} deg)", max_roll, max_roll.to_degrees());
+    println!("  Max pitch:     {:.3} rad ({:.1} deg)", max_pitch, max_pitch.to_degrees());
+    println!("  Avg MPC solve: {} us", avg_solve);
+    println!("{}", "=".repeat(60));
+
+    // Quick sanity check
+    if final_state.position.z < 0.05 {
+        println!("\nWARNING: Robot may have fallen (z={:.3})", final_state.position.z);
     }
-
-    println!("\nQuadruped MPC example PASSED");
 }

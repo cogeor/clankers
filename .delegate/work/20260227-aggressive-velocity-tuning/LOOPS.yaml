@@ -1,0 +1,27 @@
+loops:
+  - id: "01"
+    summary: "Systematic parameter sweeps (A-E) to find best individual gains"
+    tasks:
+      - "Run Q-weight sweeps (A1-A6): vary q_pz and q_vx"
+      - "Run horizon sweeps (B1-B2): 15, 20"
+      - "Run friction/force sweeps (C1-C4): mu and f_max"
+      - "Run stance gain sweeps (D1-D4): kp and max_f"
+      - "Run Raibert gain sweeps (E1-E3): kv=0.25, 0.35, 0.5"
+      - "Tabulate all results"
+  - id: "02"
+    summary: "Combine best parameters and run combo experiments (F)"
+    tasks:
+      - "Combine top winners from each sweep category"
+      - "Run 4-6 combo experiments"
+      - "Find best overall configuration"
+  - id: "03"
+    summary: "Extended sweep with 5-run validation + apply reliable defaults"
+    tasks:
+      - "Add CLI flags: q_roll, q_omega, cycle_time, duty_factor, step_height"
+      - "Run G-series: fine-tune around stability boundary (r=1e-8 combos)"
+      - "Run H-series: orientation weights, gait timing, stance gains"
+      - "Run I-series: h=20 with extreme weights"
+      - "Run K-series: 5-run reliability tests (found q_pz=20 key stabilizer)"
+      - "Update MpcConfig::default() with K3: q_pz=20, q_vx=150, r=1e-7"
+      - "Validate 5/5 runs stable at 0.10-0.12 m/s (2.1x baseline)"
+      - "Commit"

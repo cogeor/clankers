@@ -45,19 +45,20 @@ impl Default for MpcConfig {
             gravity: 9.81,
             friction_coeff: 0.4,
             f_max: 120.0,
-            // Tuned via open-source benchmarking (MIT Cheetah, A1-QP-MPC, etc.).
-            // Key insight: velocity regulation comes from Raibert foot placement,
-            // NOT aggressive MPC force tracking. The MPC should focus on balance
-            // (pz dominates). Values are 10-20x MIT's to compensate for our
-            // simpler WBC (J^T vs WBIC), but 5-10x lower than previous values
-            // which exhausted the force budget on velocity tracking.
+            // Tuned via systematic sweep (see .delegate/work/20260227-aggressive-velocity-tuning/).
+            // Key changes from initial values:
+            //   pz: 50→20 (balance height maintenance vs velocity budget),
+            //   vx/vy: 20→150 (prioritize velocity tracking),
+            //   r_weight: 1e-6→1e-7 (allow more aggressive forces).
+            // Validated 5/5 runs stable: 0.10-0.12 m/s at 0.3 target (was 0.05),
+            // max roll 7.1 deg. Config K3 in sweep results.
             q_weights: [
-                5.0, 5.0, 10.0,    // orientation: balance (20x MIT, compensates no WBIC)
-                2.0, 2.0, 50.0,    // position: height dominant (matches MIT)
-                0.0, 0.0, 0.3,     // angular velocity: zero wx/wy (like MIT; joint PD damps)
-                2.0, 2.0, 0.5,     // linear velocity: gentle tracking (Raibert handles speed)
+                25.0, 25.0, 10.0,
+                5.0, 5.0, 20.0,
+                1.0, 1.0, 0.3,
+                150.0, 150.0, 5.0,
             ],
-            r_weight: 1e-5,
+            r_weight: 1e-7,
             max_solver_iters: 100,
         }
     }

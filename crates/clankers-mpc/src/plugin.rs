@@ -82,6 +82,15 @@ pub struct MpcPipelineState {
     pub swing_starts: Vec<Vector3<f64>>,
     /// Previous contact state per leg (for liftoff detection).
     pub prev_contacts: Vec<bool>,
+    /// Body linear velocity in world frame (m/s).
+    ///
+    /// Must be updated each frame by the user (e.g., from physics engine).
+    /// The MPC system reads this instead of estimating from transforms.
+    pub body_linear_velocity: Vector3<f64>,
+    /// Body angular velocity in world frame (rad/s).
+    ///
+    /// Must be updated each frame by the user (e.g., from physics engine).
+    pub body_angular_velocity: Vector3<f64>,
     /// Last MPC solve time in microseconds.
     pub last_solve_time_us: u64,
     /// Whether the last MPC solve converged.
@@ -99,6 +108,8 @@ impl MpcPipelineState {
             swing_targets: vec![Vector3::zeros(); n_feet],
             swing_starts: vec![Vector3::zeros(); n_feet],
             prev_contacts: vec![true; n_feet],
+            body_linear_velocity: Vector3::zeros(),
+            body_angular_velocity: Vector3::zeros(),
             last_solve_time_us: 0,
             last_converged: false,
         }
@@ -147,10 +158,13 @@ pub fn build_leg_configs(
 
 /// Extract body state and rotation quaternion from a Bevy Transform component.
 ///
-/// Angular velocity is approximated as zero (use Rapier's body.angvel()
-/// for accurate values in the headless example).
+/// Velocities must be provided by the caller (e.g., from `RapierContext`
+/// or another physics backend). The `MpcPipelineState` fields
+/// `body_linear_velocity` and `body_angular_velocity` are the intended source.
 pub fn body_state_from_transform(
     transform: &GlobalTransform,
+    linear_velocity: &Vector3<f64>,
+    angular_velocity: &Vector3<f64>,
 ) -> (BodyState, nalgebra::UnitQuaternion<f64>) {
     let t = transform.translation();
     let bevy_rot = transform.to_scale_rotation_translation().1;
@@ -167,8 +181,8 @@ pub fn body_state_from_transform(
         BodyState {
             orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
             position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
-            angular_velocity: Vector3::zeros(),
-            linear_velocity: Vector3::zeros(),
+            angular_velocity: *angular_velocity,
+            linear_velocity: *linear_velocity,
         },
         body_quat,
     )
@@ -198,7 +212,11 @@ fn mpc_control_system(
     let Ok(body_tf) = transforms.get(config.body_entity) else {
         return;
     };
-    let (body_state, body_quat) = body_state_from_transform(body_tf);
+    let (body_state, body_quat) = body_state_from_transform(
+        body_tf,
+        &state.body_linear_velocity,
+        &state.body_angular_velocity,
+    );
     let body_pos = body_state.position;
 
     // 2. Read joint states and compute foot positions via FK
@@ -286,8 +304,10 @@ fn mpc_control_system(
             let jacobian =
                 compute_leg_jacobian(&origins_world, &axes_world, foot_world, &leg.is_prismatic);
 
-            let force = &solution.forces[leg_idx];
-            let torques_ff = jacobian_transpose_torques(&jacobian, force);
+            // Negate: MPC gives ground reaction forces (ground pushes up on
+            // foot); the body must apply -F through the foot (Newton's 3rd law).
+            let neg_force = -solution.forces[leg_idx];
+            let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
             // Joint-space damping (MIT Cheetah: Kd = 0.2 * I)
             let qd_f64: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();

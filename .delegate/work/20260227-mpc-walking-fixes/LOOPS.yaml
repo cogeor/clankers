@@ -1,0 +1,58 @@
+loops:
+  - id: "01"
+    summary: "Fix force sign negation and zero body velocity bugs in plugin.rs"
+    scope: "clankers-mpc"
+    type: "fix"
+    status: pending
+    notes: |
+      Two bugs in plugin.rs mpc_control_system:
+      1. Force sign: line 289 passes `force` directly to jacobian_transpose_torques,
+         but MPC produces ground reaction forces (upward on body). The body must apply
+         -force through the foot via J^T. Both standalone examples correctly negate.
+         Also fix the same bug in examples/tests/mpc_walk.rs line 339.
+      2. Zero velocities: body_state_from_transform (line 152-175) zeros angular_velocity
+         and linear_velocity. The plugin runs inside Bevy where Rapier velocities are
+         available via RapierContext, not via Transform. The function must accept or
+         query actual velocities. Options: (a) add velocity params to the function,
+         (b) have the system query RapierContext directly, or (c) add a Velocity
+         component. Option (b) is simplest since RapierContext is already a resource.
+
+  - id: "02"
+    summary: "Reduce MPC solver overhead by caching Clarabel settings and reusing CSC buffers"
+    scope: "clankers-mpc"
+    type: "perf"
+    status: pending
+    depends_on: ["01"]
+    notes: |
+      solver.rs currently rebuilds DefaultSettingsBuilder, reconstructs CscMatrix
+      from dense matrices, and creates a new DefaultSolver every solve() call.
+      The dense-to-CSC conversion (dmatrix_to_csc, dmatrix_to_csc_upper_tri) scans
+      all NxN entries and allocates fresh Vecs each call. For a 120-var QP with
+      horizon=10 this adds ~50ms overhead on top of the <5ms IPM solve.
+
+      Approach:
+      - Cache DefaultSettings in MpcSolver struct (built once in new())
+      - Pre-allocate CSC buffers (colptr, rowval, nzval) in the solver workspace
+      - Reuse/fill CSC buffers in-place instead of fresh allocation each solve
+      - Consider pre-computing constraint matrix structure since sparsity pattern
+        changes only with contact pattern (not values)
+
+  - id: "03"
+    summary: "Tune MPC weights, swing gains, and motor limits for improved walking"
+    scope: "clankers-mpc, examples"
+    type: "feat"
+    status: pending
+    depends_on: ["01"]
+    notes: |
+      After fixing bugs in loop 01, the controller will behave differently and
+      needs retuning. Changes span types.rs defaults and both example files.
+
+      Specific items from TASK.md:
+      1. Velocity tracking weights: vx=5, vy=5 vs pz=50 means height dominates
+         velocity tracking. Increase vx/vy weights (e.g., 15-25 range).
+      2. Swing max_force: 30 Nm clips trajectory tracking for 10cm step height.
+         Increase to 50-80 Nm range.
+      3. Gain blending: hip_ab kp drops 96% (500->20) in 10% of swing phase.
+         Use a gentler ramp or higher swing floor for hip_ab stiffness.
+      4. Both examples (quadruped_mpc.rs, quadruped_mpc_viz.rs) and
+         examples/tests/mpc_walk.rs must stay in sync.

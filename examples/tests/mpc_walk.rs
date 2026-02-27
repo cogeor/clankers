@@ -217,7 +217,7 @@ fn setup_quadruped() -> MpcTestHarness {
     let swing_config = SwingConfig::default();
 
     let gait = GaitScheduler::quadruped(GaitType::Stand);
-    let mut solver = MpcSolver::new(mpc_config.clone(), 4);
+    let solver = MpcSolver::new(mpc_config.clone(), 4);
 
     {
         let world = scene.app.world_mut();
@@ -335,8 +335,10 @@ fn run_mpc_step(
                 &leg.is_prismatic,
             );
 
-            let force = &solution.forces[leg_idx];
-            let torques_ff = jacobian_transpose_torques(&jacobian, force);
+            // Negate: MPC gives ground reaction forces (ground pushes up on
+            // foot); the body must apply -F through the foot (Newton's 3rd law).
+            let neg_force = -solution.forces[leg_idx];
+            let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
             let qd_f64: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();
             let torques_damp = stance_damping_torques(&qd_f64, 0.2);

@@ -45,18 +45,19 @@ impl Default for MpcConfig {
             gravity: 9.81,
             friction_coeff: 0.4,
             f_max: 120.0,
-            // Tuned for standing/trotting stability (Di Carlo et al. guidance).
-            // With dt=0.02, m=9.0: B_entry = dt/m ≈ 0.002, so the Hessian
-            // contribution from velocity tracking is q_v * B^2 ≈ q_v * 5e-6.
-            // r_weight must be << this so tracking dominates over force
-            // regularization. r_weight=1e-6 is standard for convex MPC.
+            // Tuned via open-source benchmarking (MIT Cheetah, A1-QP-MPC, etc.).
+            // Key insight: velocity regulation comes from Raibert foot placement,
+            // NOT aggressive MPC force tracking. The MPC should focus on balance
+            // (pz dominates). Values are 10-20x MIT's to compensate for our
+            // simpler WBC (J^T vs WBIC), but 5-10x lower than previous values
+            // which exhausted the force budget on velocity tracking.
             q_weights: [
-                25.0, 25.0, 10.0,  // orientation: roll/pitch critical for balance
-                5.0, 5.0, 50.0,    // position: track x,y + height dominant
-                1.0, 1.0, 0.3,     // angular velocity: damp rotations
-                20.0, 20.0, 5.0,   // linear velocity: track vx,vy for locomotion
+                5.0, 5.0, 10.0,    // orientation: balance (20x MIT, compensates no WBIC)
+                2.0, 2.0, 50.0,    // position: height dominant (matches MIT)
+                0.0, 0.0, 0.3,     // angular velocity: zero wx/wy (like MIT; joint PD damps)
+                2.0, 2.0, 0.5,     // linear velocity: gentle tracking (Raibert handles speed)
             ],
-            r_weight: 1e-6,
+            r_weight: 1e-5,
             max_solver_iters: 100,
         }
     }

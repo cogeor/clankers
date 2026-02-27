@@ -395,11 +395,17 @@ fn run_mpc_step(
             );
 
             let qd_f64: Vec<f64> = qd_vals.iter().map(|&v| f64::from(v)).collect();
-            let v_actual = Vector3::new(
+            let v_actual_relative = Vector3::new(
                 (0..jacobian.ncols()).map(|j| jacobian[(0, j)] * qd_f64[j]).sum::<f64>(),
                 (0..jacobian.ncols()).map(|j| jacobian[(1, j)] * qd_f64[j]).sum::<f64>(),
                 (0..jacobian.ncols()).map(|j| jacobian[(2, j)] * qd_f64[j]).sum::<f64>(),
             );
+
+            // Add the base's full spatial velocity to the leg's relative velocity
+            let r_foot = p_actual - body_pos;
+            let v_actual = body_state.linear_velocity 
+                         + body_state.angular_velocity.cross(&r_foot) 
+                         + v_actual_relative;
 
             let kp = &harness.swing_config.kp_cartesian;
             let kd = &harness.swing_config.kd_cartesian;

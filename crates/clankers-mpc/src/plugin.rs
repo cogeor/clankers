@@ -10,7 +10,7 @@ use nalgebra::Vector3;
 
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::ClankersSet;
-use clankers_ik::KinematicChain;
+use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
 use clankers_urdf::{RobotModel, SpawnedRobot};
 
 use crate::gait::{GaitScheduler, GaitType};
@@ -65,6 +65,9 @@ pub struct MpcPipelineConfig {
     pub ground_height: f64,
     /// Joint-space damping gain for stance legs (MIT uses 0.2).
     pub stance_kd_joint: f64,
+    /// Joint-space position gain for stance hip_pitch/knee (IK-derived targets).
+    /// Set to 0.0 to disable position feedback (original behavior).
+    pub stance_kp_joint: f64,
 }
 
 /// Runtime state for the MPC pipeline.
@@ -291,7 +294,7 @@ fn mpc_control_system(
         }
 
         if is_contact && solution.converged {
-            // Stance leg: J^T force feedforward + joint damping
+            // Stance leg: J^T force feedforward + IK position feedback + damping
             let q = &all_joint_positions[leg_idx];
             let qd = &all_joint_velocities[leg_idx];
             let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
@@ -309,15 +312,36 @@ fn mpc_control_system(
             let neg_force = -solution.forces[leg_idx];
             let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
+            // Compute q_desired via IK from MPC's desired body pose
+            let desired_body_rot = nalgebra::UnitQuaternion::from_euler_angles(
+                0.0, 0.0, config.desired_yaw,
+            );
+            let desired_body_pos = Vector3::new(body_pos.x, body_pos.y, config.desired_height);
+            let foot_in_desired_body = desired_body_rot.inverse()
+                * (foot_world - desired_body_pos);
+
+            let ik_target = IkTarget::Position(foot_in_desired_body.cast::<f32>());
+            let ik_solver = DlsSolver::new(DlsConfig {
+                max_iterations: 10,
+                position_tolerance: 1e-3,
+                damping: 0.01,
+                ..DlsConfig::default()
+            });
+            let ik_result = ik_solver.solve(&leg.chain, &ik_target, q);
+
             // Joint-space damping (MIT Cheetah: Kd = 0.2 * I)
             let qd_f64: Vec<f64> = qd.iter().map(|&v| f64::from(v)).collect();
             let torques_damp = stance_damping_torques(&qd_f64, config.stance_kd_joint);
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                if let Ok((_, mut cmd)) = joints.get_mut(entity) {
+                if let Ok((js, mut cmd)) = joints.get_mut(entity) {
+                    // IK position feedback: kp * (q_desired - q_current)
+                    // Only on hip_pitch/knee (j > 0); hip_ab uses separate gains
+                    let kp = if j > 0 { config.stance_kp_joint } else { 0.0 };
+                    let pos_torque = kp * (f64::from(ik_result.joint_positions[j]) - f64::from(js.position));
                     #[allow(clippy::cast_possible_truncation)]
                     {
-                        cmd.value = (torques_ff[j] + torques_damp[j]) as f32;
+                        cmd.value = (torques_ff[j] + torques_damp[j] + pos_torque) as f32;
                     }
                 }
             }

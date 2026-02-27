@@ -39,7 +39,7 @@ impl GaitScheduler {
     pub fn quadruped(gait: GaitType) -> Self {
         let (offsets, duty_factor, cycle_time) = match gait {
             GaitType::Stand => (vec![0.0; 4], 1.0, 1.0),
-            GaitType::Trot => (vec![0.0, 0.5, 0.5, 0.0], 0.5, 0.5),
+            GaitType::Trot => (vec![0.0, 0.5, 0.5, 0.0], 0.5, 0.35),
             GaitType::Walk => (vec![0.0, 0.5, 0.25, 0.75], 0.75, 0.8),
             GaitType::Bound => (vec![0.0, 0.0, 0.5, 0.5], 0.5, 0.4),
         };

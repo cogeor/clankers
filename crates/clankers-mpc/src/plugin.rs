@@ -388,8 +388,8 @@ fn mpc_control_system(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
-            // Blend: fade in swing torques + fade out stance damping over first 10%
-            let blend = (swing_phase / 0.1).min(1.0);
+            // Blend: fade in swing torques + fade out stance damping over first 20%
+            let blend = (swing_phase / 0.2).min(1.0);
             let damp_fade = 1.0 - blend;
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {

@@ -54,7 +54,7 @@ impl Default for MpcConfig {
                 25.0, 25.0, 10.0,  // orientation: roll/pitch critical for balance
                 5.0, 5.0, 50.0,    // position: track x,y + height dominant
                 1.0, 1.0, 0.3,     // angular velocity: damp rotations
-                5.0, 5.0, 1.0,     // linear velocity: track vx,vy for locomotion
+                20.0, 20.0, 5.0,   // linear velocity: track vx,vy for locomotion
             ],
             r_weight: 1e-6,
             max_solver_iters: 100,

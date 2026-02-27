@@ -35,7 +35,7 @@ impl Default for SwingConfig {
             default_step_length: 0.08,
             kp_cartesian: Vector3::new(500.0, 500.0, 500.0),
             kd_cartesian: Vector3::new(20.0, 20.0, 20.0),
-            raibert_kv: 0.1,
+            raibert_kv: 0.15,
         }
     }
 }

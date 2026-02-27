@@ -26,7 +26,7 @@ use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::QUADRUPED_URDF;
-use clankers_ik::KinematicChain;
+use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
 use clankers_mpc::{
     BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, ReferenceTrajectory, SwingConfig,
     raibert_foot_target, swing_foot_position, swing_foot_velocity,
@@ -106,7 +106,7 @@ impl Default for MpcUiState {
             mpc_enabled: true,
             desired_velocity_x: 0.0,
             desired_velocity_y: 0.0,
-            desired_height: 0.326,
+            desired_height: 0.20,
             desired_yaw: 0.0,
             gait: GaitType::Stand,
             last_converged: false,
@@ -138,7 +138,6 @@ struct QuadMpcState {
     swing_starts: Vec<Vector3<f64>>,
     swing_targets: Vec<Vector3<f64>>,
     prev_contacts: Vec<bool>,
-    init_joint_angles: Vec<Vec<f32>>,
     step: usize,
     stabilize_steps: usize,
     current_gait_type: GaitType,
@@ -485,7 +484,7 @@ fn mpc_control_system(
         }
 
         if is_contact && solution.converged {
-            // --- Stance: J^T feedforward via position motors ---
+            // --- Stance: J^T feedforward + IK-derived PD targets ---
             let q = &all_joint_positions[leg_idx];
             let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
             let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
@@ -505,19 +504,37 @@ fn mpc_control_system(
             let neg_force = -force;
             let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
+            // Compute q_desired via IK from MPC's desired body pose.
+            let desired_body_rot = nalgebra::UnitQuaternion::from_euler_angles(
+                0.0, 0.0, desired_yaw,
+            );
+            let desired_body_pos = Vector3::new(body_pos.x, body_pos.y, desired_height);
+            let foot_in_desired_body = desired_body_rot.inverse()
+                * (foot_world[leg_idx] - desired_body_pos);
+
+            let ik_target = IkTarget::Position(foot_in_desired_body.cast::<f32>());
+            let ik_solver = DlsSolver::new(DlsConfig {
+                max_iterations: 10,
+                position_tolerance: 1e-3,
+                damping: 0.01,
+                ..DlsConfig::default()
+            });
+            let ik_result = ik_solver.solve(&leg.chain, &ik_target, q);
+
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                let q0 = mpc.init_joint_angles[leg_idx][j];
                 let (kp_j, kd_j, max_f) = if j == 0 {
                     (500.0_f32, 20.0_f32, 200.0_f32)
                 } else {
-                    (0.0_f32, 5.0_f32, 50.0_f32)
+                    (20.0_f32, 2.0_f32, 50.0_f32)
                 };
+
+                let target_pos = ik_result.joint_positions[j];
 
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques_ff[j] / f64::from(kd_j)) as f32;
 
                 motor_overrides.joints.insert(entity, MotorOverrideParams {
-                    target_pos: q0,
+                    target_pos,
                     target_vel,
                     stiffness: kp_j,
                     damping: kd_j,
@@ -576,11 +593,17 @@ fn mpc_control_system(
             );
 
             let qd_f64: Vec<f64> = qd_vals.iter().map(|&v| f64::from(v)).collect();
-            let v_actual = Vector3::new(
+            let v_actual_relative = Vector3::new(
                 (0..jacobian.ncols()).map(|j| jacobian[(0, j)] * qd_f64[j]).sum::<f64>(),
                 (0..jacobian.ncols()).map(|j| jacobian[(1, j)] * qd_f64[j]).sum::<f64>(),
                 (0..jacobian.ncols()).map(|j| jacobian[(2, j)] * qd_f64[j]).sum::<f64>(),
             );
+
+            // Add the base's full spatial velocity to the leg's relative velocity
+            let r_foot = p_actual - body_pos;
+            let v_actual = body_state.linear_velocity 
+                         + body_state.angular_velocity.cross(&r_foot) 
+                         + v_actual_relative;
 
             let kp = &mpc.swing_config.kp_cartesian;
             let kd = &mpc.swing_config.kd_cartesian;
@@ -592,11 +615,21 @@ fn mpc_control_system(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
+            // Compute IK of desired swing foot position for joint-space PD target
+            let p_des_body = body_quat_na.inverse() * (p_des - body_pos);
+            let swing_ik_target = IkTarget::Position(p_des_body.cast::<f32>());
+            let swing_ik_solver = DlsSolver::new(DlsConfig {
+                max_iterations: 10,
+                position_tolerance: 1e-3,
+                damping: 0.01,
+                ..DlsConfig::default()
+            });
+            let swing_ik = swing_ik_solver.solve(&leg.chain, &swing_ik_target, q);
+
             // Blend motor gains from stance→swing over first 20% of swing
             let blend = (swing_phase / 0.2).min(1.0) as f32;
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                let q0 = mpc.init_joint_angles[leg_idx][j];
                 let kd_swing = 2.0_f32;
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques[j] / f64::from(kd_swing)) as f32;
@@ -613,13 +646,13 @@ fn mpc_control_system(
                     // Hip pitch / knee
                     (
                         20.0 * blend,
-                        5.0 * (1.0 - blend) + kd_swing * blend,
+                        1.0 * (1.0 - blend) + kd_swing * blend,
                         50.0 * (1.0 - blend) + 60.0 * blend,
                     )
                 };
 
                 motor_overrides.joints.insert(entity, MotorOverrideParams {
-                    target_pos: q0,
+                    target_pos: swing_ik.joint_positions[j],
                     target_vel,
                     stiffness: kp_j,
                     damping: kd_j,
@@ -1029,8 +1062,8 @@ fn main() {
 
     // Initial configuration: 3-DOF legs (hip_ab=0, hip_pitch=0.4, knee_pitch=-1.0)
     let init_hip_ab: f32 = 0.0;
-    let init_hip_pitch: f32 = 0.4;
-    let init_knee_pitch: f32 = -1.0;
+    let init_hip_pitch: f32 = 1.05;
+    let init_knee_pitch: f32 = -2.10;
 
     {
         let world = scene.app.world_mut();
@@ -1364,7 +1397,6 @@ fn main() {
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
         prev_contacts: vec![true; n_feet],
-        init_joint_angles,
         step: 0,
         stabilize_steps: 100,
         current_gait_type: GaitType::Stand,

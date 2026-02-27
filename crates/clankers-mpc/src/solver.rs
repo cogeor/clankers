@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use clarabel::algebra::CscMatrix;
 use clarabel::solver::{
-    DefaultSettingsBuilder, DefaultSolver, IPSolver, SolverStatus,
+    DefaultSettings, DefaultSettingsBuilder, DefaultSolver, IPSolver, SolverStatus,
     SupportedConeT::{NonnegativeConeT, ZeroConeT},
 };
 use nalgebra::{DMatrix, DVector, Vector3};
@@ -47,6 +47,8 @@ pub struct MpcSolver {
     // Matrix power workspace
     a_powers: Vec<DMatrix<f64>>,
     ab_products: Vec<DMatrix<f64>>,
+    // Cached Clarabel settings (avoids rebuilding each solve)
+    clarabel_settings: DefaultSettings<f64>,
 }
 
 impl MpcSolver {
@@ -69,6 +71,15 @@ impl MpcSolver {
             }
         }
 
+        let clarabel_settings = DefaultSettingsBuilder::default()
+            .max_iter(config.max_solver_iters)
+            .verbose(false)
+            .tol_gap_abs(1e-6)
+            .tol_gap_rel(1e-6)
+            .tol_feas(1e-6)
+            .build()
+            .expect("valid solver settings");
+
         Self {
             config,
             n_feet,
@@ -88,6 +99,7 @@ impl MpcSolver {
             ab_products: (0..h)
                 .map(|_| DMatrix::zeros(STATE_DIM, n_u_step))
                 .collect(),
+            clarabel_settings,
         }
     }
 
@@ -138,8 +150,8 @@ impl MpcSolver {
         // 3. Fill cost matrices into workspace (no allocation for big matrices)
         self.fill_condensed_cost(x0, reference);
 
-        // 4. Build constraints (still allocates — size varies with contact pattern)
-        let (a_con, b_con, n_eq, n_ineq) = build_constraints(
+        // 4. Build constraint CSC directly (avoids dense intermediate matrix)
+        let (a_csc, b_con, n_eq, n_ineq) = build_constraints_csc(
             &self.config,
             contacts,
             h,
@@ -147,30 +159,20 @@ impl MpcSolver {
             n_u_total,
         );
 
-        // 5. Convert to Clarabel CSC format
+        // 5. Convert P to Clarabel CSC format
         let p_csc = dmatrix_to_csc_upper_tri(&self.p_mat);
-        let a_csc = dmatrix_to_csc(&a_con);
 
         // 6. Define cones: equalities first, then inequalities
         let cones = vec![ZeroConeT(n_eq), NonnegativeConeT(n_ineq)];
 
-        // 7. Solve
-        let settings = DefaultSettingsBuilder::default()
-            .max_iter(self.config.max_solver_iters)
-            .verbose(false)
-            .tol_gap_abs(1e-6)
-            .tol_gap_rel(1e-6)
-            .tol_feas(1e-6)
-            .build()
-            .expect("valid solver settings");
-
+        // 7. Solve (reuse cached settings)
         let solver_result = DefaultSolver::new(
             &p_csc,
             self.q_vec.as_slice(),
             &a_csc,
-            b_con.as_slice(),
+            &b_con,
             &cones,
-            settings,
+            self.clarabel_settings.clone(),
         );
 
         let converged;
@@ -307,21 +309,26 @@ impl MpcSolver {
     }
 }
 
-/// Build constraint matrices for friction cone and swing feet.
+/// Build constraint matrices directly in CSC format for friction cone and
+/// swing feet.
+///
+/// This avoids allocating a dense intermediate matrix (~288KB for typical
+/// quadruped MPC) and scanning it for non-zeros. The constraint matrix is
+/// ~98% zeros so building CSC directly is significantly faster.
 ///
 /// Equalities (ZeroCone) first, then inequalities (NonnegativeCone).
-fn build_constraints(
+fn build_constraints_csc(
     config: &MpcConfig,
     contacts: &[Vec<bool>],
     h: usize,
     n_feet: usize,
     n_u_total: usize,
-) -> (DMatrix<f64>, DVector<f64>, usize, usize) {
+) -> (CscMatrix<f64>, Vec<f64>, usize, usize) {
     let n_u_step = 3 * n_feet;
 
+    // Count constraints
     let mut n_swing_eq = 0;
     let mut n_friction_ineq = 0;
-
     for step_contacts in contacts.iter().take(h) {
         for &in_contact in step_contacts {
             if in_contact {
@@ -336,66 +343,135 @@ fn build_constraints(
     let n_ineq = n_friction_ineq;
     let n_constraints = n_eq + n_ineq;
 
-    let mut a_con = DMatrix::zeros(n_constraints, n_u_total);
-    let mut b_con = DVector::zeros(n_constraints);
-
-    let mut row = 0;
-
-    // Swing foot equality constraints (f = 0)
-    for (k, step_contacts) in contacts.iter().enumerate().take(h) {
-        for (foot, &in_contact) in step_contacts.iter().enumerate() {
-            if !in_contact {
-                let u_off = k * n_u_step + 3 * foot;
-                for j in 0..3 {
-                    a_con[(row, u_off + j)] = 1.0;
-                    row += 1;
-                }
-            }
-        }
-    }
-
-    assert_eq!(row, n_eq, "Equality constraint count mismatch");
-
-    // Friction cone inequality constraints
     let mu = config.friction_coeff;
     let f_max = config.f_max;
 
-    for (k, step_contacts) in contacts.iter().enumerate().take(h) {
-        for (foot, &in_contact) in step_contacts.iter().enumerate() {
+    // Pre-allocate CSC buffers with known capacity.
+    // Swing: 1 non-zero per constraint row (3 rows per swing foot).
+    // Friction: each foot contributes to fx, fy, fz columns with 1-2 entries each.
+    // Max non-zeros: n_swing_eq + n_friction_ineq * 2 (most rows have 2 entries)
+    let max_nnz = n_swing_eq + n_friction_ineq * 2;
+    let mut colptr = vec![0usize; n_u_total + 1];
+    let mut rowval = Vec::with_capacity(max_nnz);
+    let mut nzval = Vec::with_capacity(max_nnz);
+    let mut b_con = vec![0.0; n_constraints];
+
+    // Build column-by-column.
+    // For each decision variable column (force component), determine which
+    // constraint rows reference it and add those entries.
+    //
+    // Row layout: [swing equalities (n_eq)] [friction inequalities (n_ineq)]
+    //
+    // We need to compute the row index for each constraint. Pre-compute a
+    // mapping from (step, foot) to the starting row for that foot's constraints.
+
+    // Swing equality row offsets: (step, foot) → row
+    let mut swing_row_map: Vec<Vec<Option<usize>>> = Vec::with_capacity(h);
+    let mut eq_row = 0;
+    for step_contacts in contacts.iter().take(h) {
+        let mut step_map = Vec::with_capacity(n_feet);
+        for &in_contact in step_contacts {
+            if !in_contact {
+                step_map.push(Some(eq_row));
+                eq_row += 3;
+            } else {
+                step_map.push(None);
+            }
+        }
+        swing_row_map.push(step_map);
+    }
+
+    // Friction inequality row offsets: (step, foot) → row
+    let mut friction_row_map: Vec<Vec<Option<usize>>> = Vec::with_capacity(h);
+    let mut ineq_row = n_eq; // friction rows come after swing equalities
+    for step_contacts in contacts.iter().take(h) {
+        let mut step_map = Vec::with_capacity(n_feet);
+        for &in_contact in step_contacts {
             if in_contact {
-                let fx_idx = k * n_u_step + 3 * foot;
-                let fy_idx = fx_idx + 1;
-                let fz_idx = fx_idx + 2;
+                step_map.push(Some(ineq_row));
+                ineq_row += 6;
+            } else {
+                step_map.push(None);
+            }
+        }
+        friction_row_map.push(step_map);
+    }
 
-                a_con[(row, fx_idx)] = 1.0;
-                a_con[(row, fz_idx)] = -mu;
-                row += 1;
-
-                a_con[(row, fx_idx)] = -1.0;
-                a_con[(row, fz_idx)] = -mu;
-                row += 1;
-
-                a_con[(row, fy_idx)] = 1.0;
-                a_con[(row, fz_idx)] = -mu;
-                row += 1;
-
-                a_con[(row, fy_idx)] = -1.0;
-                a_con[(row, fz_idx)] = -mu;
-                row += 1;
-
-                a_con[(row, fz_idx)] = -1.0;
-                row += 1;
-
-                a_con[(row, fz_idx)] = 1.0;
-                b_con[row] = f_max;
-                row += 1;
+    // Fill b_con for friction upper bounds (fz <= f_max)
+    for step_map in &friction_row_map {
+        for maybe_row in step_map {
+            if let Some(base_row) = maybe_row {
+                // Row base_row+5 is the fz <= f_max constraint
+                b_con[base_row + 5] = f_max;
             }
         }
     }
 
-    assert_eq!(row, n_constraints, "Total constraint count mismatch");
+    // Now build CSC column by column
+    for col in 0..n_u_total {
+        let step = col / n_u_step;
+        let within_step = col % n_u_step;
+        let foot = within_step / 3;
+        let axis = within_step % 3; // 0=fx, 1=fy, 2=fz
 
-    (a_con, b_con, n_eq, n_ineq)
+        if step >= h {
+            colptr[col + 1] = rowval.len();
+            continue;
+        }
+
+        let in_contact = contacts[step][foot];
+
+        if !in_contact {
+            // Swing equality: this column has a single 1.0 in its row
+            if let Some(base_row) = swing_row_map[step][foot] {
+                rowval.push(base_row + axis);
+                nzval.push(1.0);
+            }
+        } else {
+            // Friction inequality: contribute to this foot's 6 constraint rows
+            if let Some(base_row) = friction_row_map[step][foot] {
+                match axis {
+                    0 => {
+                        // fx column: rows base+0 (+1.0) and base+1 (-1.0)
+                        rowval.push(base_row);
+                        nzval.push(1.0);
+                        rowval.push(base_row + 1);
+                        nzval.push(-1.0);
+                    }
+                    1 => {
+                        // fy column: rows base+2 (+1.0) and base+3 (-1.0)
+                        rowval.push(base_row + 2);
+                        nzval.push(1.0);
+                        rowval.push(base_row + 3);
+                        nzval.push(-1.0);
+                    }
+                    2 => {
+                        // fz column: rows base+0 (-mu), base+1 (-mu),
+                        //             base+2 (-mu), base+3 (-mu),
+                        //             base+4 (-1.0), base+5 (+1.0)
+                        rowval.push(base_row);
+                        nzval.push(-mu);
+                        rowval.push(base_row + 1);
+                        nzval.push(-mu);
+                        rowval.push(base_row + 2);
+                        nzval.push(-mu);
+                        rowval.push(base_row + 3);
+                        nzval.push(-mu);
+                        rowval.push(base_row + 4);
+                        nzval.push(-1.0);
+                        rowval.push(base_row + 5);
+                        nzval.push(1.0);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        colptr[col + 1] = rowval.len();
+    }
+
+    let a_csc = CscMatrix::new(n_constraints, n_u_total, colptr, rowval, nzval);
+    (a_csc, b_con, n_eq, n_ineq)
 }
 
 /// Build prediction matrices (allocating version, for tests only).
@@ -437,33 +513,14 @@ fn build_prediction_matrices(
     (a_qp, b_qp)
 }
 
-/// Convert a nalgebra `DMatrix<f64>` to a Clarabel `CscMatrix<f64>` (full matrix).
-fn dmatrix_to_csc(m: &DMatrix<f64>) -> CscMatrix<f64> {
-    let (nrows, ncols) = m.shape();
-    let mut colptr = vec![0usize; ncols + 1];
-    let mut rowval = Vec::new();
-    let mut nzval = Vec::new();
-
-    for j in 0..ncols {
-        for i in 0..nrows {
-            let v = m[(i, j)];
-            if v.abs() > 1e-15 {
-                rowval.push(i);
-                nzval.push(v);
-            }
-        }
-        colptr[j + 1] = rowval.len();
-    }
-
-    CscMatrix::new(nrows, ncols, colptr, rowval, nzval)
-}
-
 /// Convert a symmetric `DMatrix<f64>` to upper-triangular `CscMatrix<f64>`.
 fn dmatrix_to_csc_upper_tri(m: &DMatrix<f64>) -> CscMatrix<f64> {
     let (nrows, ncols) = m.shape();
     let mut colptr = vec![0usize; ncols + 1];
-    let mut rowval = Vec::new();
-    let mut nzval = Vec::new();
+    // Upper triangle has at most n*(n+1)/2 entries
+    let max_nnz = ncols * (ncols + 1) / 2;
+    let mut rowval = Vec::with_capacity(max_nnz);
+    let mut nzval = Vec::with_capacity(max_nnz);
 
     for j in 0..ncols {
         for i in 0..=j.min(nrows - 1) {

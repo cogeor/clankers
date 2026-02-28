@@ -10,8 +10,9 @@
 use bevy::prelude::Entity;
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget};
 use clankers_mpc::{
-    BodyState, GaitScheduler, MpcConfig, MpcSolution, MpcSolver, ReferenceTrajectory, SwingConfig,
-    raibert_foot_target, swing_foot_position, swing_foot_velocity,
+    AdaptiveGaitConfig, BodyState, GaitScheduler, MpcConfig, MpcSolution, MpcSolver,
+    ReferenceTrajectory, SwingConfig, raibert_foot_target, swing_foot_position,
+    swing_foot_velocity,
     wbc::{
         compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques,
         transform_frames_to_world,
@@ -33,6 +34,7 @@ pub struct MpcLoopState {
     pub solver: MpcSolver,
     pub config: MpcConfig,
     pub swing_config: SwingConfig,
+    pub adaptive_gait: Option<AdaptiveGaitConfig>,
     pub legs: Vec<LegRuntime>,
     pub swing_starts: Vec<Vector3<f64>>,
     pub swing_targets: Vec<Vector3<f64>>,
@@ -111,8 +113,12 @@ pub fn compute_mpc_step(
         foot_world.push(body_quat * ee_body_vec + body_pos);
     }
 
-    // --- Advance gait and build contact sequence ---
+    // --- Advance gait and adapt timing ---
     state.gait.advance(dt);
+    if let Some(ref adaptive_cfg) = state.adaptive_gait {
+        let speed = desired_velocity.xy().norm();
+        state.gait.adapt_timing(speed, adaptive_cfg);
+    }
     let contacts_seq = state.gait.contact_sequence(state.config.horizon, dt);
 
     // --- MPC reference trajectory ---

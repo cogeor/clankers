@@ -13,7 +13,7 @@ use clankers_core::ClankersSet;
 use clankers_ik::KinematicChain;
 use clankers_urdf::{RobotModel, SpawnedRobot};
 
-use crate::gait::{GaitScheduler, GaitType};
+use crate::gait::{AdaptiveGaitConfig, GaitScheduler, GaitType};
 use crate::solver::MpcSolver;
 use crate::swing::{SwingConfig, raibert_foot_target, swing_foot_position, swing_foot_velocity};
 use crate::types::{BodyState, MpcConfig, ReferenceTrajectory};
@@ -65,6 +65,8 @@ pub struct MpcPipelineConfig {
     pub ground_height: f64,
     /// Joint-space damping gain for stance legs (MIT uses 0.2).
     pub stance_kd_joint: f64,
+    /// Adaptive gait timing configuration. `None` disables adaptation.
+    pub adaptive_gait: Option<AdaptiveGaitConfig>,
 }
 
 /// Runtime state for the MPC pipeline.
@@ -253,9 +255,13 @@ fn mpc_control_system(
 
     state.foot_positions.clone_from(&foot_positions_world);
 
-    // 3. Advance gait
+    // 3. Advance gait and adapt timing
     let dt = config.mpc_config.dt;
     state.gait.advance(dt);
+    if let Some(ref adaptive_cfg) = config.adaptive_gait {
+        let speed = config.desired_velocity.xy().norm();
+        state.gait.adapt_timing(speed, adaptive_cfg);
+    }
 
     // 4. Generate contact sequence
     let contacts = state.gait.contact_sequence(config.mpc_config.horizon, dt);

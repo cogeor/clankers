@@ -17,6 +17,8 @@ pub enum PixelFormat {
     Rgb8,
     /// 4 bytes per pixel (red, green, blue, alpha).
     Rgba8,
+    /// 4 bytes per pixel, one 32-bit float depth value.
+    DepthF32,
 }
 
 impl PixelFormat {
@@ -26,6 +28,7 @@ impl PixelFormat {
         match self {
             Self::Rgb8 => 3,
             Self::Rgba8 => 4,
+            Self::DepthF32 => 4,
         }
     }
 
@@ -35,6 +38,7 @@ impl PixelFormat {
         match self {
             Self::Rgb8 => 3,
             Self::Rgba8 => 4,
+            Self::DepthF32 => 1,
         }
     }
 }
@@ -182,12 +186,14 @@ mod tests {
     fn pixel_format_bytes_per_pixel() {
         assert_eq!(PixelFormat::Rgb8.bytes_per_pixel(), 3);
         assert_eq!(PixelFormat::Rgba8.bytes_per_pixel(), 4);
+        assert_eq!(PixelFormat::DepthF32.bytes_per_pixel(), 4);
     }
 
     #[test]
     fn pixel_format_channels() {
         assert_eq!(PixelFormat::Rgb8.channels(), 3);
         assert_eq!(PixelFormat::Rgba8.channels(), 4);
+        assert_eq!(PixelFormat::DepthF32.channels(), 1);
     }
 
     #[test]

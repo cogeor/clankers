@@ -7,6 +7,7 @@
 //! - [`FrameBuffer`] — stores a single frame of raw pixel data per camera
 //! - [`CameraFrameBuffers`] — resource mapping camera labels to frame buffers
 //! - [`CameraConfig`] — per-camera projection parameters (includes `label`)
+//! - [`DepthFrameBuffer`] — resource holding raw `f32` depth values per pixel
 //! - [`ClankersRenderPlugin`] — Bevy plugin that initialises resources
 //!
 //! When the `gpu` feature is enabled, additional types become available:
@@ -14,12 +15,15 @@
 //! - [`camera::SimCamera`] — marker component for sensor cameras
 //! - [`camera::spawn_camera_sensor`] — helper to create offscreen cameras
 //! - [`readback::ImageCopyPlugin`] — copies GPU frames into [`CameraFrameBuffers`]
+//! - [`depth::ClankersDepthPlugin`] — copies GPU depth frames into [`DepthFrameBuffer`]
+//! - [`depth::DepthCamera`] — marker component for depth-capture cameras
+//! - [`depth::spawn_depth_camera_sensor`] — helper to create depth cameras
 //!
 //! The design is rendering-backend-agnostic. In headless mode the frame buffers
 //! exist but are only written to when external code explicitly calls
-//! [`FrameBuffer::write_frame`]. When the `gpu` feature is active and
-//! [`readback::ImageCopyPlugin`] is added to the app, the readback system
-//! transfers GPU output into [`CameraFrameBuffers`] each frame.
+//! [`FrameBuffer::write_frame`] or [`DepthFrameBuffer::write_depth_frame`].
+//! When the `gpu` feature is active and the appropriate plugin is added to the
+//! app, the readback systems transfer GPU output into the buffers each frame.
 //!
 //! # Example
 //!
@@ -37,6 +41,7 @@
 pub mod buffer;
 pub mod camera;
 pub mod config;
+pub mod depth;
 pub mod readback;
 pub mod sensor;
 
@@ -46,9 +51,9 @@ use bevy::prelude::*;
 // Re-exports
 // ---------------------------------------------------------------------------
 
-pub use buffer::{CameraFrameBuffers, FrameBuffer};
+pub use buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
 pub use config::{CameraConfig, RenderConfig};
-pub use sensor::ImageSensor;
+pub use sensor::{DepthSensor, ImageSensor};
 
 // ---------------------------------------------------------------------------
 // ClankersRenderPlugin
@@ -89,13 +94,17 @@ fn init_frame_buffer(mut commands: Commands, config: Res<RenderConfig>) {
 pub mod prelude {
     pub use crate::{
         ClankersRenderPlugin,
-        buffer::{CameraFrameBuffers, FrameBuffer},
+        buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer},
         config::{CameraConfig, PixelFormat, RenderConfig},
-        sensor::ImageSensor,
+        sensor::{DepthSensor, ImageSensor},
     };
 
     #[cfg(feature = "gpu")]
-    pub use crate::{camera::SimCamera, readback::ImageCopyPlugin};
+    pub use crate::{
+        camera::SimCamera,
+        depth::{ClankersDepthPlugin, DepthCamera, spawn_depth_camera_sensor},
+        readback::ImageCopyPlugin,
+    };
 }
 
 // ---------------------------------------------------------------------------

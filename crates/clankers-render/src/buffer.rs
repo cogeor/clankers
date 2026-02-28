@@ -147,6 +147,99 @@ impl Default for FrameBuffer {
 }
 
 // ---------------------------------------------------------------------------
+// DepthFrameBuffer
+// ---------------------------------------------------------------------------
+
+/// Resource holding a single captured frame of linear depth values.
+///
+/// Each element in [`data()`][Self::data] is a raw 32-bit floating-point depth
+/// sample in the range `[0.0, 1.0]` as produced by the GPU depth attachment.
+/// Convert to metres using the linearisation formula in [`DepthSensor`].
+///
+/// [`DepthSensor`]: crate::sensor::DepthSensor
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::buffer::DepthFrameBuffer;
+///
+/// let mut buf = DepthFrameBuffer::new(4, 2);
+/// assert_eq!(buf.width(), 4);
+/// assert_eq!(buf.height(), 2);
+/// assert_eq!(buf.data().len(), 4 * 2);
+/// ```
+#[derive(Resource, Clone, Debug)]
+pub struct DepthFrameBuffer {
+    width: u32,
+    height: u32,
+    data: Vec<f32>,
+    frame_counter: u64,
+}
+
+impl DepthFrameBuffer {
+    /// Create a zero-filled depth frame buffer.
+    #[must_use]
+    pub fn new(width: u32, height: u32) -> Self {
+        let pixel_count = (width * height) as usize;
+        Self {
+            width,
+            height,
+            data: vec![0.0; pixel_count],
+            frame_counter: 0,
+        }
+    }
+
+    /// Width in pixels.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Height in pixels.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Raw depth data as a slice of f32 values.
+    ///
+    /// Length is always `width * height`.
+    #[must_use]
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+
+    /// Replace the entire depth frame and increment the frame counter.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `data.len()` does not equal `width * height`.
+    pub fn write_depth_frame(&mut self, data: Vec<f32>) {
+        let expected = (self.width * self.height) as usize;
+        assert_eq!(
+            data.len(),
+            expected,
+            "depth frame length {actual} does not match expected {expected}",
+            actual = data.len(),
+        );
+        self.data = data;
+        self.frame_counter += 1;
+    }
+
+    /// Number of frames written since creation.
+    #[must_use]
+    pub const fn frame_counter(&self) -> u64 {
+        self.frame_counter
+    }
+}
+
+impl Default for DepthFrameBuffer {
+    fn default() -> Self {
+        Self::new(512, 512)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CameraFrameBuffers
 // ---------------------------------------------------------------------------
 
@@ -336,6 +429,65 @@ mod tests {
         assert_eq!(buf.width(), buf2.width());
         assert_eq!(buf.height(), buf2.height());
         assert_eq!(buf.data(), buf2.data());
+    }
+
+    // -----------------------------------------------------------------------
+    // CameraFrameBuffers tests
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // DepthFrameBuffer tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn depth_frame_buffer_new() {
+        let buf = DepthFrameBuffer::new(4, 2);
+        assert_eq!(buf.width(), 4);
+        assert_eq!(buf.height(), 2);
+        assert_eq!(buf.data().len(), 8);
+        assert_eq!(buf.frame_counter(), 0);
+        assert!(buf.data().iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn depth_frame_buffer_write_read_roundtrip() {
+        let mut buf = DepthFrameBuffer::new(2, 1);
+        let data = vec![0.25_f32, 0.75_f32];
+        buf.write_depth_frame(data.clone());
+        assert_eq!(buf.data(), data.as_slice());
+        assert_eq!(buf.frame_counter(), 1);
+    }
+
+    #[test]
+    fn depth_frame_buffer_write_increments_counter() {
+        let mut buf = DepthFrameBuffer::new(1, 1);
+        buf.write_depth_frame(vec![0.1]);
+        buf.write_depth_frame(vec![0.9]);
+        assert_eq!(buf.frame_counter(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "depth frame length")]
+    fn depth_frame_buffer_write_wrong_size_panics() {
+        let mut buf = DepthFrameBuffer::new(2, 2);
+        buf.write_depth_frame(vec![0.0; 3]); // Expected 4
+    }
+
+    #[test]
+    fn depth_frame_buffer_default() {
+        let buf = DepthFrameBuffer::default();
+        assert_eq!(buf.width(), 512);
+        assert_eq!(buf.height(), 512);
+        assert_eq!(buf.data().len(), 512 * 512);
+    }
+
+    #[test]
+    fn depth_frame_buffer_clone() {
+        let mut buf = DepthFrameBuffer::new(2, 1);
+        buf.write_depth_frame(vec![0.3, 0.7]);
+        let buf2 = buf.clone();
+        assert_eq!(buf2.data(), buf.data());
+        assert_eq!(buf2.frame_counter(), buf.frame_counter());
     }
 
     // -----------------------------------------------------------------------

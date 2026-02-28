@@ -84,8 +84,10 @@ pub struct ChannelIds {
 /// Registered as a **non-send resource** because `mcap::Writer` is not `Send`.
 /// Recording systems must use [`NonSendMut<Recorder>`] to access it.
 pub struct Recorder {
-    pub(crate) writer: Option<McapWriter<BufWriter<File>>>,
-    pub(crate) sequence: u32,
+    /// The underlying MCAP writer, if the file is still open.
+    pub writer: Option<McapWriter<BufWriter<File>>>,
+    /// Monotonically increasing message sequence counter.
+    pub sequence: u32,
 }
 
 impl Recorder {
@@ -106,7 +108,7 @@ impl Recorder {
     }
 
     /// Register the JSON schema used for all channels in this recorder.
-    pub(crate) fn register_json_schema(
+    pub fn register_json_schema(
         writer: &mut McapWriter<BufWriter<File>>,
     ) -> Result<u16, Box<dyn std::error::Error>> {
         // Use an empty schema for JSON — schema data is optional for JSON encoding.
@@ -115,7 +117,7 @@ impl Recorder {
     }
 
     /// Add a channel for the given topic using JSON encoding.
-    pub(crate) fn add_json_channel(
+    pub fn add_json_channel(
         writer: &mut McapWriter<BufWriter<File>>,
         schema_id: u16,
         topic: &str,

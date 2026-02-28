@@ -67,4 +67,15 @@ try:
 except ImportError:
     pass
 
+# Optional MCAP episode loading (requires `pip install clanker-gym[mcap]`).
+try:
+    from clanker_gym.mcap_loader import (  # noqa: F401
+        EpisodeDataset,
+        McapEpisodeLoader,
+    )
+
+    __all__.extend(["McapEpisodeLoader", "EpisodeDataset"])
+except ImportError:
+    pass
+
 __version__ = "0.1.0"

@@ -5,6 +5,15 @@ wraps :class:`~clanker_gym.env.ClankerEnv` and computes rewards via a
 pluggable :class:`~clanker_gym.rewards.RewardFunction`.
 
 Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
+
+Image observations
+------------------
+When the server advertises an ``Image`` observation space, the environment
+automatically requests binary observations (``binary_obs`` capability) and
+the ``observation_space`` is set to a ``gymnasium.spaces.Box`` with dtype
+``uint8`` and channel-first shape ``(C, H, W)`` for SB3 compatibility (or
+channel-last ``(H, W, C)`` if ``channel_last=True`` is passed to the
+constructor).
 """
 
 from __future__ import annotations
@@ -26,6 +35,35 @@ from clanker_gym.client import GymClient
 from clanker_gym.rewards import ConstantReward, RewardFunction
 from clanker_gym.spaces import Box, Discrete, space_from_dict
 from clanker_gym.terminations import TerminationFn, cartpole_termination
+
+# Type alias used internally for image observations.
+_ImageObs = NDArray[np.uint8]
+_FlatObs = NDArray[np.float32]
+
+
+def _image_space_from_dict(
+    obs_data: dict[str, Any], channel_last: bool
+) -> gym_spaces.Box | None:
+    """Return a uint8 gymnasium Box for an Image obs space dict, or None.
+
+    Handles the Rust serde enum format ``{"Image": {"height": H, "width": W,
+    "channels": C}}``.  Returns ``None`` if the dict is not an Image space.
+
+    Parameters
+    ----------
+    obs_data : dict
+        The ``observation_space`` entry from the server ``env_info``.
+    channel_last : bool
+        If True use ``(H, W, C)`` layout; otherwise ``(C, H, W)`` for SB3.
+    """
+    if "Image" not in obs_data:
+        return None
+    img = obs_data["Image"]
+    height = int(img["height"])
+    width = int(img["width"])
+    channels = int(img["channels"])
+    shape = (height, width, channels) if channel_last else (channels, height, width)
+    return gym_spaces.Box(low=0, high=255, shape=shape, dtype=np.uint8)
 
 
 def _to_gymnasium_space(
@@ -54,6 +92,12 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         Server port.
     reward_fn : RewardFunction
         Reward function computing scalar reward each step.
+    termination_fn : TerminationFn | None
+        Optional Python-side termination predicate.
+    channel_last : bool
+        When the server uses an Image observation space, set this to
+        ``True`` to use ``(H, W, C)`` layout instead of the default
+        channel-first ``(C, H, W)`` layout expected by SB3.
     """
 
     metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
@@ -64,6 +108,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         port: int = 9876,
         reward_fn: RewardFunction | None = None,
         termination_fn: TerminationFn | None = None,
+        channel_last: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -71,9 +116,12 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         self._port = port
         self._reward_fn = reward_fn
         self._termination_fn = termination_fn
+        self._channel_last = channel_last
         self._client: GymClient | None = None
         self._step_count = 0
-        self._last_obs: NDArray[np.float32] | None = None
+        self._last_obs: _FlatObs | _ImageObs | None = None
+        # Set to True when the server uses Image obs space + binary_obs.
+        self._image_obs_mode: bool = False
 
         # Spaces are set after connect; gymnasium requires them on the instance.
         self.observation_space: gym_spaces.Box | gym_spaces.Discrete = gym_spaces.Box(
@@ -93,22 +141,48 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
 
         obs_data = env_info.get("observation_space", {})
         act_data = env_info.get("action_space", {})
+
         if obs_data:
-            self.observation_space = _to_gymnasium_space(space_from_dict(obs_data))
+            # Check for Image space first; fall back to Box/Discrete.
+            img_space = _image_space_from_dict(obs_data, self._channel_last)
+            if img_space is not None:
+                self.observation_space = img_space
+                self._image_obs_mode = True
+            else:
+                self.observation_space = _to_gymnasium_space(space_from_dict(obs_data))
+                self._image_obs_mode = False
         if act_data:
             self.action_space = _to_gymnasium_space(space_from_dict(act_data))
+
+    def _obs_from_resp(self, resp: dict[str, Any]) -> _FlatObs | _ImageObs:
+        """Extract the observation array from a step/reset response dict."""
+        if getattr(self, "_image_obs_mode", False):
+            # Binary obs path: server sends RawU8 encoded image.
+            image = resp.get("_image_obs")
+            if image is not None:
+                # image is (H, W, C); transpose to (C, H, W) unless channel_last.
+                if not self._channel_last:
+                    image = image.transpose(2, 0, 1)
+                return image  # type: ignore[return-value]
+            # Fallback: server sent JSON observation despite Image space (should not happen
+            # in normal operation, but handle gracefully).
+            data = resp.get("observation", {}).get("data", [])
+            return np.asarray(data, dtype=np.uint8)  # type: ignore[return-value]
+        # Standard float32 flat observation.
+        return np.asarray(resp["observation"]["data"], dtype=np.float32)
 
     def reset(
         self,
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
-    ) -> tuple[NDArray[np.float32], dict[str, Any]]:
+    ) -> tuple[_FlatObs | _ImageObs, dict[str, Any]]:
         """Reset the environment.
 
         Returns
         -------
         observation : np.ndarray
+            uint8 image array or float32 flat array depending on obs space.
         info : dict
         """
         super().reset(seed=seed, options=options)
@@ -120,7 +194,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
             req["seed"] = seed
         resp = self._client.send(req)
 
-        obs = np.asarray(resp["observation"]["data"], dtype=np.float32)
+        obs = self._obs_from_resp(resp)
         info: dict[str, Any] = resp.get("info", {})
         self._step_count = 0
         self._last_obs = obs
@@ -128,13 +202,14 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
 
     def step(
         self,
-        action: NDArray[np.float32] | int,
-    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+        action: _FlatObs | int,
+    ) -> tuple[_FlatObs | _ImageObs, float, bool, bool, dict[str, Any]]:
         """Take one step.
 
         Returns
         -------
         observation : np.ndarray
+            uint8 image array or float32 flat array depending on obs space.
         reward : float
         terminated : bool
         truncated : bool
@@ -148,7 +223,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
             action_payload = {"Continuous": np.asarray(action, dtype=np.float32).tolist()}
 
         resp = self._client.send({"type": "step", "action": action_payload})
-        obs = np.asarray(resp["observation"]["data"], dtype=np.float32)
+        obs = self._obs_from_resp(resp)
         terminated = bool(resp["terminated"])
         truncated = bool(resp["truncated"])
         info: dict[str, Any] = resp.get("info", {})

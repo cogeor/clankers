@@ -1,20 +1,22 @@
-//! Image sensor bridging the [`FrameBuffer`] to the observation pipeline.
+//! Image sensor bridging the [`CameraFrameBuffers`] to the observation pipeline.
 //!
 //! [`ImageSensor`] implements [`Sensor`] and [`ObservationSensor`] by reading
-//! the current [`FrameBuffer`] and normalising pixel values to `[0.0, 1.0]`.
+//! the current frame for its named camera from [`CameraFrameBuffers`] and
+//! normalising pixel values to `[0.0, 1.0]`.
 
 use bevy::prelude::*;
 
 use clankers_core::traits::{ObservationSensor, Sensor};
 use clankers_core::types::Observation;
 
-use crate::buffer::FrameBuffer;
+use crate::buffer::CameraFrameBuffers;
 
 // ---------------------------------------------------------------------------
 // ImageSensor
 // ---------------------------------------------------------------------------
 
-/// Sensor that reads the [`FrameBuffer`] and produces a flat [`Observation`].
+/// Sensor that reads a named camera's frame from [`CameraFrameBuffers`] and
+/// produces a flat [`Observation`].
 ///
 /// Each byte in the frame buffer is normalised to `[0.0, 1.0]` by dividing
 /// by 255. The resulting observation vector has length
@@ -24,22 +26,34 @@ use crate::buffer::FrameBuffer;
 ///
 /// ```
 /// use clankers_render::sensor::ImageSensor;
-/// use clankers_core::traits::Sensor;
+/// use clankers_core::traits::{Sensor, ObservationSensor};
 ///
-/// let sensor = ImageSensor::new("camera_front");
+/// let sensor = ImageSensor::new("camera_front", 64, 64, 4);
 /// assert_eq!(sensor.name(), "camera_front");
+/// assert_eq!(sensor.observation_dim(), 64 * 64 * 4);
 /// ```
 pub struct ImageSensor {
     label: String,
+    width: u32,
+    height: u32,
+    channels: u32,
     rate: Option<f64>,
 }
 
 impl ImageSensor {
-    /// Create an image sensor with the given name.
+    /// Create an image sensor with the given camera label and resolution.
+    ///
+    /// `channels` should match the pixel format of the [`FrameBuffer`]:
+    /// 3 for RGB8, 4 for RGBA8.
+    ///
+    /// [`FrameBuffer`]: crate::buffer::FrameBuffer
     #[must_use]
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(label: impl Into<String>, width: u32, height: u32, channels: u32) -> Self {
         Self {
-            label: name.into(),
+            label: label.into(),
+            width,
+            height,
+            channels,
             rate: None,
         }
     }
@@ -50,15 +64,40 @@ impl ImageSensor {
         self.rate = Some(hz);
         self
     }
+
+    /// Width in pixels as configured.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Height in pixels as configured.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Number of colour channels as configured.
+    #[must_use]
+    pub const fn channels(&self) -> u32 {
+        self.channels
+    }
 }
 
 impl Sensor for ImageSensor {
     type Output = Observation;
 
     fn read(&self, world: &mut World) -> Self::Output {
-        let buf = world.resource::<FrameBuffer>();
-        let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
-        Observation::new(data)
+        // Look up the named camera in CameraFrameBuffers first.
+        if let Some(bufs) = world.get_resource::<CameraFrameBuffers>() {
+            if let Some(buf) = bufs.get(&self.label) {
+                let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
+                return Observation::new(data);
+            }
+        }
+
+        // Fall back to a zero observation of the declared dimension.
+        Observation::new(vec![0.0; self.observation_dim()])
     }
 
     fn name(&self) -> &str {
@@ -72,9 +111,7 @@ impl Sensor for ImageSensor {
 
 impl ObservationSensor for ImageSensor {
     fn observation_dim(&self) -> usize {
-        // This is a dynamic sensor — dim depends on the frame buffer size.
-        // Return 0 as the static dimension; actual dim comes from the observation.
-        0
+        (self.width * self.height * self.channels) as usize
     }
 }
 
@@ -85,34 +122,49 @@ impl ObservationSensor for ImageSensor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::{CameraFrameBuffers, FrameBuffer};
     use crate::config::PixelFormat;
 
     #[test]
     fn image_sensor_name() {
-        let sensor = ImageSensor::new("cam_0");
+        let sensor = ImageSensor::new("cam_0", 64, 64, 3);
         assert_eq!(sensor.name(), "cam_0");
     }
 
     #[test]
     fn image_sensor_default_rate() {
-        let sensor = ImageSensor::new("cam");
+        let sensor = ImageSensor::new("cam", 1, 1, 3);
         assert!(sensor.rate_hz().is_none());
     }
 
     #[test]
     fn image_sensor_with_rate() {
-        let sensor = ImageSensor::new("cam").with_rate_hz(30.0);
+        let sensor = ImageSensor::new("cam", 1, 1, 3).with_rate_hz(30.0);
         assert!((sensor.rate_hz().unwrap() - 30.0).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn image_sensor_reads_frame_buffer() {
+    fn image_sensor_observation_dim_nonzero() {
+        let sensor = ImageSensor::new("cam", 64, 48, 3);
+        assert_eq!(sensor.observation_dim(), 64 * 48 * 3);
+    }
+
+    #[test]
+    fn image_sensor_observation_dim_rgba() {
+        let sensor = ImageSensor::new("cam", 32, 32, 4);
+        assert_eq!(sensor.observation_dim(), 32 * 32 * 4);
+    }
+
+    #[test]
+    fn image_sensor_reads_from_camera_frame_buffers() {
         let mut world = World::new();
+        let mut bufs = CameraFrameBuffers::default();
         let mut buf = FrameBuffer::new(2, 1, PixelFormat::Rgb8);
         buf.write_frame(vec![0, 128, 255, 64, 192, 32]);
-        world.insert_resource(buf);
+        bufs.insert("test".to_string(), buf);
+        world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test");
+        let sensor = ImageSensor::new("test", 2, 1, 3);
         let obs = sensor.read(&mut world);
 
         assert_eq!(obs.len(), 6);
@@ -124,11 +176,13 @@ mod tests {
     #[test]
     fn image_sensor_normalises_to_unit_range() {
         let mut world = World::new();
+        let mut bufs = CameraFrameBuffers::default();
         let mut buf = FrameBuffer::new(1, 1, PixelFormat::Rgb8);
         buf.write_frame(vec![0, 127, 255]);
-        world.insert_resource(buf);
+        bufs.insert("test".to_string(), buf);
+        world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test");
+        let sensor = ImageSensor::new("test", 1, 1, 3);
         let obs = sensor.read(&mut world);
 
         for val in obs.as_slice() {
@@ -140,11 +194,13 @@ mod tests {
     #[test]
     fn image_sensor_rgba() {
         let mut world = World::new();
+        let mut bufs = CameraFrameBuffers::default();
         let mut buf = FrameBuffer::new(1, 1, PixelFormat::Rgba8);
         buf.write_frame(vec![255, 0, 128, 255]);
-        world.insert_resource(buf);
+        bufs.insert("test".to_string(), buf);
+        world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test");
+        let sensor = ImageSensor::new("test", 1, 1, 4);
         let obs = sensor.read(&mut world);
 
         assert_eq!(obs.len(), 4);
@@ -154,9 +210,34 @@ mod tests {
     }
 
     #[test]
-    fn image_sensor_observation_dim() {
-        let sensor = ImageSensor::new("test");
-        // Dynamic sensor returns 0 for static dim
-        assert_eq!(sensor.observation_dim(), 0);
+    fn image_sensor_fallback_when_no_buffer() {
+        // When CameraFrameBuffers has no entry for the label, the sensor
+        // should return a zero observation of the declared dimension.
+        let mut world = World::new();
+        world.insert_resource(CameraFrameBuffers::default());
+
+        let sensor = ImageSensor::new("missing_cam", 4, 4, 3);
+        let obs = sensor.read(&mut world);
+
+        assert_eq!(obs.len(), 4 * 4 * 3);
+        assert!(obs.as_slice().iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn image_sensor_fallback_when_no_resource() {
+        // When CameraFrameBuffers is absent altogether, return zero obs.
+        let mut world = World::new();
+        let sensor = ImageSensor::new("cam", 2, 2, 3);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 2 * 2 * 3);
+        assert!(obs.as_slice().iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn image_sensor_width_height_channels() {
+        let sensor = ImageSensor::new("cam", 16, 8, 4);
+        assert_eq!(sensor.width(), 16);
+        assert_eq!(sensor.height(), 8);
+        assert_eq!(sensor.channels(), 4);
     }
 }

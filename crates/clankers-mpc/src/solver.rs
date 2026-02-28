@@ -133,10 +133,10 @@ impl MpcSolver {
         let n_u_total = self.n_u_total;
 
         // 1. Build dynamics matrices at current linearization point
-        let yaw = x0[2];
+        let orientation = Vector3::new(x0[0], x0[1], x0[2]);
         let com = Vector3::new(x0[3], x0[4], x0[5]);
         let (a_c, b_c) = build_continuous_dynamics(
-            yaw,
+            &orientation,
             foot_positions,
             &com,
             &self.config.inertia,
@@ -297,6 +297,33 @@ impl MpcSolver {
         let two_alpha = 2.0 * self.config.r_weight;
         for i in 0..n_u_total {
             self.p_mat[(i, i)] += two_alpha;
+        }
+
+        // Force rate regularization: P += 2 * w_df * D^T D
+        // D^T D has block-tridiagonal structure:
+        //   diag blocks: I (first/last), 2I (middle)
+        //   off-diag blocks: -I (adjacent)
+        let w_df = self.config.delta_f_weight;
+        if w_df > 0.0 {
+            let h = self.config.horizon;
+            let n_u = self.n_u_step;
+            let two_w = 2.0 * w_df;
+            for k in 0..h {
+                let off = k * n_u;
+                // Diagonal block coefficient: 1 for first/last, 2 for middle
+                let diag_coeff = if k == 0 || k == h - 1 { 1.0 } else { 2.0 };
+                for i in 0..n_u {
+                    self.p_mat[(off + i, off + i)] += two_w * diag_coeff;
+                }
+                // Off-diagonal block: -I between k and k+1
+                if k + 1 < h {
+                    let off_next = (k + 1) * n_u;
+                    for i in 0..n_u {
+                        self.p_mat[(off + i, off_next + i)] -= two_w;
+                        self.p_mat[(off_next + i, off + i)] -= two_w;
+                    }
+                }
+            }
         }
 
         // q = 2 * B^T * S * (A_qp * x0 - X_ref)

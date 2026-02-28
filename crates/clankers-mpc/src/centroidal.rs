@@ -25,19 +25,20 @@ use crate::types::STATE_DIM;
 
 /// Build the continuous-time dynamics matrices A_c (13×13) and B_c (13×3n).
 ///
-/// Matches the MIT Cheetah `ct_ss_mats()` formulation:
-/// - Inertia is rotated to world frame using yaw-only rotation
-/// - Euler angle kinematics use R_z(yaw)^{-1}
+/// Uses the full orientation R(roll,pitch,yaw) to rotate inertia to world
+/// frame, frozen over the horizon for convexity (time-varying linear MPC).
+/// Euler angle kinematics still use R_z(yaw)^{-1} (small angle approx for
+/// roll/pitch).
 ///
 /// # Arguments
-/// * `yaw` - current yaw angle (radians)
+/// * `orientation` - current Euler angles [roll, pitch, yaw] (radians)
 /// * `foot_positions` - world-frame position of each foot
 /// * `com` - world-frame center of mass position
 /// * `body_inertia` - body-frame inertia tensor (NOT pre-inverted)
 /// * `mass` - total robot mass
 #[allow(clippy::similar_names)]
 pub fn build_continuous_dynamics(
-    yaw: f64,
+    orientation: &Vector3<f64>,
     foot_positions: &[Vector3<f64>],
     com: &Vector3<f64>,
     body_inertia: &Matrix3<f64>,
@@ -49,10 +50,11 @@ pub fn build_continuous_dynamics(
     let mut a_c = DMatrix::zeros(STATE_DIM, STATE_DIM);
     let mut b_c = DMatrix::zeros(STATE_DIM, n_u);
 
-    // --- Rotate inertia to world frame using yaw-only rotation ---
-    // I_world = R_yaw * I_body * R_yaw^T (MIT Cheetah convexification)
-    let r_yaw = yaw_rotation_matrix(yaw);
-    let i_world = &r_yaw * body_inertia * r_yaw.transpose();
+    // --- Rotate inertia to world frame using full orientation ---
+    // I_world = R(roll,pitch,yaw) * I_body * R^T
+    // Frozen over the horizon: dynamics remain linear in forces.
+    let r_full = full_rotation_matrix(orientation.x, orientation.y, orientation.z);
+    let i_world = &r_full * body_inertia * r_full.transpose();
     let i_world_inv = i_world
         .try_inverse()
         .expect("world-frame inertia tensor must be invertible");
@@ -60,6 +62,7 @@ pub fn build_continuous_dynamics(
     // --- A_c ---
 
     // Θ̇ = R_z(yaw)^{-1} ω : rows 0-2, cols 6-8
+    let yaw = orientation.z;
     let (cy, sy) = (yaw.cos(), yaw.sin());
     // R_z(yaw)^{-1} = R_z(-yaw)
     a_c[(0, 6)] = cy;
@@ -150,12 +153,18 @@ pub fn discretize_euler(
     (a_d, b_d)
 }
 
-/// Compute the yaw-only rotation matrix R_z(yaw).
+/// Compute the full rotation matrix R = R_z(yaw) * R_y(pitch) * R_x(roll).
 ///
-/// Used for rotating inertia to world frame (convexification).
-fn yaw_rotation_matrix(yaw: f64) -> Matrix3<f64> {
+/// Used for rotating inertia to world frame with full orientation accuracy.
+fn full_rotation_matrix(roll: f64, pitch: f64, yaw: f64) -> Matrix3<f64> {
+    let (cr, sr) = (roll.cos(), roll.sin());
+    let (cp, sp) = (pitch.cos(), pitch.sin());
     let (cy, sy) = (yaw.cos(), yaw.sin());
-    Matrix3::new(cy, -sy, 0.0, sy, cy, 0.0, 0.0, 0.0, 1.0)
+    Matrix3::new(
+        cy * cp,                cy * sp * sr - sy * cr, cy * sp * cr + sy * sr,
+        sy * cp,                sy * sp * sr + cy * cr, sy * sp * cr - cy * sr,
+        -sp,                    cp * sr,                cp * cr,
+    )
 }
 
 /// Compute the matrix exponential e^M using scaling-and-squaring with
@@ -259,7 +268,7 @@ mod tests {
     fn a_matrix_structure_at_zero_yaw() {
         let feet = quadruped_feet();
         let com = Vector3::new(0.0, 0.0, 0.35);
-        let (a_c, b_c) = build_continuous_dynamics(0.0, &feet, &com, &test_inertia(), 9.0);
+        let (a_c, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &test_inertia(), 9.0);
 
         assert_eq!(a_c.nrows(), 13);
         assert_eq!(a_c.ncols(), 13);
@@ -290,7 +299,7 @@ mod tests {
         let feet = vec![Vector3::new(0.0, 0.0, 0.0)];
         let com = Vector3::new(0.0, 0.0, 0.35);
         let mass = 10.0;
-        let (_, b_c) = build_continuous_dynamics(0.0, &feet, &com, &test_inertia(), mass);
+        let (_, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &test_inertia(), mass);
 
         assert_relative_eq!(b_c[(9, 0)], 0.1, epsilon = 1e-12);
         assert_relative_eq!(b_c[(10, 1)], 0.1, epsilon = 1e-12);
@@ -302,7 +311,7 @@ mod tests {
         let feet = vec![Vector3::new(1.0, 0.0, 0.0)];
         let com = Vector3::zeros();
         let i_body = Matrix3::identity();
-        let (_, b_c) = build_continuous_dynamics(0.0, &feet, &com, &i_body, 10.0);
+        let (_, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &i_body, 10.0);
 
         // r=(1,0,0), f_z: torque = (1,0,0)×(0,0,1) = (0,-1,0)
         assert_relative_eq!(b_c[(7, 2)], -1.0, epsilon = 1e-12);
@@ -314,7 +323,7 @@ mod tests {
         let feet = quadruped_feet();
         let com = Vector3::new(0.0, 0.0, 0.35);
         let yaw = std::f64::consts::FRAC_PI_4;
-        let (a_c, _) = build_continuous_dynamics(yaw, &feet, &com, &test_inertia(), 9.0);
+        let (a_c, _) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, yaw), &feet, &com, &test_inertia(), 9.0);
 
         let c = yaw.cos();
         let s = yaw.sin();
@@ -331,9 +340,9 @@ mod tests {
         let feet = vec![Vector3::new(1.0, 0.0, 0.0)];
         let com = Vector3::zeros();
 
-        let (_, b_0) = build_continuous_dynamics(0.0, &feet, &com, &i_body, 10.0);
+        let (_, b_0) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &i_body, 10.0);
         let (_, b_90) =
-            build_continuous_dynamics(std::f64::consts::FRAC_PI_2, &feet, &com, &i_body, 10.0);
+            build_continuous_dynamics(&Vector3::new(0.0, 0.0, std::f64::consts::FRAC_PI_2), &feet, &com, &i_body, 10.0);
 
         // At yaw=0: I_world = diag(1,4,9), I^{-1} = diag(1, 1/4, 1/9)
         // At yaw=90: I_world = diag(4,1,9), I^{-1} = diag(1/4, 1, 1/9)
@@ -368,7 +377,7 @@ mod tests {
     fn matrix_exp_discretization_vs_euler() {
         let feet = quadruped_feet();
         let com = Vector3::new(0.0, 0.0, 0.35);
-        let (a_c, b_c) = build_continuous_dynamics(0.0, &feet, &com, &test_inertia(), 9.0);
+        let (a_c, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &test_inertia(), 9.0);
 
         let dt = 0.02;
         let (a_euler, b_euler) = discretize_euler(&a_c, &b_c, dt);
@@ -392,7 +401,7 @@ mod tests {
 
         let feet = quadruped_feet();
         let com = Vector3::new(0.0, 0.0, 0.35);
-        let (a_c, b_c) = build_continuous_dynamics(0.0, &feet, &com, &test_inertia(), 9.0);
+        let (a_c, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &test_inertia(), 9.0);
         let dt = 0.01;
         let (a_d, _b_d) = discretize_matrix_exp(&a_c, &b_c, dt);
 
@@ -415,7 +424,7 @@ mod tests {
     fn discretize_euler_identity_at_zero_dt() {
         let feet = quadruped_feet();
         let com = Vector3::new(0.0, 0.0, 0.35);
-        let (a_c, b_c) = build_continuous_dynamics(0.0, &feet, &com, &test_inertia(), 9.0);
+        let (a_c, b_c) = build_continuous_dynamics(&Vector3::new(0.0, 0.0, 0.0), &feet, &com, &test_inertia(), 9.0);
 
         let (a_d, b_d) = discretize_euler(&a_c, &b_c, 0.0);
 

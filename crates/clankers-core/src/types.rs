@@ -767,6 +767,8 @@ impl SegmentationClass {
     pub const OBSTACLE: Self = Self(3);
     /// Table surface class (id = 4).
     pub const TABLE: Self = Self(4);
+    /// Manipulable object class (id = 5).
+    pub const OBJECT: Self = Self(5);
 }
 
 // ---------------------------------------------------------------------------
@@ -786,6 +788,7 @@ mod tests {
         assert_eq!(SegmentationClass::ROBOT.0, 2);
         assert_eq!(SegmentationClass::OBSTACLE.0, 3);
         assert_eq!(SegmentationClass::TABLE.0, 4);
+        assert_eq!(SegmentationClass::OBJECT.0, 5);
     }
 
     #[test]

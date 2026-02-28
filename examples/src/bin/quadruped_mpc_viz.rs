@@ -24,7 +24,7 @@ use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTor
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
@@ -387,7 +387,8 @@ fn mpc_control_system(
         desired_velocity * ramp_frac
     };
 
-    // --- Compute MPC step (shared logic) ---
+    // --- Detect contacts + compute MPC step ---
+    let actual_contacts = detect_foot_contacts(&rapier, &mpc.inner);
     let result = compute_mpc_step(
         &mut mpc.inner,
         &body_state,
@@ -398,6 +399,7 @@ fn mpc_control_system(
         desired_height,
         desired_yaw,
         ground_height,
+        actual_contacts.as_deref(),
     );
 
     // --- Convert MotorCommands → MotorOverrideParams ---
@@ -1081,6 +1083,7 @@ fn main() {
             swing_targets: vec![Vector3::zeros(); n_feet],
             prev_contacts: vec![true; n_feet],
             init_joint_angles,
+            foot_link_names: Some(foot_link_names.iter().map(|s| (*s).to_string()).collect()),
         },
         step: 0,
         stabilize_steps: 100,

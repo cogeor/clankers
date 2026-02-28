@@ -41,6 +41,9 @@ pub struct MpcLoopState {
     pub swing_targets: Vec<Vector3<f64>>,
     pub prev_contacts: Vec<bool>,
     pub init_joint_angles: Vec<Vec<f32>>,
+    /// Foot link names for contact detection (e.g., ["fl_foot", "fr_foot", ...]).
+    /// When set, enables ground-truth contact feedback to override the gait schedule.
+    pub foot_link_names: Option<Vec<String>>,
 }
 
 /// A single joint motor command produced by the MPC step.
@@ -116,6 +119,17 @@ pub fn body_state_from_rapier(
     ))
 }
 
+/// Query ground-truth foot contacts from physics.
+///
+/// Returns `None` if `foot_link_names` is not set on the state.
+pub fn detect_foot_contacts(
+    ctx: &RapierContext,
+    state: &MpcLoopState,
+) -> Option<Vec<bool>> {
+    let names = state.foot_link_names.as_ref()?;
+    Some(names.iter().map(|name| ctx.has_active_contacts(name)).collect())
+}
+
 /// Compute one full MPC control step and return motor commands for all joints.
 ///
 /// Pipeline:
@@ -134,6 +148,7 @@ pub fn compute_mpc_step(
     desired_height: f64,
     desired_yaw: f64,
     ground_height: f64,
+    actual_contacts: Option<&[bool]>,
 ) -> MpcStepResult {
     let dt = state.config.dt;
     let body_pos = body_state.position;
@@ -157,6 +172,10 @@ pub fn compute_mpc_step(
     if let Some(ref adaptive_cfg) = state.adaptive_gait {
         let speed = desired_velocity.xy().norm();
         state.gait.adapt_timing(speed, adaptive_cfg);
+    }
+    // Apply ground-truth contact feedback to override gait schedule
+    if let Some(contacts) = actual_contacts {
+        state.gait.apply_contact_feedback(contacts);
     }
     let contacts_seq = state.gait.contact_sequence(state.config.horizon, dt);
 

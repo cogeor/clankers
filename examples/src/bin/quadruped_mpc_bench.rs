@@ -13,7 +13,7 @@ use clap::Parser;
 use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
@@ -496,6 +496,7 @@ fn main() {
         swing_targets: vec![Vector3::zeros(); n_feet],
         prev_contacts: vec![true; n_feet],
         init_joint_angles,
+        foot_link_names: Some(foot_link_names.iter().map(|s| (*s).to_string()).collect()),
     };
 
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
@@ -531,10 +532,12 @@ fn main() {
             println!("  >>> Switched to {:?} at step {step}", gait_type);
         }
 
-        let (body_state, body_quat) = {
+        let (body_state, body_quat, actual_contacts) = {
             let mut ctx = scene.app.world_mut().resource_mut::<RapierContext>();
             ctx.rebase_origin("body", 50.0);
-            body_state_from_rapier(ctx.as_ref(), "body").expect("body not found")
+            let (bs, bq) = body_state_from_rapier(ctx.as_ref(), "body").expect("body not found");
+            let contacts = detect_foot_contacts(ctx.as_ref(), &mpc_state);
+            (bs, bq, contacts)
         };
 
         let mut all_joint_positions: Vec<Vec<f32>> = Vec::with_capacity(n_feet);
@@ -573,6 +576,7 @@ fn main() {
             desired_height,
             0.0,
             0.0,
+            actual_contacts.as_deref(),
         );
 
         // Apply motor commands via manual Rapier stepping (matching headless)

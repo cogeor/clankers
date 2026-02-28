@@ -176,8 +176,8 @@ mod tests {
     #[test]
     fn frame_buffer_default() {
         let buf = FrameBuffer::default();
-        assert_eq!(buf.width(), 256);
-        assert_eq!(buf.height(), 256);
+        assert_eq!(buf.width(), 512);
+        assert_eq!(buf.height(), 512);
         assert_eq!(buf.format(), PixelFormat::Rgb8);
     }
 

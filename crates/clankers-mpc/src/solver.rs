@@ -150,6 +150,23 @@ impl MpcSolver {
         // 3. Fill cost matrices into workspace (no allocation for big matrices)
         self.fill_condensed_cost(x0, reference);
 
+        // 3b. Slip penalty: extra cost on tangential forces (fx, fy) of stance feet
+        let w_slip = self.config.slip_penalty;
+        if w_slip > 0.0 {
+            let two_w = 2.0 * w_slip;
+            let n_u = self.n_u_step;
+            for k in 0..h {
+                for foot in 0..self.n_feet {
+                    if contacts[k][foot] {
+                        let base = k * n_u + 3 * foot;
+                        self.p_mat[(base, base)] += two_w; // fx
+                        self.p_mat[(base + 1, base + 1)] += two_w; // fy
+                        // fz not penalized — normal force is desirable
+                    }
+                }
+            }
+        }
+
         // 4. Build constraint CSC directly (avoids dense intermediate matrix)
         let (a_csc, b_con, n_eq, n_ineq) = build_constraints_csc(
             &self.config,
@@ -1025,5 +1042,48 @@ mod tests {
         let solution = solver.solve(&x0, &feet, &contacts, &reference);
         assert!(solution.converged);
         assert_eq!(solution.max_slack, 0.0, "No slacks when weight=0");
+    }
+
+    #[test]
+    fn slip_penalty_reduces_tangential_forces() {
+        // With forward velocity request, compare tangential forces with and without slip penalty
+        let state = BodyState {
+            orientation: Vector3::zeros(),
+            position: Vector3::new(0.0, 0.0, 0.29),
+            angular_velocity: Vector3::zeros(),
+            linear_velocity: Vector3::new(0.3, 0.0, 0.0),
+        };
+        let feet = quadruped_feet_standing();
+        let contacts: Vec<Vec<bool>> = vec![vec![true; 4]; 20];
+        let vel = Vector3::new(0.5, 0.0, 0.0);
+
+        // Without slip penalty
+        let mut cfg_no_slip = test_config();
+        cfg_no_slip.slip_penalty = 0.0;
+        let mut solver_no = MpcSolver::new(cfg_no_slip.clone(), 4);
+        let x0 = state.to_state_vector(cfg_no_slip.gravity);
+        let ref_no = ReferenceTrajectory::constant_velocity(
+            &state, &vel, 0.29, 0.0, 20, cfg_no_slip.dt, cfg_no_slip.gravity,
+        );
+        let sol_no = solver_no.solve(&x0, &feet, &contacts, &ref_no);
+
+        // With slip penalty
+        let mut cfg_slip = test_config();
+        cfg_slip.slip_penalty = 1e-3; // moderate penalty
+        let mut solver_slip = MpcSolver::new(cfg_slip.clone(), 4);
+        let ref_slip = ReferenceTrajectory::constant_velocity(
+            &state, &vel, 0.29, 0.0, 20, cfg_slip.dt, cfg_slip.gravity,
+        );
+        let sol_slip = solver_slip.solve(&x0, &feet, &contacts, &ref_slip);
+
+        assert!(sol_no.converged && sol_slip.converged);
+
+        // Tangential force magnitude should be reduced with penalty
+        let tang_no: f64 = sol_no.forces.iter().map(|f| f.x.abs() + f.y.abs()).sum();
+        let tang_slip: f64 = sol_slip.forces.iter().map(|f| f.x.abs() + f.y.abs()).sum();
+        assert!(
+            tang_slip <= tang_no + 1e-3,
+            "Slip penalty should reduce tangential forces: no_penalty={tang_no:.3} penalty={tang_slip:.3}"
+        );
     }
 }

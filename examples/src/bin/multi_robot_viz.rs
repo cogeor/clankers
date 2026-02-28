@@ -454,7 +454,7 @@ fn main() {
     //    NOTE: No manual TeleopConfig/KeyboardTeleopMap needed --
     //    sync_teleop_to_robot rebuilds them automatically from RobotGroup.
     scene.app.add_plugins(ClankersTeleopPlugin);
-    scene.app.add_plugins(ClankersVizPlugin);
+    scene.app.add_plugins(ClankersVizPlugin::default());
 
     // 10. Robot visual meshes (separate from joint data entities)
     scene.app.add_systems(Startup, (spawn_cartpole_meshes, spawn_arm_meshes));

@@ -55,6 +55,21 @@ impl Plugin for ClankersCorePlugin {
             )
                 .chain(),
         );
+        // Also configure on FixedUpdate so viz can run physics at fixed rate.
+        app.configure_sets(
+            FixedUpdate,
+            (
+                ClankersSet::Observe,
+                ClankersSet::Decide,
+                ClankersSet::Act,
+                ClankersSet::Simulate,
+                ClankersSet::BuildFrameTree,
+                ClankersSet::Update,
+                ClankersSet::Evaluate,
+                ClankersSet::Communicate,
+            )
+                .chain(),
+        );
         app.init_resource::<config::SimConfig>();
         app.init_resource::<time::SimTime>();
         app.init_resource::<seed::SeedHierarchy>();

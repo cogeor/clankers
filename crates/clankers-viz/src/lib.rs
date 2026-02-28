@@ -15,7 +15,7 @@
 //! App::new()
 //!     .add_plugins(DefaultPlugins)
 //!     .add_plugins(clankers_sim::ClankersSimPlugin)
-//!     .add_plugins(ClankersVizPlugin)
+//!     .add_plugins(ClankersVizPlugin::default())
 //!     .run();
 //! ```
 

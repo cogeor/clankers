@@ -11,7 +11,7 @@ use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
 use clankers_ik::KinematicChain;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierBackendFixed, RapierContext};
+use clankers_physics::rapier::{bridge::register_robot, MotorRateLimits, RapierBackend, RapierBackendFixed, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::{SceneBuilder, SpawnedScene};
 use clankers_urdf::RobotModel;
@@ -34,6 +34,9 @@ pub struct QuadrupedSetupConfig {
     pub mpc_dt: Option<f64>,
     /// When true, register physics on `FixedUpdate` instead of `Update`.
     pub use_fixed_update: bool,
+    /// Motor command rate limit (max position change per step, radians).
+    /// `None` disables rate limiting (default).
+    pub motor_rate_limit: Option<f32>,
 }
 
 impl Default for QuadrupedSetupConfig {
@@ -43,6 +46,7 @@ impl Default for QuadrupedSetupConfig {
             max_episode_steps: 50_000,
             mpc_dt: None,
             use_fixed_update: false,
+            motor_rate_limit: None,
         }
     }
 }
@@ -96,6 +100,12 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         scene
             .app
             .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
+    }
+
+    // Insert motor rate limits if configured
+    if let Some(delta_max) = config.motor_rate_limit {
+        scene.app.insert_resource(MotorRateLimits::new(delta_max));
+        println!("  Motor rate limit: {delta_max:.3} rad/step");
     }
 
     let init_hip_ab: f32 = 0.0;

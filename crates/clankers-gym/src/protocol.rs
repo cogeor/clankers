@@ -159,6 +159,13 @@ pub enum Response {
         terminated: bool,
         truncated: bool,
         info: StepInfo,
+        /// Observation encoding used for this response.
+        ///
+        /// When `Some(ObsEncoding::RawU8 { .. })`, the `observation` field
+        /// contains an empty sentinel and raw pixel bytes follow as a binary
+        /// frame immediately after the JSON message.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        obs_encoding: Option<ObsEncoding>,
     },
     /// Batched reset results for multiple environments.
     BatchReset {
@@ -209,6 +216,22 @@ impl Response {
             terminated: result.terminated,
             truncated: result.truncated,
             info: result.info,
+            obs_encoding: None,
+        }
+    }
+
+    /// Create a step response from a [`StepResult`] with binary observation encoding.
+    ///
+    /// The `observation` field is set to an empty sentinel. The caller must
+    /// send the raw pixel bytes as a binary frame immediately after this JSON message.
+    #[must_use]
+    pub fn from_step_binary(result: StepResult, encoding: ObsEncoding) -> Self {
+        Self::Step {
+            observation: Observation::zeros(0),
+            terminated: result.terminated,
+            truncated: result.truncated,
+            info: result.info,
+            obs_encoding: Some(encoding),
         }
     }
 
@@ -239,6 +262,31 @@ impl Response {
             message: message.into(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ObsEncoding
+// ---------------------------------------------------------------------------
+
+/// Observation encoding negotiated between client and server.
+///
+/// When binary observation transfer is active (`binary_obs` capability),
+/// the server sends raw pixel bytes after the JSON step response frame.
+/// The JSON `observation` field contains an empty sentinel in that case.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "type")]
+pub enum ObsEncoding {
+    /// Standard JSON-encoded observation (default).
+    Json,
+    /// Raw u8 pixel bytes sent as a binary frame after the JSON response.
+    RawU8 {
+        /// Image width in pixels.
+        width: u32,
+        /// Image height in pixels.
+        height: u32,
+        /// Number of channels (e.g. 3 for RGB, 1 for grayscale).
+        channels: u8,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,5 +1247,104 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("READY"));
         assert!(msg.contains("step"));
+    }
+
+    // ---- ObsEncoding ----
+
+    #[test]
+    fn obs_encoding_json_roundtrip() {
+        let enc = ObsEncoding::Json;
+        let json = serde_json::to_string(&enc).unwrap();
+        let enc2: ObsEncoding = serde_json::from_str(&json).unwrap();
+        assert_eq!(enc, enc2);
+        assert!(json.contains("Json"));
+    }
+
+    #[test]
+    fn obs_encoding_raw_u8_roundtrip() {
+        let enc = ObsEncoding::RawU8 {
+            width: 320,
+            height: 240,
+            channels: 3,
+        };
+        let json = serde_json::to_string(&enc).unwrap();
+        let enc2: ObsEncoding = serde_json::from_str(&json).unwrap();
+        assert_eq!(enc, enc2);
+        if let ObsEncoding::RawU8 {
+            width,
+            height,
+            channels,
+        } = enc2
+        {
+            assert_eq!(width, 320);
+            assert_eq!(height, 240);
+            assert_eq!(channels, 3);
+        } else {
+            panic!("expected RawU8");
+        }
+    }
+
+    #[test]
+    fn obs_encoding_raw_u8_type_tag() {
+        let enc = ObsEncoding::RawU8 {
+            width: 64,
+            height: 64,
+            channels: 1,
+        };
+        let json = serde_json::to_string(&enc).unwrap();
+        // The serde tag "type" should be present
+        assert!(json.contains("RawU8"));
+        assert!(json.contains("width"));
+        assert!(json.contains("height"));
+        assert!(json.contains("channels"));
+    }
+
+    #[test]
+    fn response_step_with_obs_encoding_roundtrip() {
+        let resp = Response::Step {
+            observation: Observation::zeros(0),
+            terminated: false,
+            truncated: false,
+            info: StepInfo {
+                episode_length: 5,
+                custom: HashMap::new(),
+            },
+            obs_encoding: Some(ObsEncoding::RawU8 {
+                width: 84,
+                height: 84,
+                channels: 3,
+            }),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::Step { obs_encoding, .. } = resp2 {
+            let enc = obs_encoding.unwrap();
+            assert!(matches!(enc, ObsEncoding::RawU8 { width: 84, height: 84, channels: 3 }));
+        } else {
+            panic!("expected Step");
+        }
+    }
+
+    #[test]
+    fn response_step_without_obs_encoding_omits_field() {
+        let result = StepResult {
+            observation: Observation::new(vec![0.5]),
+            terminated: false,
+            truncated: false,
+            info: StepInfo {
+                episode_length: 1,
+                custom: HashMap::new(),
+            },
+        };
+        let resp = Response::from_step(result);
+        let json = serde_json::to_string(&resp).unwrap();
+        // obs_encoding field should be absent when None
+        assert!(!json.contains("obs_encoding"));
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::Step { obs_encoding, .. } = resp2 {
+            assert!(obs_encoding.is_none());
+        } else {
+            panic!("expected Step");
+        }
     }
 }

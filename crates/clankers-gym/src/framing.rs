@@ -78,6 +78,39 @@ pub fn write_message<T: Serialize>(writer: &mut impl Write, msg: &T) -> Result<(
     Ok(())
 }
 
+/// Write a length-prefixed binary frame to a stream.
+///
+/// Writes a 4-byte little-endian `u32` length prefix followed by the raw
+/// bytes. Flushes the writer after writing.
+///
+/// # Errors
+///
+/// Returns an `io::Error` if writing or flushing fails.
+pub fn write_binary_frame<W: Write>(writer: &mut W, data: &[u8]) -> std::io::Result<()> {
+    let len = u32::try_from(data.len())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "data too large for u32 length prefix"))?;
+    writer.write_all(&len.to_le_bytes())?;
+    writer.write_all(data)?;
+    writer.flush()
+}
+
+/// Read a length-prefixed binary frame from a stream.
+///
+/// Reads the 4-byte little-endian `u32` length prefix, then reads exactly
+/// that many bytes of payload.
+///
+/// # Errors
+///
+/// Returns an `io::Error` if reading fails or if the stream ends prematurely.
+pub fn read_binary_frame<R: Read>(reader: &mut R) -> std::io::Result<Vec<u8>> {
+    let mut len_bytes = [0u8; 4];
+    reader.read_exact(&mut len_bytes)?;
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    let mut data = vec![0u8; len];
+    reader.read_exact(&mut data)?;
+    Ok(data)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -202,5 +235,66 @@ mod tests {
         } else {
             panic!("expected Pong");
         }
+    }
+
+    #[test]
+    fn binary_frame_roundtrip_empty() {
+        let data: &[u8] = &[];
+        let mut buf = Vec::new();
+        write_binary_frame(&mut buf, data).unwrap();
+
+        let mut cursor = Cursor::new(&buf);
+        let result = read_binary_frame(&mut cursor).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn binary_frame_roundtrip_small() {
+        let data: &[u8] = &[0u8, 1, 2, 3, 255, 128, 64];
+        let mut buf = Vec::new();
+        write_binary_frame(&mut buf, data).unwrap();
+
+        let mut cursor = Cursor::new(&buf);
+        let result = read_binary_frame(&mut cursor).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn binary_frame_roundtrip_image_like() {
+        // Simulate a 4x4 RGB image (48 bytes)
+        let data: Vec<u8> = (0u8..48).collect();
+        let mut buf = Vec::new();
+        write_binary_frame(&mut buf, &data).unwrap();
+
+        let mut cursor = Cursor::new(&buf);
+        let result = read_binary_frame(&mut cursor).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn binary_frame_length_prefix_is_little_endian() {
+        let data = b"hello";
+        let mut buf = Vec::new();
+        write_binary_frame(&mut buf, data).unwrap();
+
+        // First 4 bytes are LE u32 length
+        let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+        assert_eq!(len, data.len());
+        assert_eq!(&buf[4..], data);
+    }
+
+    #[test]
+    fn binary_frame_multiple_sequential() {
+        let frame1 = vec![1u8, 2, 3];
+        let frame2 = vec![10u8, 20, 30, 40];
+        let mut buf = Vec::new();
+        write_binary_frame(&mut buf, &frame1).unwrap();
+        write_binary_frame(&mut buf, &frame2).unwrap();
+
+        let mut cursor = Cursor::new(&buf);
+        let r1 = read_binary_frame(&mut cursor).unwrap();
+        let r2 = read_binary_frame(&mut cursor).unwrap();
+        assert_eq!(r1, frame1);
+        assert_eq!(r2, frame2);
     }
 }

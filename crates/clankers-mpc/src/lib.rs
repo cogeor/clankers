@@ -27,7 +27,7 @@ pub mod types;
 pub mod wbc;
 
 pub use centroidal::{build_continuous_dynamics, discretize_euler, discretize_matrix_exp};
-pub use gait::{GaitScheduler, GaitType};
+pub use gait::{AdaptiveGaitConfig, GaitScheduler, GaitType};
 #[cfg(feature = "bevy")]
 pub use plugin::{
     ClankersMpcPlugin, LegConfig, MpcPipelineConfig, MpcPipelineState, build_leg_configs,

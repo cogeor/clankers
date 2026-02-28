@@ -139,6 +139,83 @@ impl GaitScheduler {
     pub const fn duty_factor(&self) -> f64 {
         self.duty_factor
     }
+
+    /// Set the cycle time (seconds).
+    pub fn set_cycle_time(&mut self, cycle_time: f64) {
+        self.cycle_time = cycle_time;
+    }
+
+    /// Set the duty factor [0, 1].
+    pub fn set_duty_factor(&mut self, duty_factor: f64) {
+        self.duty_factor = duty_factor;
+    }
+
+    /// Adapt gait timing based on desired speed using feasibility constraints.
+    ///
+    /// The key constraints are:
+    /// - Step length L = v * T_stance ≤ L_max (leg reach limit)
+    /// - Swing time T_swing = (1-duty) * T_cycle ≥ T_swing_min (foot clearance)
+    ///
+    /// Duty factor decreases slightly at higher speeds to allow longer swing.
+    pub fn adapt_timing(&mut self, speed: f64, config: &AdaptiveGaitConfig) {
+        if speed < config.speed_threshold {
+            return; // Keep preset timing at low speeds
+        }
+
+        // Duty decreases gently with speed: duty = base_duty - k * speed
+        let duty = (config.base_duty - config.duty_speed_slope * speed)
+            .clamp(config.min_duty, config.base_duty);
+
+        // T_cycle upper bound from step length feasibility: L_max / (v * duty)
+        let t_from_reach = config.l_max / (speed * duty);
+
+        // T_cycle lower bound from minimum swing time: T_swing_min / (1 - duty)
+        let t_from_swing = config.t_swing_min / (1.0 - duty);
+
+        let t_cycle = t_from_reach
+            .min(config.t_cycle_max)
+            .max(t_from_swing)
+            .max(config.t_cycle_min);
+
+        self.cycle_time = t_cycle;
+        self.duty_factor = duty;
+    }
+}
+
+/// Configuration for adaptive gait timing.
+#[derive(Clone, Debug)]
+pub struct AdaptiveGaitConfig {
+    /// Maximum feasible step length (meters). Conservative: 0.22 m.
+    pub l_max: f64,
+    /// Minimum swing time for foot clearance (seconds).
+    pub t_swing_min: f64,
+    /// Minimum cycle time (seconds).
+    pub t_cycle_min: f64,
+    /// Maximum cycle time (seconds).
+    pub t_cycle_max: f64,
+    /// Base duty factor at low speed.
+    pub base_duty: f64,
+    /// Minimum duty factor at high speed.
+    pub min_duty: f64,
+    /// How much duty decreases per m/s of speed.
+    pub duty_speed_slope: f64,
+    /// Speed below which timing is not adapted (m/s).
+    pub speed_threshold: f64,
+}
+
+impl Default for AdaptiveGaitConfig {
+    fn default() -> Self {
+        Self {
+            l_max: 0.22,
+            t_swing_min: 0.14,
+            t_cycle_min: 0.25,
+            t_cycle_max: 0.50,
+            base_duty: 0.5,
+            min_duty: 0.4,
+            duty_speed_slope: 0.05,
+            speed_threshold: 0.3,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -244,5 +321,50 @@ mod tests {
         // Advance another 0.21s → phase = 0.6 + 0.6 = 1.2 → 0.2
         sched.advance(0.21);
         assert!((sched.phase() - 0.2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn adapt_timing_no_change_below_threshold() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        let cfg = AdaptiveGaitConfig::default(); // threshold = 0.3
+        let orig_cycle = sched.cycle_time();
+        let orig_duty = sched.duty_factor();
+
+        sched.adapt_timing(0.2, &cfg); // below threshold
+        assert_eq!(sched.cycle_time(), orig_cycle);
+        assert_eq!(sched.duty_factor(), orig_duty);
+    }
+
+    #[test]
+    fn adapt_timing_reduces_duty_at_speed() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        let cfg = AdaptiveGaitConfig::default();
+
+        sched.adapt_timing(1.0, &cfg);
+        // duty = 0.5 - 0.05*1.0 = 0.45
+        assert!((sched.duty_factor() - 0.45).abs() < 1e-10);
+    }
+
+    #[test]
+    fn adapt_timing_duty_clamps_at_min() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        let cfg = AdaptiveGaitConfig::default(); // min_duty = 0.4
+
+        sched.adapt_timing(5.0, &cfg); // duty = 0.5 - 0.05*5 = 0.25 → clamped to 0.4
+        assert!((sched.duty_factor() - 0.4).abs() < 1e-10);
+    }
+
+    #[test]
+    fn adapt_timing_cycle_bounded() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        let cfg = AdaptiveGaitConfig::default();
+
+        sched.adapt_timing(1.0, &cfg);
+        assert!(sched.cycle_time() >= cfg.t_cycle_min);
+        assert!(sched.cycle_time() <= cfg.t_cycle_max);
+
+        // Swing time must be at least t_swing_min
+        let t_swing = (1.0 - sched.duty_factor()) * sched.cycle_time();
+        assert!(t_swing >= cfg.t_swing_min - 1e-10);
     }
 }

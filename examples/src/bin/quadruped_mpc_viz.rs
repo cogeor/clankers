@@ -29,7 +29,7 @@ use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, compute_mpc_step}
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
-    BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+    AdaptiveGaitConfig, BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
 };
 use clankers_physics::rapier::{bridge::register_robot, MotorOverrideParams, MotorOverrides, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
@@ -1095,6 +1095,7 @@ fn main() {
             solver: MpcSolver::new(config.clone(), 4),
             config,
             swing_config,
+            adaptive_gait: Some(AdaptiveGaitConfig::default()),
             legs,
             swing_starts: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],

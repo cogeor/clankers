@@ -1,0 +1,325 @@
+loops:
+  - id: "01"
+    summary: "Set RenderConfig default resolution to 512x512"
+    scope: clankers-render
+    status: pending
+    description: |
+      Update RenderConfig::default() from 256x256 to 512x512. Fix the three test
+      assertions that hard-code 256 and update three doc-comment examples that
+      reference the old size. Single-file change with cascading test fixes.
+    files:
+      - crates/clankers-render/src/config.rs
+      - crates/clankers-render/src/buffer.rs
+      - crates/clankers-render/src/lib.rs
+
+  - id: "02"
+    summary: "Camera sensor GPU capture — SimCamera, CameraFrameBuffers, readback"
+    scope: clankers-render
+    status: pending
+    depends_on: ["01"]
+    description: |
+      Implement the full offscreen camera sensor pipeline:
+      - Add bevy render features to Cargo.toml (bevy_render, bevy_core_pipeline, bevy_pbr)
+      - Extend CameraConfig with a label field
+      - Create camera.rs: SimCamera marker, CameraSensorBundle with render-to-texture helper
+      - Replace single global FrameBuffer with CameraFrameBuffers(HashMap<String, FrameBuffer>)
+      - Create readback.rs: ImageCopyPlugin using Readback or manual copy_texture_to_buffer
+        to copy GPU pixels to CPU, strip wgpu row-padding, write into named FrameBuffer
+      - Update ImageSensor::read() to look up CameraFrameBuffers by label
+      - Fix ImageSensor::observation_dim() to return width*height*channels (non-zero)
+      - Update lib.rs: register CameraFrameBuffers, add ImageCopyPlugin, apply CameraConfig
+        projection at startup
+    files:
+      - crates/clankers-render/Cargo.toml
+      - crates/clankers-render/src/config.rs
+      - crates/clankers-render/src/camera.rs
+      - crates/clankers-render/src/buffer.rs
+      - crates/clankers-render/src/readback.rs
+      - crates/clankers-render/src/sensor.rs
+      - crates/clankers-render/src/lib.rs
+
+  - id: "03"
+    summary: "LidarSensor — QueryPipeline in RapierContext, LidarConfig, LidarSensor"
+    scope: clankers-physics, clankers-core, clankers-env
+    status: pending
+    description: |
+      Implement CPU raycasting via Rapier QueryPipeline:
+      - Add query_pipeline: QueryPipeline field to RapierContext and initialize in new()
+      - After each substep in rapier_step_system, call query_pipeline.update(...)
+      - Ensure register_robot attaches colliders so ray queries can hit them
+      - Add LidarConfig component to clankers-core (num_rays, num_channels, max_range,
+        half_fov, vertical_half_fov, origin_offset); export from prelude
+      - Add LidarSensor and RobotLidarSensor in clankers-env/src/sensors.rs implementing
+        ObservationSensor; read() fires cast_ray for each (channel, azimuth) pair
+      - Unit tests: zero rays, single ray hit, miss, max-range clamp, multi-channel shape,
+        RobotLidarSensor filters by RobotId (6+ tests)
+    files:
+      - crates/clankers-physics/src/rapier/context.rs
+      - crates/clankers-physics/src/rapier/systems.rs
+      - crates/clankers-physics/src/rapier/bridge.rs
+      - crates/clankers-core/src/physics.rs
+      - crates/clankers-core/src/lib.rs
+      - crates/clankers-env/src/sensors.rs
+
+  - id: "04"
+    summary: "DepthSensor — PixelFormat::DepthF32, DepthFrameBuffer, ClankersDepthPlugin"
+    scope: clankers-render
+    status: pending
+    depends_on: ["02"]
+    description: |
+      Add depth sensor capability to the render crate:
+      - Add PixelFormat::DepthF32 variant (4 bytes per pixel, raw f32 depth)
+      - Add DepthFrameBuffer resource: Vec<f32> depth values + write_depth_frame(Vec<f32>)
+      - Create depth.rs: ClankersDepthPlugin that spawns offscreen depth camera with
+        DepthPrepass, registers Readback::texture system, listens for ReadbackComplete
+        events, interprets bytes as f32 via bytemuck::cast_slice, writes to DepthFrameBuffer
+      - Add DepthSensor implementing ObservationSensor: read() reads DepthFrameBuffer,
+        applies linearisation formula (2*near*far)/(far+near-raw*(far-near)), returns
+        Observation of width*height values
+      - Export DepthSensor, DepthFrameBuffer, ClankersDepthPlugin from lib.rs
+      - Unit tests: buffer write/read roundtrip, linearisation formula correctness
+    files:
+      - crates/clankers-render/src/config.rs
+      - crates/clankers-render/src/buffer.rs
+      - crates/clankers-render/src/depth.rs
+      - crates/clankers-render/src/sensor.rs
+      - crates/clankers-render/src/lib.rs
+
+  - id: "05"
+    summary: "SegmentationSensor — SegmentationClass, SegmentationPalette, ClankersSegmentationPlugin"
+    scope: clankers-core, clankers-render
+    status: pending
+    depends_on: ["02"]
+    description: |
+      Add semantic segmentation sensor:
+      - Add SegmentationClass(pub u32) Bevy component to clankers-core; add constants
+        CLASS_GROUND=0, CLASS_WALL=1, CLASS_ROBOT=2, CLASS_OBSTACLE=3; export from prelude
+      - Add SegmentationPalette resource (HashMap<u32, Color>) with default palette
+        (ground=red, wall=green, robot=blue, obstacle=yellow)
+      - Attach SegmentationClass to GroundPlane and robot link entities at spawn time
+      - Create segmentation.rs: ClankersSegmentationPlugin that creates per-class unlit
+        StandardMaterial handles (SegmentationMaterials resource), spawns SegmentationCamera
+        on RenderLayers::layer(1), adds RenderLayers to mesh entities carrying SegmentationClass,
+        PreUpdate system swaps MeshMaterial3d to flat-color handle, PostUpdate restores original,
+        uses Readback::texture to copy to SegmentationFrameBuffer
+      - Add SegmentationSensor implementing ObservationSensor: read() converts SegmentationFrameBuffer
+        bytes to [0,1] floats, returns Observation of width*height*3 values
+      - Export from lib.rs; unit tests: palette lookup, class attachment, buffer write/read
+    files:
+      - crates/clankers-core/src/types.rs
+      - crates/clankers-core/src/lib.rs
+      - crates/clankers-physics/src/rapier/bridge.rs
+      - crates/clankers-render/src/segmentation.rs
+      - crates/clankers-render/src/sensor.rs
+      - crates/clankers-render/src/lib.rs
+
+  - id: "06"
+    summary: "clankers-record crate — MCAP writer, RecorderPlugin, JointFrame/ImageFrame"
+    scope: clankers-record
+    status: pending
+    depends_on: ["02"]
+    description: |
+      Create a new clankers-record workspace crate for offline episode recording:
+      - Add clankers-record to workspace Cargo.toml; add mcap as workspace dep
+      - Cargo.toml: deps bevy, mcap, serde, serde_json, clankers-core, clankers-actuator,
+        clankers-render (feature-gated as "camera")
+      - types.rs: JointFrame { timestamp_ns, names, positions, velocities, torques },
+        ImageFrame { timestamp_ns, width, height, data: Vec<u8> }
+      - recorder.rs: Recorder resource wrapping mcap::Writer; systems:
+          record_joint_states_system: queries JointState/JointCommand/JointTorque/Name+SimTime,
+            serializes to JSON, writes to /joint_states channel
+          record_image_system (feature "camera"): reads CameraFrameBuffers, writes raw u8
+            bytes to /camera/image with width/height in channel metadata
+          record_action_system: writes Action to /actions channel (JSON)
+          record_reward_system: writes scalar reward to /reward channel
+      - plugin.rs: RecorderPlugin registers all systems in PostUpdate
+      - Unit tests: verify plugin builds and writer initializes without panic
+    files:
+      - Cargo.toml
+      - crates/clankers-record/Cargo.toml
+      - crates/clankers-record/src/lib.rs
+      - crates/clankers-record/src/types.rs
+      - crates/clankers-record/src/recorder.rs
+      - crates/clankers-record/src/plugin.rs
+
+  - id: "07"
+    summary: "Binary image TCP protocol — binary_obs capability, framing helpers"
+    scope: clankers-gym
+    status: pending
+    depends_on: ["02"]
+    description: |
+      Extend the TCP gym protocol with a binary observation channel:
+      - protocol.rs: add binary_obs: bool to ClientCapabilities and ServerCapabilities;
+        add ObsEncoding enum { Json, RawU8 { width, height, channels } }; add obs_encoding
+        field to Response::Step and Response::BatchStep; when RawU8, observation JSON carries
+        empty sentinel []
+      - framing.rs: add write_binary_frame(writer, bytes) — 4-byte LE u32 + raw bytes;
+        add read_binary_frame(reader) -> Vec<u8>; existing write_message/read_message unchanged
+      - server.rs: in serve_one() after JSON response, if session.binary_obs and obs_space
+        is Image, call write_binary_frame with u8 pixels (f32 * 255 cast); store negotiated
+        binary_obs flag on session state
+      - types.rs (clankers-core): verify ObservationSpace::Image serde derives complete;
+        add #[serde(rename_all = "snake_case")] if missing
+      - Unit tests: framing roundtrip (write then read binary frame), capability negotiation
+    files:
+      - crates/clankers-gym/src/protocol.rs
+      - crates/clankers-gym/src/framing.rs
+      - crates/clankers-gym/src/server.rs
+      - crates/clankers-core/src/types.rs
+
+  - id: "08"
+    summary: "Python binary client — binary recv path, gymnasium Image obs space"
+    scope: python
+    status: pending
+    depends_on: ["07"]
+    description: |
+      Update the Python gym client to use the binary image protocol:
+      - client.py: in connect(), send capabilities: { binary_obs: true } in Init request;
+        after step response JSON, check obs_encoding field; if raw_u8, call recv_binary_frame()
+        to read pixel buffer; reshape with np.frombuffer(..., dtype=np.uint8).reshape((H,W,C));
+        expose image_obs: np.ndarray | None alongside flat_obs from step()
+      - gymnasium_env.py: when obs_space is Image, set observation_space = gymnasium.spaces.Box(
+        0, 255, shape=(channels, height, width), dtype=np.uint8) for SB3 channel-first layout;
+        return image numpy array from step() and reset(); add channel_last constructor kwarg
+      - Unit tests (pytest): mock TCP round-trip verifying binary frame decode, observation
+        space shape for Image variant
+    files:
+      - python/clanker_gym/client.py
+      - python/clanker_gym/gymnasium_env.py
+
+  - id: "09"
+    summary: "Python MCAP episode loader — McapEpisodeLoader, EpisodeDataset"
+    scope: python
+    status: pending
+    depends_on: ["06"]
+    description: |
+      Add Python classes for offline episode loading from MCAP files:
+      - mcap_loader.py (new): McapEpisodeLoader that reads /joint_states, /camera/image,
+        /actions, /reward channels from a .mcap file; load() returns dict of numpy arrays
+        (float32 joint states, uint8 images, float32 actions/rewards, int64 timestamps);
+        to_sb3_replay_buffer() returns channel-first uint8 images or flat float32 joint
+        states with SB3-compatible keys (observations, next_observations, actions, rewards,
+        dones); EpisodeDataset wraps a directory of .mcap files for DataLoader compatibility
+      - requirements.txt: add mcap>=1.0.0, numpy>=1.24
+      - Unit tests (pytest): load a synthetic .mcap, verify array shapes and dtypes,
+        verify to_sb3_replay_buffer() returns correct shapes, EpisodeDataset len and getitem
+    files:
+      - python/clanker_gym/mcap_loader.py
+      - python/requirements.txt
+
+  - id: "10"
+    summary: "Viz replay mode — VizMode::Replay, PlaybackState, timeline UI"
+    scope: clankers-viz
+    status: pending
+    depends_on: ["06"]
+    description: |
+      Add MCAP replay capability to the visualizer:
+      - mode.rs: add VizMode::Replay variant
+      - config.rs: add recording_path: Option<PathBuf> and replay_path: Option<PathBuf>
+        to VizConfig
+      - replay.rs (new): PlaybackIndex { joint_frames, image_frames }; PlaybackState
+        { cursor_ns, duration_ns, playing, speed } resource; replay_step_system advances
+        cursor and binary-searches joint frames to write to ECS; replay_image_system
+        binary-searches image frames and updates CameraFrameBuffers
+      - systems.rs: block physics when VizMode::Replay
+      - ui.rs: timeline slider, play/pause button, frame-time readout in egui panel
+      - plugin.rs: register replay systems; MCAP-load startup system that reads replay_path
+        from VizConfig and populates PlaybackIndex
+    files:
+      - crates/clankers-viz/src/mode.rs
+      - crates/clankers-viz/src/config.rs
+      - crates/clankers-viz/src/replay.rs
+      - crates/clankers-viz/src/systems.rs
+      - crates/clankers-viz/src/ui.rs
+      - crates/clankers-viz/src/plugin.rs
+
+  - id: "11"
+    summary: "URDF gripper — add collision geometry and 2-finger gripper joints to six_dof_arm.urdf"
+    scope: examples
+    status: pending
+    description: |
+      Amend the arm URDF to include collision geometry and a gripper:
+      - Add <collision> elements to all 7 existing links (cylinder geometry matching
+        each visual, sphere for end_effector)
+      - Append 3 new links: gripper_base (box 0.06x0.04x0.02m), finger_left
+        (box 0.01x0.01x0.04m), finger_right (box 0.01x0.01x0.04m)
+      - Append 2 new joints: j_gripper_attach (fixed, gripper_base on end_effector),
+        j_finger_left (prismatic on X, limits -0.03..0.0, effort 10, velocity 0.1),
+        j_finger_right (prismatic on X negated, limits 0.0..0.03)
+      - Verify cargo build -j 24 still passes (URDF parse succeeds)
+    files:
+      - examples/urdf/six_dof_arm.urdf
+
+  - id: "12"
+    summary: "Arm manipulation scene — table, objects, collision groups, grasp, segmentation tags"
+    scope: examples
+    status: pending
+    depends_on: ["05", "11"]
+    description: |
+      Create the full tabletop manipulation example binary:
+      - arm_manipulation.rs (new): parse SIX_DOF_ARM_URDF, build scene with SceneBuilder,
+        add ClankersPhysicsPlugin with RapierBackend
+      - Insert into RapierContext in order:
+          ground body (RigidBodyBuilder::fixed, cuboid 2x2x0.01, GROUP_2, SegmentationClass::Ground)
+          table body (fixed, cuboid 0.6x0.4x0.025, top surface at z=0.4, GROUP_2, SegmentationClass::Table)
+          arm link colliders (cylinder/sphere from URDF, GROUP_1, SegmentationClass::ArmLink)
+          object A: dynamic red cube at (0,0,0.425), cuboid 0.025, GROUP_3, SegmentationClass::Object(0)
+          object B: dynamic blue cube at (0.1,0.05,0.425), SegmentationClass::Object(1)
+          object C: dynamic green cylinder at (-0.1,0,0.43), cylinder(0.04,0.03), SegmentationClass::Object(2)
+      - Store 3 object RigidBodyHandles in ObjectHandles resource
+      - Call ctx.snapshot_initial_state() after all insertions
+      - System: write end_effector body translation from rigid_body_set into EndEffectorState each frame
+      - Grasp system: G key within 0.08m creates ImpulseJoint FixedJoint weld; R releases
+      - Wire IK with 3 waypoints above table; add DefaultPlugins, ClankersVizPlugin, ClankersTeleopPlugin
+      - Egui panel: joint states, EE position, grasp state, object positions
+      - Add SegmentationClass::Table and SegmentationClass::ArmLink variants to clankers-core
+        if not present
+    files:
+      - examples/src/bin/arm_manipulation.rs
+      - crates/clankers-core/src/types.rs
+
+  - id: "13"
+    summary: "Integration tests — sensor pipeline end-to-end (camera, lidar, depth, segmentation)"
+    scope: clankers-render, clankers-env
+    status: pending
+    depends_on: ["03", "04", "05"]
+    description: |
+      Write integration tests verifying the full sensor → buffer → readout pipeline:
+      - Camera sensor test: spawn minimal Bevy app with ClankersRenderPlugin, spawn
+        CameraSensorBundle, run one tick, verify CameraFrameBuffers contains named entry
+        with Vec<f32> of correct length width*height*channels, values in [0,1]
+      - Two camera test: two CameraSensorBundle with different labels produce independent
+        buffers; ImageSensor::observation_dim() returns correct non-zero value
+      - LidarSensor test: spawn world with RapierContext + single cuboid collider, fire
+        rays toward it, verify distances are finite and within max_range
+      - DepthSensor test: verify DepthFrameBuffer write/read roundtrip and linearisation
+        formula produces correct output for known near/far values
+      - SegmentationSensor test: spawn entities with SegmentationClass, verify
+        SegmentationFrameBuffer populated, SegmentationSensor::observation_dim() correct
+      - ObservationBuffer test: register ImageSensor with ObservationBuffer, verify no
+        panic in write() (observation_dim is non-zero)
+    files:
+      - crates/clankers-render/src/lib.rs
+      - crates/clankers-render/tests/sensor_pipeline.rs
+      - crates/clankers-env/tests/observation_buffer.rs
+
+  - id: "14"
+    summary: "Integration tests — recording pipeline (Rust) and Python loader smoke test"
+    scope: clankers-record, python
+    status: pending
+    depends_on: ["06", "09"]
+    description: |
+      Verify the recording pipeline end-to-end:
+      - Rust integration test: build minimal app with RecorderPlugin, run N steps, close
+        writer, verify .mcap file exists on disk, verify it contains /joint_states and
+        /reward channels with expected message count
+      - Rust test: record_image_system (feature "camera") writes /camera/image channel
+        with correct width/height metadata and raw u8 bytes matching FrameBuffer content
+      - Python smoke test (pytest): create a synthetic .mcap file with known joint_states
+        and reward messages, run McapEpisodeLoader.load(), assert shapes and dtypes match
+        specification; run to_sb3_replay_buffer(), assert key presence and shapes
+      - Python smoke test: EpisodeDataset with a temp directory of 3 synthetic .mcap files
+        has len==3 and __getitem__ returns correct dict
+    files:
+      - crates/clankers-record/tests/recording_pipeline.rs
+      - python/tests/test_mcap_loader.py

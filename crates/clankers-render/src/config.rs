@@ -51,11 +51,11 @@ impl PixelFormat {
 /// use clankers_render::RenderConfig;
 /// use clankers_render::config::PixelFormat;
 ///
-/// let config = RenderConfig::new(640, 480)
+/// let config = RenderConfig::new(512, 512)
 ///     .with_format(PixelFormat::Rgba8);
 ///
-/// assert_eq!(config.width, 640);
-/// assert_eq!(config.height, 480);
+/// assert_eq!(config.width, 512);
+/// assert_eq!(config.height, 512);
 /// assert_eq!(config.format, PixelFormat::Rgba8);
 /// ```
 #[derive(Resource, Clone, Debug)]
@@ -95,7 +95,7 @@ impl RenderConfig {
 
 impl Default for RenderConfig {
     fn default() -> Self {
-        Self::new(256, 256)
+        Self::new(512, 512)
     }
 }
 
@@ -191,8 +191,8 @@ mod tests {
     #[test]
     fn render_config_default() {
         let config = RenderConfig::default();
-        assert_eq!(config.width, 256);
-        assert_eq!(config.height, 256);
+        assert_eq!(config.width, 512);
+        assert_eq!(config.height, 512);
         assert_eq!(config.format, PixelFormat::Rgb8);
     }
 

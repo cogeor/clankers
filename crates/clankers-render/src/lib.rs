@@ -23,7 +23,7 @@
 //! App::new()
 //!     .add_plugins(clankers_core::ClankersCorePlugin)
 //!     .add_plugins(ClankersRenderPlugin)
-//!     .insert_resource(RenderConfig::new(640, 480))
+//!     .insert_resource(RenderConfig::new(512, 512))
 //!     .run();
 //! ```
 
@@ -52,7 +52,7 @@ pub use sensor::ImageSensor;
 ///
 /// Runs a startup system that builds the initial [`FrameBuffer`] from the
 /// [`RenderConfig`]. If no custom config is inserted before plugin build,
-/// the default 256x256 RGB8 config is used.
+/// the default 512x512 RGB8 config is used.
 pub struct ClankersRenderPlugin;
 
 impl Plugin for ClankersRenderPlugin {
@@ -132,8 +132,8 @@ mod tests {
         app.update();
 
         let config = app.world().resource::<RenderConfig>();
-        assert_eq!(config.width, 256);
-        assert_eq!(config.height, 256);
+        assert_eq!(config.width, 512);
+        assert_eq!(config.height, 512);
     }
 
     #[test]

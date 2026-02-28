@@ -342,7 +342,10 @@ fn mpc_control_system(
                     stance_duration,
                     swing_duration,
                     config.ground_height,
-                    config.swing_config.raibert_kv,
+                    config.swing_config.cp_gain,
+                    config.desired_height - config.ground_height,
+                    config.mpc_config.gravity,
+                    config.swing_config.max_reach,
                 );
             }
 

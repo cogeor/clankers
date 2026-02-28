@@ -76,9 +76,9 @@ struct Args {
     #[arg(long)]
     f_max: Option<f64>,
 
-    /// Override Raibert velocity error gain
+    /// Override capture-point gain for foot placement
     #[arg(long)]
-    raibert_kv: Option<f64>,
+    cp_gain: Option<f64>,
 
     /// Override q_weights[0,1] (roll, pitch orientation tracking)
     #[arg(long)]
@@ -481,8 +481,8 @@ fn main() {
 
     // Build swing config with CLI overrides
     let mut swing_config = SwingConfig::default();
-    if let Some(v) = args.raibert_kv {
-        swing_config.raibert_kv = v;
+    if let Some(v) = args.cp_gain {
+        swing_config.cp_gain = v;
     }
     if let Some(v) = args.step_height {
         swing_config.step_height = v;
@@ -492,7 +492,7 @@ fn main() {
     {
         let has_overrides = args.q_vx.is_some() || args.q_pz.is_some() || args.r_weight.is_some()
             || args.horizon.is_some() || args.mu.is_some() || args.f_max.is_some()
-            || args.raibert_kv.is_some()
+            || args.cp_gain.is_some()
             || args.q_roll.is_some() || args.q_omega.is_some()
             || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some()
             || args.mpc_dt.is_some()
@@ -505,7 +505,7 @@ fn main() {
             if let Some(h) = args.horizon { println!("  horizon={h}"); }
             if let Some(v) = args.mu { println!("  mu={v}"); }
             if let Some(v) = args.f_max { println!("  f_max={v}"); }
-            if let Some(v) = args.raibert_kv { println!("  raibert_kv={v}"); }
+            if let Some(v) = args.cp_gain { println!("  cp_gain={v}"); }
             if let Some(v) = args.q_roll { println!("  q_roll={v}"); }
             if let Some(v) = args.q_omega { println!("  q_omega={v}"); }
             if let Some(v) = args.cycle_time { println!("  cycle_time={v}"); }

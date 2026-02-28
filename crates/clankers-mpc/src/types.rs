@@ -47,14 +47,14 @@ impl Default for MpcConfig {
             f_max: 120.0,
             // Tuned via systematic sweep (see .delegate/work/20260227-aggressive-velocity-tuning/).
             // Key changes from initial values:
-            //   pz: 50→20 (balance height maintenance vs velocity budget),
+            //   pz: 50→10 (balance height maintenance vs velocity budget),
             //   vx/vy: 20→150 (prioritize velocity tracking),
             //   r_weight: 1e-6→1e-7 (allow more aggressive forces).
-            // Validated 5/5 runs stable: 0.10-0.12 m/s at 0.3 target (was 0.05),
-            // max roll 7.1 deg. Config K3 in sweep results.
+            // At 50Hz (dt=0.02): 0.284 m/s at 0.3 target, 5/5 stable 60s.
+            // At 100Hz (dt=0.01): 0.955 m/s at 1.0 target, 5/5 stable 50s.
             q_weights: [
                 25.0, 25.0, 10.0,
-                5.0, 5.0, 20.0,
+                5.0, 5.0, 10.0,
                 1.0, 1.0, 0.3,
                 150.0, 150.0, 5.0,
             ],

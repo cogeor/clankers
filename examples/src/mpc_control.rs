@@ -1,11 +1,14 @@
 //! Shared MPC control logic for quadruped locomotion.
 //!
-//! Extracts the common MPC step (gait advance, FK, MPC solve, stance/swing
-//! motor command generation) into a pure function so that headless, viz, test,
-//! and benchmark binaries all share identical control code.
+//! Pipeline:
+//!   Stance: tau = kp*(q_ik-q) + kd*(J^T*f_mpc/kd - qd)  (IK + feedforward)
+//!   Swing:  tau = J^T * (Kp*(p_des-p) + Kd*(v_des-v))    (Cartesian PD)
+//!
+//! IK-derived q_desired makes kp*(q_ik-q) ≈ 0 during stance, so the
+//! effective torque is dominated by the MPC feedforward term.
 
 use bevy::prelude::Entity;
-use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
+use clankers_ik::{DlsConfig, DlsSolver, IkTarget};
 use clankers_mpc::{
     BodyState, GaitScheduler, MpcConfig, MpcSolution, MpcSolver, ReferenceTrajectory, SwingConfig,
     raibert_foot_target, swing_foot_position, swing_foot_velocity,
@@ -18,33 +21,10 @@ use nalgebra::{UnitQuaternion, Vector3};
 
 /// Per-leg kinematic and entity data shared across all MPC consumers.
 pub struct LegRuntime {
-    pub chain: KinematicChain,
+    pub chain: clankers_ik::KinematicChain,
     pub joint_entities: Vec<Entity>,
     pub is_prismatic: Vec<bool>,
     pub hip_offset: Vector3<f64>,
-}
-
-/// Configurable stance PD gains, exposed for experiment sweeps.
-pub struct StanceConfig {
-    pub hip_ab_kp: f32,
-    pub hip_ab_kd: f32,
-    pub hip_ab_max_f: f32,
-    pub pitch_knee_kp: f32,
-    pub pitch_knee_kd: f32,
-    pub pitch_knee_max_f: f32,
-}
-
-impl Default for StanceConfig {
-    fn default() -> Self {
-        Self {
-            hip_ab_kp: 500.0,
-            hip_ab_kd: 20.0,
-            hip_ab_max_f: 200.0,
-            pitch_knee_kp: 5.0,
-            pitch_knee_kd: 1.0,
-            pitch_knee_max_f: 50.0,
-        }
-    }
 }
 
 /// Mutable state carried across MPC steps.
@@ -53,7 +33,6 @@ pub struct MpcLoopState {
     pub solver: MpcSolver,
     pub config: MpcConfig,
     pub swing_config: SwingConfig,
-    pub stance_config: StanceConfig,
     pub legs: Vec<LegRuntime>,
     pub swing_starts: Vec<Vector3<f64>>,
     pub swing_targets: Vec<Vector3<f64>>,
@@ -79,13 +58,30 @@ pub struct MpcStepResult {
     pub contacts: Vec<bool>,
 }
 
+/// Stance pitch/knee stiffness (Nm/rad).
+/// IK-derived q_desired makes this compatible with MPC feedforward:
+/// kp*(q_ik - q) ≈ 0 during stance since q_ik tracks current foot position.
+const STANCE_KP_JOINT: f32 = 0.5;
+/// Stance pitch/knee damping (Nm*s/rad).
+const STANCE_KD_JOINT: f32 = 0.1;
+/// Stance pitch/knee max motor force (N).
+const STANCE_MAX_F: f32 = 200.0;
+
+/// Hip abduction gains — high stiffness for lateral stability.
+const HIP_AB_KP: f32 = 200.0;
+const HIP_AB_KD: f32 = 20.0;
+const HIP_AB_MAX_F: f32 = 200.0;
+
+/// Swing max motor force (N).
+const SWING_MAX_F: f32 = 60.0;
+
 /// Compute one full MPC control step and return motor commands for all joints.
 ///
-/// This is a pure function: it reads body and joint state, advances the gait,
-/// solves the MPC QP, and produces position-motor commands. The caller is
-/// responsible for applying the commands to Rapier joints or `MotorOverrides`.
-///
-/// `desired_velocity` should already be ramped by the caller if desired.
+/// Pipeline:
+///   1. FK → foot positions
+///   2. MPC solve → ground reaction forces
+///   3. Stance: J^T * f_mpc (pure feedforward + joint damping)
+///   4. Swing: Cartesian PD → J^T → torques
 #[allow(clippy::too_many_arguments)]
 pub fn compute_mpc_step(
     state: &mut MpcLoopState,
@@ -148,29 +144,40 @@ pub fn compute_mpc_step(
             state.swing_starts[leg_idx] = foot_world[leg_idx];
         }
 
+        // Compute Jacobian (needed for both stance and swing)
+        let q = &joint_positions[leg_idx];
+        let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
+        let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
+        let (origins_world, axes_world) =
+            transform_frames_to_world(&origins_f64, &axes_f64, body_quat, &body_pos);
+        let jacobian = compute_leg_jacobian(
+            &origins_world,
+            &axes_world,
+            &foot_world[leg_idx],
+            &leg.is_prismatic,
+        );
+
         if is_contact && solution.converged {
-            // --- Stance: J^T feedforward + IK q_desired ---
-            let q = &joint_positions[leg_idx];
-            let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
-            let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
-            let (origins_world, axes_world) =
-                transform_frames_to_world(&origins_f64, &axes_f64, body_quat, &body_pos);
-            let jacobian = compute_leg_jacobian(
-                &origins_world,
-                &axes_world,
-                &foot_world[leg_idx],
-                &leg.is_prismatic,
-            );
+            // --- Stance: J^T feedforward + IK position hold ---
+            //
+            // Feedforward with damping cancellation:
+            //   target_vel = torque_ff/kd + qd
+            //   tau = kp*(q_ik - q) + kd*(torque_ff/kd + qd - qd)
+            //       = kp*(q_ik - q) + torque_ff
+            //
+            // Adding qd to target_vel cancels the motor damping term that
+            // would otherwise oppose joint motion, allowing MPC forces to
+            // pass through without resistive losses.
 
             let neg_force = -&solution.forces[leg_idx];
             let torques_ff = jacobian_transpose_torques(&jacobian, &neg_force);
 
-            // IK q_desired: joint angles for current foot pos under upright body
+            // IK: joint angles for current foot pos under desired body pose
             let desired_body_rot = UnitQuaternion::from_euler_angles(0.0, 0.0, desired_yaw);
             let desired_body_pos = Vector3::new(body_pos.x, body_pos.y, desired_height);
-            let foot_in_desired =
+            let foot_in_body =
                 desired_body_rot.inverse() * (foot_world[leg_idx] - desired_body_pos);
-            let ik_target = IkTarget::Position(foot_in_desired.cast::<f32>());
+            let ik_target = IkTarget::Position(foot_in_body.cast::<f32>());
             let ik_solver = DlsSolver::new(DlsConfig {
                 max_iterations: 10,
                 position_tolerance: 1e-3,
@@ -179,17 +186,15 @@ pub fn compute_mpc_step(
             });
             let ik_result = ik_solver.solve(&leg.chain, &ik_target, q);
 
-            let sc = &state.stance_config;
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
                 let (kp_j, kd_j, max_f) = if j == 0 {
-                    (sc.hip_ab_kp, sc.hip_ab_kd, sc.hip_ab_max_f)
+                    (HIP_AB_KP, HIP_AB_KD, HIP_AB_MAX_F)
                 } else {
-                    (sc.pitch_knee_kp, sc.pitch_knee_kd, sc.pitch_knee_max_f)
+                    (STANCE_KP_JOINT, STANCE_KD_JOINT, STANCE_MAX_F)
                 };
 
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques_ff[j] / f64::from(kd_j)) as f32;
-
                 motor_commands.push(MotorCommand {
                     entity,
                     target_pos: ik_result.joint_positions[j],
@@ -200,7 +205,7 @@ pub fn compute_mpc_step(
                 });
             }
         } else {
-            // --- Swing: Cartesian PD via J^T with gain blending ---
+            // --- Swing: Cartesian PD via J^T ---
             let swing_phase = state.gait.swing_phase(leg_idx);
             let swing_duration = (1.0 - state.gait.duty_factor()) * state.gait.cycle_time();
 
@@ -233,33 +238,20 @@ pub fn compute_mpc_step(
 
             let p_actual = &foot_world[leg_idx];
 
-            let q = &joint_positions[leg_idx];
             let qd_vals = &joint_velocities[leg_idx];
-            let (origins, axes, ee_pos) = leg.chain.joint_frames(q);
-            let (origins_f64, axes_f64, _) = frames_f32_to_f64(&origins, &axes, &ee_pos);
-            let (origins_world, axes_world) =
-                transform_frames_to_world(&origins_f64, &axes_f64, body_quat, &body_pos);
-            let jacobian = compute_leg_jacobian(
-                &origins_world,
-                &axes_world,
-                p_actual,
-                &leg.is_prismatic,
-            );
-
             let qd_f64: Vec<f64> = qd_vals.iter().map(|&v| f64::from(v)).collect();
             let v_actual_relative = Vector3::new(
                 (0..jacobian.ncols())
-                    .map(|j| jacobian[(0, j)] * qd_f64[j])
+                    .map(|c| jacobian[(0, c)] * qd_f64[c])
                     .sum::<f64>(),
                 (0..jacobian.ncols())
-                    .map(|j| jacobian[(1, j)] * qd_f64[j])
+                    .map(|c| jacobian[(1, c)] * qd_f64[c])
                     .sum::<f64>(),
                 (0..jacobian.ncols())
-                    .map(|j| jacobian[(2, j)] * qd_f64[j])
+                    .map(|c| jacobian[(2, c)] * qd_f64[c])
                     .sum::<f64>(),
             );
 
-            // Add the base's full spatial velocity to the leg's relative velocity
             let r_foot = p_actual - body_pos;
             let v_actual = body_state.linear_velocity
                 + body_state.angular_velocity.cross(&r_foot)
@@ -275,33 +267,16 @@ pub fn compute_mpc_step(
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);
 
-            // Blend motor gains from stance -> swing over first 20% of swing.
-            // target_pos uses q0 (standing angles) as a stabilizing return spring.
-            // Swing IK was tested but found to destabilize: the joint-space PD
-            // toward IK targets double-counts with the J^T Cartesian feedforward,
-            // causing overshoot and body roll.
-            let blend = (swing_phase / 0.2).min(1.0) as f32;
+            let kd_swing = 0.5_f32;
 
             for (j, &entity) in leg.joint_entities.iter().enumerate() {
-                let kd_swing = 2.0_f32;
                 #[allow(clippy::cast_possible_truncation)]
                 let target_vel = (torques[j] / f64::from(kd_swing)) as f32;
 
-                // Ramp gains: liftoff values -> swing values at 20% phase
                 let (kp_j, kd_j, max_f) = if j == 0 {
-                    // Hip abduction: keep more lateral stiffness during swing
-                    (
-                        500.0 * (1.0 - blend) + 80.0 * blend,
-                        20.0 * (1.0 - blend) + kd_swing * blend,
-                        200.0 * (1.0 - blend) + 60.0 * blend,
-                    )
+                    (80.0, kd_swing, SWING_MAX_F)
                 } else {
-                    // Hip pitch / knee
-                    (
-                        20.0 * blend,
-                        5.0 * (1.0 - blend) + kd_swing * blend,
-                        50.0 * (1.0 - blend) + 60.0 * blend,
-                    )
+                    (20.0, kd_swing, SWING_MAX_F)
                 };
 
                 motor_commands.push(MotorCommand {

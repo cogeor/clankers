@@ -67,6 +67,14 @@ pub struct RapierContext {
     pub initial_body_positions: HashMap<RigidBodyHandle, Vec3>,
     /// Initial body rotations, stored alongside translations.
     pub initial_body_rotations: HashMap<RigidBodyHandle, Quat>,
+
+    // -- Floating origin for f32 precision --
+    /// Accumulated world origin offset in f64 for precision over long distances.
+    ///
+    /// All Rapier body positions are relative to this origin. To get the true
+    /// world position of a body: `world_pos = rapier_pos + world_origin`.
+    /// Periodically call [`rebase_origin`] to shift bodies back near zero.
+    pub world_origin: [f64; 3],
 }
 
 impl RapierContext {
@@ -93,6 +101,7 @@ impl RapierContext {
             body_handles: HashMap::new(),
             initial_body_positions: HashMap::new(),
             initial_body_rotations: HashMap::new(),
+            world_origin: [0.0; 3],
         }
     }
 
@@ -128,6 +137,57 @@ impl RapierContext {
                 body.wake_up(true);
             }
         }
+    }
+
+    /// Shift all rigid bodies so the reference body is near the local origin.
+    ///
+    /// Call this periodically (e.g., every frame) to keep f32 coordinates
+    /// near zero, preserving precision for long-distance traversal.
+    /// Only rebases when the reference body exceeds `threshold` meters from
+    /// the local origin in XY.
+    ///
+    /// Returns `true` if a rebase occurred.
+    pub fn rebase_origin(&mut self, reference_body: &str, threshold: f32) -> bool {
+        let Some(&ref_handle) = self.body_handles.get(reference_body) else {
+            return false;
+        };
+        let Some(ref_body) = self.rigid_body_set.get(ref_handle) else {
+            return false;
+        };
+
+        let t = ref_body.translation();
+        let dist_xy = (t.x * t.x + t.y * t.y).sqrt();
+        if dist_xy < threshold {
+            return false;
+        }
+
+        // Shift amount: current reference body XY position (keep Z unchanged)
+        let shift = Vec3::new(t.x, t.y, 0.0);
+
+        // Accumulate in f64
+        self.world_origin[0] += f64::from(shift.x);
+        self.world_origin[1] += f64::from(shift.y);
+
+        // Shift all rigid bodies
+        for (_, handle) in &self.body_handles {
+            if let Some(body) = self.rigid_body_set.get_mut(*handle) {
+                let pos = body.translation();
+                body.set_translation(pos - shift, true);
+            }
+        }
+
+        true
+    }
+
+    /// Get the true world position of a body as f64 (local position + origin offset).
+    pub fn world_position_f64(&self, handle: RigidBodyHandle) -> Option<[f64; 3]> {
+        let body = self.rigid_body_set.get(handle)?;
+        let t = body.translation();
+        Some([
+            f64::from(t.x) + self.world_origin[0],
+            f64::from(t.y) + self.world_origin[1],
+            f64::from(t.z) + self.world_origin[2],
+        ])
     }
 
     /// Run one physics substep.

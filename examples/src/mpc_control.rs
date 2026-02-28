@@ -72,7 +72,9 @@ pub struct MpcStepResult {
 /// kp*(q_ik - q) ≈ 0 during stance since q_ik tracks current foot position.
 const STANCE_KP_JOINT: f32 = 0.5;
 /// Stance pitch/knee damping (Nm*s/rad).
-const STANCE_KD_JOINT: f32 = 0.1;
+/// Lower damping = less resistance to MPC feedforward forces.
+/// 0.1→0.05: ~10% velocity gain with stable tracking.
+const STANCE_KD_JOINT: f32 = 0.05;
 /// Stance pitch/knee max motor force (N).
 const STANCE_MAX_F: f32 = 200.0;
 
@@ -295,6 +297,7 @@ pub fn compute_mpc_step(
 
             if swing_phase < 0.05 {
                 let hip_world = body_quat * leg.hip_offset + body_pos;
+                let body_speed = body_state.linear_velocity.xy().norm();
                 state.swing_targets[leg_idx] = raibert_foot_target(
                     &hip_world,
                     &body_state.linear_velocity,
@@ -302,24 +305,32 @@ pub fn compute_mpc_step(
                     stance_duration,
                     swing_duration,
                     ground_height,
-                    state.swing_config.cp_gain,
+                    state.swing_config.effective_cp_gain(body_speed),
                     desired_height - ground_height,
                     state.config.gravity,
                     state.swing_config.max_reach,
                 );
             }
 
+            // Walk gaits (duty > 0.6) lift only 1 foot — reduce step height
+            // to avoid excessive CoM shift from a high single-leg swing.
+            let step_height = if state.gait.duty_factor() > 0.6 {
+                state.swing_config.step_height * 0.4
+            } else {
+                state.swing_config.step_height
+            };
+
             let p_des = swing_foot_position(
                 &state.swing_starts[leg_idx],
                 &state.swing_targets[leg_idx],
                 swing_phase,
-                state.swing_config.step_height,
+                step_height,
             );
             let v_des = swing_foot_velocity(
                 &state.swing_starts[leg_idx],
                 &state.swing_targets[leg_idx],
                 swing_phase,
-                state.swing_config.step_height,
+                step_height,
                 swing_duration,
             );
 

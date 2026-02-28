@@ -67,6 +67,67 @@ fn bezier_derivative(points: &[f64; 12], t: f64) -> f64 {
     11.0 * diffs[0]
 }
 
+/// Velocity-dependent capture-point gain profile.
+///
+/// Interpolates `cp_gain` based on body speed using a sorted list of
+/// `(speed, gain)` breakpoints. Speeds below the first breakpoint use
+/// the first gain; speeds above the last use the last gain.
+///
+/// # Tuning Guidelines
+///
+/// - **Low speed (< 0.3 m/s)**: Use small gain (0.3–0.5). The robot is
+///   nearly stationary and large corrections cause overshoot.
+/// - **Medium speed (0.3–0.7 m/s)**: Increase gain to 0.5–0.8. The robot
+///   needs to place feet ahead of CoM for stability.
+/// - **High speed (> 0.7 m/s)**: Use gain 0.8–1.2. Aggressive foot
+///   placement is needed to prevent the CoM from outrunning the support
+///   polygon. Values above 1.0 overshoot the theoretical capture point
+///   (useful for deceleration margin).
+///
+/// The LIPM capture point formula is `kv = cp_gain * sqrt(z_com / g)`,
+/// so the actual velocity correction scales with the robot's standing
+/// height automatically.
+#[derive(Clone, Debug)]
+pub struct CpGainProfile {
+    /// Sorted `(speed_m_s, cp_gain)` breakpoints.
+    pub breakpoints: Vec<(f64, f64)>,
+}
+
+impl CpGainProfile {
+    /// Look up the interpolated `cp_gain` for a given speed.
+    pub fn lookup(&self, speed: f64) -> f64 {
+        if self.breakpoints.is_empty() {
+            return 0.5; // fallback
+        }
+        if speed <= self.breakpoints[0].0 {
+            return self.breakpoints[0].1;
+        }
+        let last = self.breakpoints.len() - 1;
+        if speed >= self.breakpoints[last].0 {
+            return self.breakpoints[last].1;
+        }
+        // Linear interpolation between bracketing breakpoints
+        for i in 0..last {
+            let (s0, g0) = self.breakpoints[i];
+            let (s1, g1) = self.breakpoints[i + 1];
+            if speed >= s0 && speed <= s1 {
+                let t = (speed - s0) / (s1 - s0);
+                return g0 + t * (g1 - g0);
+            }
+        }
+        self.breakpoints[last].1
+    }
+}
+
+impl Default for CpGainProfile {
+    /// Default profile: constant 0.5 at all speeds (matches original behavior).
+    fn default() -> Self {
+        Self {
+            breakpoints: vec![(0.0, 0.5), (1.0, 0.5)],
+        }
+    }
+}
+
 /// Configuration for swing leg trajectories.
 #[derive(Clone, Debug)]
 pub struct SwingConfig {
@@ -86,6 +147,9 @@ pub struct SwingConfig {
     /// gain of `cp_gain * sqrt(z_com / g)`, which adapts to the robot's actual
     /// height. A value of 0.5 matches the theoretical LIPM capture point.
     pub cp_gain: f64,
+    /// Optional velocity-dependent cp_gain profile. When set, overrides `cp_gain`
+    /// with a speed-interpolated value from the profile.
+    pub cp_gain_profile: Option<CpGainProfile>,
     /// Maximum foot reach radius from hip (meters).
     ///
     /// Foot targets are clamped to this distance from the hip projection to
@@ -101,7 +165,22 @@ impl Default for SwingConfig {
             kp_cartesian: Vector3::new(500.0, 500.0, 500.0),
             kd_cartesian: Vector3::new(20.0, 20.0, 20.0),
             cp_gain: 0.5,
+            cp_gain_profile: None,
             max_reach: 0.3,
+        }
+    }
+}
+
+impl SwingConfig {
+    /// Get the effective cp_gain for a given body speed.
+    ///
+    /// Uses the velocity-dependent profile if set, otherwise returns the
+    /// constant `cp_gain`.
+    pub fn effective_cp_gain(&self, speed: f64) -> f64 {
+        if let Some(ref profile) = self.cp_gain_profile {
+            profile.lookup(speed)
+        } else {
+            self.cp_gain
         }
     }
 }
@@ -346,6 +425,75 @@ mod tests {
 
         // Higher body → larger CP correction → foot placed further forward
         assert!(t_high.x > t_low.x, "Higher body should produce larger correction");
+    }
+
+    #[test]
+    fn cp_gain_profile_default_constant() {
+        let profile = CpGainProfile::default();
+        assert_relative_eq!(profile.lookup(0.0), 0.5, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(0.5), 0.5, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(1.0), 0.5, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn cp_gain_profile_interpolation() {
+        let profile = CpGainProfile {
+            breakpoints: vec![(0.0, 0.3), (0.5, 0.6), (1.0, 1.0)],
+        };
+        // At breakpoints
+        assert_relative_eq!(profile.lookup(0.0), 0.3, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(0.5), 0.6, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(1.0), 1.0, epsilon = 1e-10);
+        // Midpoint interpolation
+        assert_relative_eq!(profile.lookup(0.25), 0.45, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(0.75), 0.8, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn cp_gain_profile_clamps_outside_range() {
+        let profile = CpGainProfile {
+            breakpoints: vec![(0.2, 0.4), (0.8, 0.9)],
+        };
+        // Below first breakpoint → first gain
+        assert_relative_eq!(profile.lookup(0.0), 0.4, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(0.1), 0.4, epsilon = 1e-10);
+        // Above last breakpoint → last gain
+        assert_relative_eq!(profile.lookup(1.0), 0.9, epsilon = 1e-10);
+        assert_relative_eq!(profile.lookup(5.0), 0.9, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn cp_gain_profile_empty_fallback() {
+        let profile = CpGainProfile {
+            breakpoints: vec![],
+        };
+        assert_relative_eq!(profile.lookup(0.5), 0.5, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn effective_cp_gain_uses_profile() {
+        let config = SwingConfig {
+            cp_gain: 0.5,
+            cp_gain_profile: Some(CpGainProfile {
+                breakpoints: vec![(0.0, 0.3), (1.0, 1.0)],
+            }),
+            ..SwingConfig::default()
+        };
+        // Should use profile, not constant cp_gain
+        assert_relative_eq!(config.effective_cp_gain(0.0), 0.3, epsilon = 1e-10);
+        assert_relative_eq!(config.effective_cp_gain(0.5), 0.65, epsilon = 1e-10);
+        assert_relative_eq!(config.effective_cp_gain(1.0), 1.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn effective_cp_gain_without_profile() {
+        let config = SwingConfig {
+            cp_gain: 0.7,
+            cp_gain_profile: None,
+            ..SwingConfig::default()
+        };
+        assert_relative_eq!(config.effective_cp_gain(0.0), 0.7, epsilon = 1e-10);
+        assert_relative_eq!(config.effective_cp_gain(1.0), 0.7, epsilon = 1e-10);
     }
 
     #[test]

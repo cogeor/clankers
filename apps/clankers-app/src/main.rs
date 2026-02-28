@@ -217,7 +217,7 @@ fn run_viz(num_joints: usize, max_steps: u32) {
     app.add_plugins(ClankersTeleopPlugin);
 
     // Visualization layer.
-    app.add_plugins(ClankersVizPlugin);
+    app.add_plugins(ClankersVizPlugin::default());
 
     // Spawn demo joints (cylinders as visual stand-ins).
     for i in 0..num_joints {

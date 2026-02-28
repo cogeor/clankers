@@ -12,6 +12,11 @@
                 <cylinder radius="0.08" length="0.1"/>
             </geometry>
         </visual>
+        <collision>
+            <geometry>
+                <cylinder radius="0.08" length="0.1"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="shoulder_link">
@@ -26,6 +31,12 @@
                 <cylinder radius="0.04" length="0.2"/>
             </geometry>
         </visual>
+        <collision>
+            <origin xyz="0 0 0.1"/>
+            <geometry>
+                <cylinder radius="0.04" length="0.2"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="upper_arm">
@@ -40,6 +51,12 @@
                 <cylinder radius="0.035" length="0.3"/>
             </geometry>
         </visual>
+        <collision>
+            <origin xyz="0 0 0.15"/>
+            <geometry>
+                <cylinder radius="0.035" length="0.3"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="elbow_link">
@@ -54,6 +71,12 @@
                 <cylinder radius="0.03" length="0.1"/>
             </geometry>
         </visual>
+        <collision>
+            <origin xyz="0 0 0.05"/>
+            <geometry>
+                <cylinder radius="0.03" length="0.1"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="forearm">
@@ -68,6 +91,12 @@
                 <cylinder radius="0.025" length="0.2"/>
             </geometry>
         </visual>
+        <collision>
+            <origin xyz="0 0 0.1"/>
+            <geometry>
+                <cylinder radius="0.025" length="0.2"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="wrist_link">
@@ -82,6 +111,12 @@
                 <cylinder radius="0.02" length="0.06"/>
             </geometry>
         </visual>
+        <collision>
+            <origin xyz="0 0 0.03"/>
+            <geometry>
+                <cylinder radius="0.02" length="0.06"/>
+            </geometry>
+        </collision>
     </link>
 
     <link name="end_effector">
@@ -94,6 +129,11 @@
                 <sphere radius="0.025"/>
             </geometry>
         </visual>
+        <collision>
+            <geometry>
+                <sphere radius="0.025"/>
+            </geometry>
+        </collision>
     </link>
 
     <!-- Joint 1: Base rotation (yaw) -->
@@ -154,5 +194,89 @@
         <axis xyz="0 0 1"/>
         <limit lower="-3.14159" upper="3.14159" effort="5" velocity="8"/>
         <dynamics damping="0.05" friction="0.01"/>
+    </joint>
+
+    <!-- Gripper base (fixed to end effector) -->
+    <link name="gripper_base">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00004"/>
+        </inertial>
+        <visual>
+            <geometry>
+                <box size="0.06 0.04 0.02"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.06 0.04 0.02"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j_gripper_attach" type="fixed">
+        <parent link="end_effector"/>
+        <child link="gripper_base"/>
+        <origin xyz="0 0 0.025"/>
+    </joint>
+
+    <!-- Left finger -->
+    <link name="finger_left">
+        <inertial>
+            <origin xyz="0 0 0.02"/>
+            <mass value="0.02"/>
+            <inertia ixx="0.000003" ixy="0" ixz="0" iyy="0.000003" iyz="0" izz="0.000001"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.02"/>
+            <geometry>
+                <box size="0.01 0.01 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.02"/>
+            <geometry>
+                <box size="0.01 0.01 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j_finger_left" type="prismatic">
+        <parent link="gripper_base"/>
+        <child link="finger_left"/>
+        <origin xyz="0 0.015 0.01"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="0.0" upper="0.03" effort="10" velocity="0.1"/>
+        <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <!-- Right finger -->
+    <link name="finger_right">
+        <inertial>
+            <origin xyz="0 0 0.02"/>
+            <mass value="0.02"/>
+            <inertia ixx="0.000003" ixy="0" ixz="0" iyy="0.000003" iyz="0" izz="0.000001"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0.02"/>
+            <geometry>
+                <box size="0.01 0.01 0.04"/>
+            </geometry>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.02"/>
+            <geometry>
+                <box size="0.01 0.01 0.04"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j_finger_right" type="prismatic">
+        <parent link="gripper_base"/>
+        <child link="finger_right"/>
+        <origin xyz="0 -0.015 0.01"/>
+        <axis xyz="0 -1 0"/>
+        <limit lower="0.0" upper="0.03" effort="10" velocity="0.1"/>
+        <dynamics damping="0.1" friction="0.05"/>
     </joint>
 </robot>

@@ -17,6 +17,9 @@ clankers-teleop.workspace = true
 bevy = { workspace = true, features = ["default"] }
 bevy_egui.workspace = true
 bevy_panorbit_camera.workspace = true
+mcap.workspace = true
+serde_json.workspace = true
+clankers-record.workspace = true
 
 [lints]
 workspace = true

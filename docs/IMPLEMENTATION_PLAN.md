@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Clankerss is a modular robotics simulation framework written in Rust, built on Bevy 0.17 and bevy_rapier3d 0.32. It replaces the role that Isaac Sim/Gym fills for NVIDIA hardware, running on commodity hardware with no vendor lock-in and shipping as a single binary. A user describes a robot and a task, Clankerss simulates the physics, and a Python training script on the other end of a TCP socket learns a policy. Once trained, the policy is exported to ONNX and runs natively in Rust.
+Clankerss is a modular robotics simulation framework written in Rust, built on Bevy 0.17 and rapier3d 0.32. It replaces the role that Isaac Sim/Gym fills for NVIDIA hardware, running on commodity hardware with no vendor lock-in and shipping as a single binary. A user describes a robot and a task, Clankerss simulates the physics, and a Python training script on the other end of a TCP socket learns a policy. Once trained, the policy is exported to ONNX and runs natively in Rust.
 
 The workspace contains 14 crates (13 library crates + 1 application binary) organized under `crates/` and `apps/`.
 
@@ -30,12 +30,12 @@ clankers-sim (top-level plugin)
  |
  +-- clankers-core ................. (bevy, serde, thiserror, rand, rand_chacha, toml)
  +-- clankers-noise ................ (rand, rand_distr)
- +-- clankers-env .................. (core, noise, bevy, bevy_rapier3d)
+ +-- clankers-env .................. (core, noise, bevy, rapier3d)
  +-- clankers-actuator-core ........ (no deps -- pure math)
- +-- clankers-actuator ............. (actuator-core, bevy, bevy_rapier3d)
+ +-- clankers-actuator ............. (actuator-core, bevy, rapier3d)
  +-- clankers-urdf ................. (core, urdf-rs, bevy_urdf)
  +-- clankers-gym .................. (core, env, noise)
- +-- clankers-domain-rand .......... (core, noise, bevy_rapier3d)
+ +-- clankers-domain-rand .......... (core, noise, rapier3d)
  +-- clankers-policy ............... (core, ort)
  +-- clankers-render ............... (core, bevy)
  +-- clankers-teleop ............... (core, bevy)
@@ -151,12 +151,12 @@ noise -----+---> actuator-core -+              +--> domain-rand ---+--> render -
 |-------|:-----:|--------------------|-----------------------|:----------:|
 | clankers-core | 1 | `Action`, `Observation`, `StepResult`, `SimConfig`, `SimTime`, `ClankersSet`, `RobotHandle`, `ObjectHandle`, `RLEnvironment` trait, error types | bevy (app + ecs), serde, thiserror, rand, rand_chacha, toml | M |
 | clankers-noise | 1 | `NoiseModel` (Gaussian, Uniform, Bias, Drift, Chain), `apply()` | rand, rand_distr | S |
-| clankers-env | 2 | `ObservationBuffer`, `SensorPlugin`, joint/IMU/camera/contact sensors, episode state | bevy, bevy_rapier3d, clankers-core, clankers-noise | L |
+| clankers-env | 2 | `ObservationBuffer`, `SensorPlugin`, joint/IMU/camera/contact sensors, episode state | bevy, rapier3d, clankers-core, clankers-noise | L |
 | clankers-actuator-core | 2 | `MotorModel`, `GearRatio`, `Transmission`, `FrictionModel`, PID | (none or minimal) | S |
-| clankers-actuator | 2 | `ActuatorPlugin`, `apply_actions`, `joint_state_sync_system` | bevy, bevy_rapier3d, clankers-actuator-core | M |
+| clankers-actuator | 2 | `ActuatorPlugin`, `apply_actions`, `joint_state_sync_system` | bevy, rapier3d, clankers-actuator-core | M |
 | clankers-urdf | 3 | `RobotModel`, URDF parser adapter, mesh loader, entity spawner | urdf-rs, bevy_urdf, clankers-core | M |
 | clankers-gym | 4 | TCP server, protocol messages, `GymPlugin`, batch step/reset, reward/termination wiring | serde_json, clankers-core, clankers-env, clankers-noise | L |
-| clankers-domain-rand | 4 | `DomainRandPlugin`, `RandomizationConfig`, mass/friction/force randomizers | bevy_rapier3d, clankers-core, clankers-noise | M |
+| clankers-domain-rand | 4 | `DomainRandPlugin`, `RandomizationConfig`, mass/friction/force randomizers | rapier3d, clankers-core, clankers-noise | M |
 | clankers-policy | 5 | `PolicyPlugin`, `OnnxPolicy`, `policy_inference_system` | ort, clankers-core | M |
 | clankers-render | 5 | `RenderPlugin`, headless camera, GPU-to-CPU pipeline | bevy (render), clankers-core | M |
 | clankers-teleop | 5 | `TeleopPlugin`, `ManualController` trait, input mapping | bevy (input), clankers-core | S |
@@ -311,7 +311,7 @@ Before starting Phase N+1:
 | Dependency | Version | Used By | Purpose |
 |------------|---------|---------|---------|
 | bevy | 0.17.3 | core, env, actuator, urdf, render, teleop, sim | ECS runtime, rendering, asset loading |
-| bevy_rapier3d | 0.32 | env, actuator, domain-rand, sim | Physics engine integration |
+| rapier3d | 0.32 | env, actuator, domain-rand, sim | Physics engine integration |
 | serde | 1.x | core, gym | Serialization/deserialization |
 | serde_json | 1.x | gym | JSON protocol encoding |
 | thiserror | 2.x | core | Error type derivation |

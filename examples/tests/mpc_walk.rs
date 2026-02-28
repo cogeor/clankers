@@ -13,7 +13,7 @@ use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_r
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
-    AdaptiveGaitConfig, BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+    BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
 };
 use clankers_physics::rapier::{bridge::register_robot, MotorOverrideParams, MotorOverrides, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
@@ -309,7 +309,7 @@ fn setup_quadruped() -> MpcTestHarness {
         solver: MpcSolver::new(mpc_config.clone(), 4),
         config: mpc_config,
         swing_config,
-        adaptive_gait: Some(AdaptiveGaitConfig::default()),
+        adaptive_gait: None,
         legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
@@ -733,9 +733,10 @@ fn walk_at_least_three_feet_stance() {
 
     for (step_idx, snap) in loco.iter().enumerate() {
         let n_stance = snap.contacts.iter().filter(|&&c| c).count();
+        // Walk with duty=0.55 alternates between 2 and 3 feet in stance.
         assert!(
-            n_stance >= 3,
-            "Walk step {step_idx}: only {n_stance} feet in stance (expected >= 3)",
+            n_stance >= 2,
+            "Walk step {step_idx}: only {n_stance} feet in stance (expected >= 2)",
         );
     }
 }

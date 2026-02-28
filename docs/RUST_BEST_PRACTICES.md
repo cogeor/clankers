@@ -5,7 +5,7 @@ simulation library. Every contributor and AI agent working on this codebase must
 these conventions.
 
 **Workspace:** 13 crates under `crates/` plus apps under `apps/`
-**Stack:** Bevy 0.17.3, bevy_rapier3d 0.32, Edition 2024, MSRV 1.88+
+**Stack:** Bevy 0.17.3, rapier3d 0.32, Edition 2024, MSRV 1.88+
 **License:** MIT
 **Performance target:** 100k+ physics steps/sec, deterministic
 

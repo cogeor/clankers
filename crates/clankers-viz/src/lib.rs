@@ -4,7 +4,7 @@
 //! - Orbit camera for scene inspection
 //! - egui side panel with joint state display
 //! - Simulation controls (pause, step, reset, speed)
-//! - Mode switching (Teleop, Policy, Paused)
+//! - Mode switching (Teleop, Policy, Paused, Replay)
 //!
 //! # Usage
 //!
@@ -27,6 +27,7 @@ pub mod config;
 pub mod input;
 pub mod mode;
 pub mod plugin;
+pub mod replay;
 pub mod systems;
 pub mod ui;
 
@@ -39,6 +40,7 @@ pub struct SelectedRobotId(pub Option<RobotId>);
 pub use config::VizConfig;
 pub use mode::VizMode;
 pub use plugin::ClankersVizPlugin;
+pub use replay::{PlaybackIndex, PlaybackState};
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,7 @@
 //! Visualization configuration.
 
+use std::path::PathBuf;
+
 use bevy::prelude::*;
 
 /// Runtime configuration for the visualization mode.
@@ -11,6 +13,9 @@ pub struct VizConfig {
     pub show_panel: bool,
     /// When true, advance exactly one simulation step then re-pause.
     pub step_once: bool,
+    /// Path to a `.mcap` file for replay mode. When set, the plugin loads the
+    /// file at startup.
+    pub replay_path: Option<PathBuf>,
 }
 
 impl Default for VizConfig {
@@ -19,6 +24,7 @@ impl Default for VizConfig {
             sim_speed: 1.0,
             show_panel: true,
             step_once: false,
+            replay_path: None,
         }
     }
 }

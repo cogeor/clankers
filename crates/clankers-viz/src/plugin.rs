@@ -14,7 +14,7 @@ use crate::config::VizConfig;
 use crate::input::KeyboardTeleopMap;
 use crate::mode::VizMode;
 use crate::systems::VizSimGate;
-use crate::{input, systems, ui};
+use crate::{input, replay, systems, ui};
 
 /// Bevy plugin for interactive Clankers visualization.
 ///
@@ -57,11 +57,21 @@ impl Plugin for ClankersVizPlugin {
         app.add_plugins(EguiPlugin::default())
             .add_plugins(PanOrbitCameraPlugin);
 
-        // Startup: camera and scene.
+        // Startup: camera, scene, and replay MCAP loading.
         app.add_systems(Startup, (camera::spawn_camera, camera::spawn_scene));
+        app.add_systems(Startup, replay::load_replay_mcap);
 
-        // Disable orbit camera when egui wants pointer (prevents slider drag → orbit).
+        // Disable orbit camera when egui wants pointer (prevents slider drag -> orbit).
         app.add_systems(Update, camera::egui_camera_gate);
+
+        // Replay: timeline advance + joint application.
+        app.add_systems(
+            Update,
+            (
+                replay::replay_advance_system,
+                replay::replay_apply_joints_system.after(replay::replay_advance_system),
+            ),
+        );
 
         if self.fixed_update {
             // FixedUpdate mode: simulation runs at fixed rate, decoupled from render.

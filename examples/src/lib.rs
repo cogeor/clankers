@@ -1,6 +1,7 @@
 //! Shared URDF definitions, helpers, and control modules for Clankers examples.
 
 pub mod mpc_control;
+pub mod quadruped_setup;
 
 /// Simple inverted pendulum: 1 revolute joint.
 pub const PENDULUM_URDF: &str = include_str!("../urdf/pendulum.urdf");

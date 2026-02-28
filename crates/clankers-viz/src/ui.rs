@@ -18,6 +18,7 @@ use clankers_core::types::{RobotGroup, RobotId};
 use crate::SelectedRobotId;
 use crate::config::VizConfig;
 use crate::mode::VizMode;
+use crate::replay::PlaybackState;
 
 /// System that renders the egui side panel each frame.
 #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
@@ -33,6 +34,7 @@ pub fn side_panel_system(
     stats: Option<Res<EpisodeStats>>,
     robot_group: Option<Res<RobotGroup>>,
     mut selected_robot: ResMut<SelectedRobotId>,
+    mut playback_state: Option<ResMut<PlaybackState>>,
 ) {
     if !viz_config.show_panel {
         return;
@@ -51,6 +53,13 @@ pub fn side_panel_system(
 
             mode_section(ui, &mut mode, policy_runner.is_some());
             ui.separator();
+
+            if *mode == VizMode::Replay {
+                if let Some(ref mut ps) = playback_state {
+                    replay_section(ui, ps);
+                    ui.separator();
+                }
+            }
 
             robot_section(ui, robot_group.as_deref(), &mut selected_robot);
             ui.separator();
@@ -73,7 +82,7 @@ pub fn side_panel_system(
 fn mode_section(ui: &mut egui::Ui, mode: &mut ResMut<VizMode>, has_policy: bool) {
     ui.label("Mode");
     ui.horizontal(|ui| {
-        for candidate in [VizMode::Paused, VizMode::Teleop, VizMode::Policy] {
+        for candidate in [VizMode::Paused, VizMode::Teleop, VizMode::Policy, VizMode::Replay] {
             let enabled = candidate != VizMode::Policy || has_policy;
             let button = egui::Button::new(candidate.label()).selected(**mode == candidate);
             let response = ui.add_enabled(enabled, button);
@@ -84,6 +93,54 @@ fn mode_section(ui: &mut egui::Ui, mode: &mut ResMut<VizMode>, has_policy: bool)
             }
         }
     });
+}
+
+fn replay_section(ui: &mut egui::Ui, state: &mut PlaybackState) {
+    ui.label("Replay");
+
+    ui.horizontal(|ui| {
+        if state.playing {
+            if ui.button("Pause").clicked() {
+                state.playing = false;
+            }
+        } else {
+            if ui.button("Play").clicked() {
+                // If at end, restart from beginning.
+                if state.cursor_ns >= state.duration_ns {
+                    state.cursor_ns = 0;
+                }
+                state.playing = true;
+            }
+        }
+
+        if ui.button("Reset").clicked() {
+            state.cursor_ns = 0;
+            state.playing = false;
+        }
+    });
+
+    // Timeline slider.
+    let mut progress = state.progress();
+    if ui
+        .add(egui::Slider::new(&mut progress, 0.0..=1.0).text("Timeline"))
+        .changed()
+    {
+        state.seek(progress);
+    }
+
+    // Speed slider.
+    ui.add(
+        egui::Slider::new(&mut state.speed, 0.1..=10.0)
+            .text("Speed")
+            .logarithmic(true),
+    );
+
+    // Time readout.
+    ui.label(format!(
+        "{:.2}s / {:.2}s",
+        state.time_secs(),
+        state.duration_secs()
+    ));
 }
 
 fn controls_section(
@@ -312,6 +369,9 @@ fn action_section(
                 }
                 VizMode::Paused => {
                     ui.label("Simulation paused.");
+                }
+                VizMode::Replay => {
+                    ui.label("Replay mode.");
                 }
             }
         });

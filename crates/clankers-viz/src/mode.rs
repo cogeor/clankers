@@ -15,6 +15,8 @@ pub enum VizMode {
     Teleop,
     /// Autonomous policy inference drives the robot.
     Policy,
+    /// Replaying a recorded MCAP episode (no physics simulation).
+    Replay,
 }
 
 impl VizMode {
@@ -24,6 +26,7 @@ impl VizMode {
             Self::Paused => "Paused",
             Self::Teleop => "Teleop",
             Self::Policy => "Policy",
+            Self::Replay => "Replay",
         }
     }
 

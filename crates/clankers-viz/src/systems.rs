@@ -65,6 +65,15 @@ mod tests {
     }
 
     #[test]
+    fn replay_mode_blocks_stepping() {
+        let mut app = build_test_app();
+        *app.world_mut().resource_mut::<VizMode>() = VizMode::Replay;
+        app.update();
+        assert!(!app.world().resource::<VizSimGate>().should_step);
+        assert!(!app.world().resource::<TeleopConfig>().enabled);
+    }
+
+    #[test]
     fn step_once_allows_single_step_then_blocks() {
         let mut app = build_test_app();
         *app.world_mut().resource_mut::<VizMode>() = VizMode::Paused;
@@ -271,6 +280,10 @@ pub fn mode_gate_system(
         VizMode::Policy => {
             teleop_config.enabled = false;
             gate.should_step = true;
+        }
+        VizMode::Replay => {
+            teleop_config.enabled = false;
+            gate.should_step = false;
         }
     }
 }

@@ -43,7 +43,7 @@ impl GaitScheduler {
         let (offsets, duty_factor, cycle_time) = match gait {
             GaitType::Stand => (vec![0.0; 4], 1.0, 1.0),
             GaitType::Trot => (vec![0.0, 0.5, 0.5, 0.0], 0.5, 0.35),
-            GaitType::Walk => (vec![0.0, 0.5, 0.25, 0.75], 0.75, 0.8),
+            GaitType::Walk => (vec![0.0, 0.5, 0.25, 0.75], 0.55, 0.4),
             GaitType::Bound => (vec![0.0, 0.0, 0.5, 0.5], 0.5, 0.4),
         };
         Self {
@@ -132,17 +132,30 @@ impl GaitScheduler {
     /// Generate contact sequence over the MPC horizon.
     ///
     /// Returns `contacts[step][foot]` as a `Vec<Vec<bool>>` of size `horizon × n_feet`.
+    ///
+    /// For step k=0 (current timestep), contact overrides from
+    /// [`apply_contact_feedback`] are respected so the MPC plan matches
+    /// the motor commands' stance/swing decisions.  Future steps use the
+    /// scheduled gait pattern.
     pub fn contact_sequence(&self, horizon: usize, dt: f64) -> Vec<Vec<bool>> {
         let mut contacts = Vec::with_capacity(horizon);
 
         for k in 0..horizon {
-            let future_phase = (self.phase + (k as f64) * dt / self.cycle_time) % 1.0;
-            let mut step_contacts = Vec::with_capacity(self.n_feet);
-            for foot in 0..self.n_feet {
-                let foot_phase = (future_phase + self.offsets[foot]) % 1.0;
-                step_contacts.push(self.duty_factor >= 1.0 || foot_phase < self.duty_factor);
+            if k == 0 {
+                // Use is_contact() which respects overrides
+                let step_contacts = (0..self.n_feet)
+                    .map(|foot| self.is_contact(foot))
+                    .collect();
+                contacts.push(step_contacts);
+            } else {
+                let future_phase = (self.phase + (k as f64) * dt / self.cycle_time) % 1.0;
+                let mut step_contacts = Vec::with_capacity(self.n_feet);
+                for foot in 0..self.n_feet {
+                    let foot_phase = (future_phase + self.offsets[foot]) % 1.0;
+                    step_contacts.push(self.duty_factor >= 1.0 || foot_phase < self.duty_factor);
+                }
+                contacts.push(step_contacts);
             }
-            contacts.push(step_contacts);
         }
 
         contacts
@@ -444,19 +457,18 @@ mod tests {
     }
 
     #[test]
-    fn walk_one_foot_swing() {
-        // Walk gait: duty=0.75, so 75% stance, 25% swing
-        // At any given time, at most 1 foot should be in swing
+    fn walk_contact_pattern() {
+        // Walk gait: duty=0.55, sequential offsets [0, 0.5, 0.25, 0.75].
+        // With duty=0.55 the pattern alternates between 2 and 3 feet in
+        // stance (never fewer than 2).
         let sched = GaitScheduler::quadruped(GaitType::Walk);
         let contacts = sched.contact_sequence(100, 0.008); // sample finely
 
         for step in &contacts {
             let n_stance: usize = step.iter().filter(|&&c| c).count();
-            // With duty=0.75 and offsets [0, 0.5, 0.25, 0.75],
-            // at most 1 foot is in swing at a time → at least 3 in stance
             assert!(
-                n_stance >= 3,
-                "Walk should have at least 3 feet in stance, got {n_stance}"
+                n_stance >= 2,
+                "Walk should have at least 2 feet in stance, got {n_stance}"
             );
         }
     }

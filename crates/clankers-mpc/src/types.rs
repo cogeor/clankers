@@ -37,6 +37,10 @@ pub struct MpcConfig {
     /// Typical: 1e4–1e6 (high enough to discourage violation, low enough to
     /// allow it when necessary).
     pub slack_weight: f64,
+    /// Tangential force penalty weight for stance feet. Penalizes fx²+fy²
+    /// to prefer solutions with lower slip risk (smaller tangential/normal
+    /// force ratio). Set to 0.0 to disable. Typical: 1e-5–1e-4.
+    pub slip_penalty: f64,
     /// Maximum QP solver iterations.
     pub max_solver_iters: u32,
 }
@@ -71,6 +75,7 @@ impl Default for MpcConfig {
             r_weight: 1e-7,
             delta_f_weight: 1e-6,
             slack_weight: 1e5,
+            slip_penalty: 1e-5,
             max_solver_iters: 100,
         }
     }

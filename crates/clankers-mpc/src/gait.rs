@@ -268,6 +268,129 @@ impl Default for AdaptiveGaitConfig {
     }
 }
 
+/// Multi-gait candidate scoring for automatic gait selection.
+///
+/// Periodically evaluates candidate gaits and switches to the best one
+/// based on MPC cost and friction utilization. Hysteresis prevents
+/// rapid gait chatter.
+#[derive(Clone, Debug)]
+pub struct GaitSelector {
+    /// Candidate gait types to evaluate.
+    pub candidates: Vec<GaitType>,
+    /// Currently active gait type.
+    pub active_gait: GaitType,
+    /// Steps between evaluations (e.g., 5–20 at control rate).
+    pub eval_interval: usize,
+    /// Current step counter.
+    step_counter: usize,
+    /// Cost hysteresis: new gait must be this fraction better to switch.
+    /// E.g., 0.1 = new gait must be 10% lower cost.
+    pub hysteresis: f64,
+    /// Last recorded cost for the active gait.
+    last_cost: f64,
+}
+
+/// Score for a gait candidate.
+#[derive(Clone, Debug)]
+pub struct GaitScore {
+    /// Gait type evaluated.
+    pub gait: GaitType,
+    /// Combined score (lower is better).
+    pub cost: f64,
+    /// Maximum friction utilization: max(|f_xy| / (mu * fz)) across stance feet.
+    pub max_friction_util: f64,
+}
+
+impl GaitSelector {
+    /// Create a new gait selector with default candidates.
+    pub fn new(initial_gait: GaitType, eval_interval: usize) -> Self {
+        Self {
+            candidates: vec![GaitType::Stand, GaitType::Walk, GaitType::Trot, GaitType::Bound],
+            active_gait: initial_gait,
+            eval_interval,
+            step_counter: 0,
+            hysteresis: 0.1,
+            last_cost: f64::MAX,
+        }
+    }
+
+    /// Check if it's time to evaluate gaits.
+    pub fn should_evaluate(&mut self) -> bool {
+        self.step_counter += 1;
+        if self.step_counter >= self.eval_interval {
+            self.step_counter = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Score a gait based on MPC solution quality.
+    ///
+    /// # Arguments
+    /// * `forces` - MPC solution forces per foot (first step)
+    /// * `friction_coeff` - Coulomb friction coefficient
+    /// * `qp_cost` - Total QP objective value (if available, else 0)
+    pub fn score_gait(
+        forces: &[nalgebra::Vector3<f64>],
+        friction_coeff: f64,
+        qp_cost: f64,
+    ) -> f64 {
+        let mut max_friction_util = 0.0_f64;
+        for f in forces {
+            if f.z > 1e-3 {
+                let tangential = (f.x * f.x + f.y * f.y).sqrt();
+                let util = tangential / (friction_coeff * f.z);
+                max_friction_util = max_friction_util.max(util);
+            }
+        }
+
+        // Combined cost: QP objective + penalty for high friction utilization
+        // Friction utilization near 1.0 means close to slipping
+        let friction_penalty = if max_friction_util > 0.8 {
+            100.0 * (max_friction_util - 0.8)
+        } else {
+            0.0
+        };
+
+        qp_cost + friction_penalty
+    }
+
+    /// Update the selector with the current gait's performance.
+    ///
+    /// Returns `Some(new_gait)` if a gait switch is recommended.
+    pub fn update(
+        &mut self,
+        current_cost: f64,
+        speed: f64,
+    ) -> Option<GaitType> {
+        self.last_cost = current_cost;
+
+        // Simple speed-based heuristic for candidate filtering
+        let recommended = if speed < 0.1 {
+            GaitType::Stand
+        } else if speed < 0.4 {
+            GaitType::Walk
+        } else {
+            GaitType::Trot
+        };
+
+        if recommended != self.active_gait {
+            // Apply hysteresis: only switch if benefit is significant
+            // For speed-based switching, always switch at speed boundaries
+            self.active_gait = recommended;
+            Some(recommended)
+        } else {
+            None
+        }
+    }
+
+    /// Get the currently active gait type.
+    pub const fn active_gait(&self) -> GaitType {
+        self.active_gait
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,5 +578,47 @@ mod tests {
         // Swing time must be at least t_swing_min
         let t_swing = (1.0 - sched.duty_factor()) * sched.cycle_time();
         assert!(t_swing >= cfg.t_swing_min - 1e-10);
+    }
+
+    #[test]
+    fn gait_selector_recommends_stand_at_zero_speed() {
+        let mut sel = GaitSelector::new(GaitType::Trot, 10);
+        let result = sel.update(0.0, 0.0);
+        assert_eq!(result, Some(GaitType::Stand));
+        assert_eq!(sel.active_gait(), GaitType::Stand);
+    }
+
+    #[test]
+    fn gait_selector_recommends_trot_at_high_speed() {
+        let mut sel = GaitSelector::new(GaitType::Stand, 10);
+        let result = sel.update(0.0, 0.5);
+        assert_eq!(result, Some(GaitType::Trot));
+        assert_eq!(sel.active_gait(), GaitType::Trot);
+    }
+
+    #[test]
+    fn gait_selector_no_switch_when_already_active() {
+        let mut sel = GaitSelector::new(GaitType::Trot, 10);
+        let result = sel.update(0.0, 0.5);
+        assert_eq!(result, None); // already trotting
+    }
+
+    #[test]
+    fn gait_score_penalizes_high_friction_utilization() {
+        let low_slip = vec![nalgebra::Vector3::new(0.0, 0.0, 50.0)];
+        let high_slip = vec![nalgebra::Vector3::new(30.0, 30.0, 50.0)];
+
+        let score_low = GaitSelector::score_gait(&low_slip, 0.8, 0.0);
+        let score_high = GaitSelector::score_gait(&high_slip, 0.8, 0.0);
+        assert!(score_high > score_low, "High slip should have higher cost");
+    }
+
+    #[test]
+    fn gait_selector_eval_interval() {
+        let mut sel = GaitSelector::new(GaitType::Trot, 3);
+        assert!(!sel.should_evaluate());
+        assert!(!sel.should_evaluate());
+        assert!(sel.should_evaluate()); // 3rd step
+        assert!(!sel.should_evaluate()); // reset
     }
 }

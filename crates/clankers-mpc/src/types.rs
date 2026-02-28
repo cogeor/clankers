@@ -34,7 +34,7 @@ pub struct MpcConfig {
 impl Default for MpcConfig {
     fn default() -> Self {
         Self {
-            horizon: 10,
+            horizon: 20,
             dt: 0.02,
             mass: 9.0,
             // Composite inertia: body (5kg) + 4 legs (1kg each at hip offsets).
@@ -43,7 +43,7 @@ impl Default for MpcConfig {
                 0.048, 0.0, 0.0, 0.0, 0.122, 0.0, 0.0, 0.0, 0.135,
             ),
             gravity: 9.81,
-            friction_coeff: 0.4,
+            friction_coeff: 0.6,
             f_max: 120.0,
             // Tuned via systematic sweep (see .delegate/work/20260227-aggressive-velocity-tuning/).
             // Key changes from initial values:

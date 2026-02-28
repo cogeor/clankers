@@ -878,7 +878,7 @@ fn main() {
             .build();
         let ground_handle = ctx.rigid_body_set.insert(ground_body);
         let ground_collider = ColliderBuilder::cuboid(50.0, 50.0, 0.05)
-            .friction(1.0)
+            .friction(0.6)
             .restitution(0.0)
             .collision_groups(ground_group)
             .build();
@@ -889,10 +889,10 @@ fn main() {
         );
 
         let link_colliders: &[(&str, ColliderBuilder)] = &[
-            ("fl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("fr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
+            ("fl_foot", ColliderBuilder::ball(0.02).friction(0.6).restitution(0.0).collision_groups(robot_group)),
+            ("fr_foot", ColliderBuilder::ball(0.02).friction(0.6).restitution(0.0).collision_groups(robot_group)),
+            ("rl_foot", ColliderBuilder::ball(0.02).friction(0.6).restitution(0.0).collision_groups(robot_group)),
+            ("rr_foot", ColliderBuilder::ball(0.02).friction(0.6).restitution(0.0).collision_groups(robot_group)),
             ("fl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
             ("fr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
             ("rl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),

@@ -103,6 +103,10 @@ struct Args {
     /// Override MPC timestep in seconds (default 0.02 = 50Hz)
     #[arg(long)]
     mpc_dt: Option<f64>,
+
+    /// Override simulation ground/foot friction coefficient (default 0.6)
+    #[arg(long)]
+    mu_sim: Option<f32>,
 }
 
 fn parse_gait(s: &str) -> GaitType {
@@ -214,6 +218,8 @@ fn main() {
             }
         }
 
+        let sim_friction = args.mu_sim.unwrap_or(0.6);
+
         let robot_group = InteractionGroups::new(
             Group::GROUP_1,
             Group::GROUP_2,
@@ -230,7 +236,7 @@ fn main() {
             .build();
         let ground_handle = ctx.rigid_body_set.insert(ground_body);
         let ground_collider = ColliderBuilder::cuboid(50.0, 50.0, 0.05)
-            .friction(1.0)
+            .friction(sim_friction)
             .restitution(0.0)
             .collision_groups(ground_group)
             .build();
@@ -238,10 +244,10 @@ fn main() {
             .insert_with_parent(ground_collider, ground_handle, &mut ctx.rigid_body_set);
 
         let link_colliders: &[(&str, ColliderBuilder)] = &[
-            ("fl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("fr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
+            ("fl_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
+            ("fr_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
+            ("rl_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
+            ("rr_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
             ("fl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
             ("fr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
             ("rl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
@@ -489,7 +495,8 @@ fn main() {
             || args.raibert_kv.is_some()
             || args.q_roll.is_some() || args.q_omega.is_some()
             || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some()
-            || args.mpc_dt.is_some();
+            || args.mpc_dt.is_some()
+            || args.mu_sim.is_some();
         if has_overrides {
             println!("Overrides:");
             if let Some(v) = args.q_vx { println!("  q_vx={v}"); }
@@ -505,6 +512,7 @@ fn main() {
             if let Some(v) = args.duty_factor { println!("  duty_factor={v}"); }
             if let Some(v) = args.step_height { println!("  step_height={v}"); }
             if let Some(v) = args.mpc_dt { println!("  mpc_dt={v}"); }
+            if let Some(v) = args.mu_sim { println!("  mu_sim={v}"); }
             println!();
         }
     }

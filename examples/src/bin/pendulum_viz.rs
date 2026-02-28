@@ -370,7 +370,7 @@ fn main() {
     // 10. Teleop plugin (keyboard → TeleopCommander → JointCommand)
     //     Viz plugin (orbit camera + egui panel + mode gating)
     scene.app.add_plugins(ClankersTeleopPlugin);
-    scene.app.add_plugins(ClankersVizPlugin);
+    scene.app.add_plugins(ClankersVizPlugin::default());
 
     // 11. Robot visual meshes (separate from joint data entities)
     scene.app.add_systems(Startup, spawn_robot_meshes);

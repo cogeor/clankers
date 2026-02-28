@@ -314,7 +314,7 @@ fn main() {
     }));
 
     // 10. Viz plugin (orbit camera + egui panel, NO teleop)
-    scene.app.add_plugins(ClankersVizPlugin);
+    scene.app.add_plugins(ClankersVizPlugin::default());
 
     // 11. Robot visual meshes (separate from joint data entities)
     scene.app.add_systems(Startup, spawn_robot_meshes);

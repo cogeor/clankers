@@ -11,7 +11,7 @@ use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
 use clankers_ik::KinematicChain;
-use clankers_physics::rapier::{bridge::register_robot, MotorRateLimits, RapierBackend, RapierBackendFixed, RapierContext};
+use clankers_physics::rapier::{bridge::register_robot, InnerPdState, MotorRateLimits, RapierBackend, RapierBackendFixed, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::{SceneBuilder, SpawnedScene};
 use clankers_urdf::RobotModel;
@@ -37,6 +37,8 @@ pub struct QuadrupedSetupConfig {
     /// Motor command rate limit (max position change per step, radians).
     /// `None` disables rate limiting (default).
     pub motor_rate_limit: Option<f32>,
+    /// Enable inner PD interpolation across physics substeps (1000Hz effective).
+    pub inner_pd: bool,
 }
 
 impl Default for QuadrupedSetupConfig {
@@ -47,6 +49,7 @@ impl Default for QuadrupedSetupConfig {
             mpc_dt: None,
             use_fixed_update: false,
             motor_rate_limit: None,
+            inner_pd: false,
         }
     }
 }
@@ -106,6 +109,12 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
     if let Some(delta_max) = config.motor_rate_limit {
         scene.app.insert_resource(MotorRateLimits::new(delta_max));
         println!("  Motor rate limit: {delta_max:.3} rad/step");
+    }
+
+    // Insert inner PD interpolation state if enabled
+    if config.inner_pd {
+        scene.app.insert_resource(InnerPdState::default());
+        println!("  Inner PD: enabled (interpolating across substeps)");
     }
 
     let init_hip_ab: f32 = 0.0;

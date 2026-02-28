@@ -63,14 +63,46 @@ impl MotorRateLimits {
     }
 }
 
+/// High-frequency inner PD interpolation state.
+///
+/// When this resource is present, motor target positions are linearly
+/// interpolated across physics substeps instead of being set once (ZOH).
+/// This provides effective 1000Hz PD control while the MPC runs at 50Hz.
+#[derive(Resource, Default)]
+pub struct InnerPdState {
+    /// Previous control step's target positions per entity.
+    prev_targets: HashMap<Entity, f32>,
+}
+
 /// Apply joint torques, step physics, read back joint state.
+///
+/// When [`InnerPdState`] is present, motor target positions are linearly
+/// interpolated across substeps for effective 1000Hz PD control.
 #[allow(clippy::needless_pass_by_value)]
 pub fn rapier_step_system(
     mut context: ResMut<RapierContext>,
     mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
     motor_overrides: Option<Res<MotorOverrides>>,
     mut rate_limits: Option<ResMut<MotorRateLimits>>,
+    mut inner_pd: Option<ResMut<InnerPdState>>,
 ) {
+    let substeps = context.substeps;
+    let use_inner_pd = inner_pd.is_some() && motor_overrides.is_some();
+
+    // Collect override data for interpolation (needed if inner PD is active)
+    struct OverrideEntry {
+        joint_handle: rapier3d::dynamics::ImpulseJointHandle,
+        axis: JointAxis,
+        prev_pos: f32,
+        target_pos: f32,
+        target_vel: f32,
+        stiffness: f32,
+        damping: f32,
+        max_force: f32,
+    }
+
+    let mut override_entries: Vec<OverrideEntry> = Vec::new();
+
     // 1. Apply torques to rapier joints via motor trick (or position motor override)
     for (entity, torque, _) in &joints {
         let Some(&joint_handle) = context.joint_handles.get(&entity) else {
@@ -104,19 +136,39 @@ pub fn rapier_step_system(
                     mo.target_pos
                 };
 
-                joint.data.set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
-                joint.data.set_motor_max_force(axis, mo.max_force);
+                if use_inner_pd {
+                    // Store for substep interpolation
+                    let pd = inner_pd.as_mut().unwrap();
+                    let prev_pos = pd.prev_targets.get(&entity).copied().unwrap_or(target_pos);
+                    pd.prev_targets.insert(entity, target_pos);
+                    override_entries.push(OverrideEntry {
+                        joint_handle,
+                        axis,
+                        prev_pos,
+                        target_pos,
+                        target_vel: mo.target_vel,
+                        stiffness: mo.stiffness,
+                        damping: mo.damping,
+                        max_force: mo.max_force,
+                    });
+                    // Set initial interpolated target (substep 0)
+                    let alpha = 1.0 / substeps as f32;
+                    let interp = prev_pos + (target_pos - prev_pos) * alpha;
+                    joint.data.set_motor(axis, interp, mo.target_vel, mo.stiffness, mo.damping);
+                    joint.data.set_motor_max_force(axis, mo.max_force);
+                } else {
+                    joint.data.set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
+                    joint.data.set_motor_max_force(axis, mo.max_force);
+                }
             } else {
                 // Motor trick: ForceBased motor with huge target velocity,
                 // clamped to desired torque magnitude.
-                // API: set_motor(axis, target_pos, target_vel, stiffness, damping)
                 let t = torque.value;
                 if t.abs() > 1e-10 {
                     let target_vel = t.signum() * 1e10;
                     joint.data.set_motor(axis, 0.0, target_vel, 0.0, 1.0);
                     joint.data.set_motor_max_force(axis, t.abs());
                 } else {
-                    // Zero torque: fully disable motor so DOF is free.
                     joint.data.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
                     joint.data.set_motor_max_force(axis, 0.0);
                 }
@@ -124,10 +176,27 @@ pub fn rapier_step_system(
         }
     }
 
-    // 2. Step physics (substeps)
-    let substeps = context.substeps;
-    for _ in 0..substeps {
+    // 2. Step physics with inner PD interpolation
+    if use_inner_pd && !override_entries.is_empty() {
+        // First substep already has interpolated target set above
         context.step();
+
+        // Remaining substeps: update interpolated targets
+        for sub in 1..substeps {
+            let alpha = (sub + 1) as f32 / substeps as f32;
+            for entry in &override_entries {
+                if let Some(joint) = context.impulse_joint_set.get_mut(entry.joint_handle, true) {
+                    let interp = entry.prev_pos + (entry.target_pos - entry.prev_pos) * alpha;
+                    joint.data.set_motor(entry.axis, interp, entry.target_vel, entry.stiffness, entry.damping);
+                    joint.data.set_motor_max_force(entry.axis, entry.max_force);
+                }
+            }
+            context.step();
+        }
+    } else {
+        for _ in 0..substeps {
+            context.step();
+        }
     }
 
     // 3. Read back joint state from rigid body transforms

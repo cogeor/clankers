@@ -10,6 +10,7 @@ use clankers_core::traits::{ObservationSensor, Sensor};
 use clankers_core::types::Observation;
 
 use crate::buffer::{CameraFrameBuffers, DepthFrameBuffer};
+use crate::segmentation::SegmentationFrameBuffer;
 
 // ---------------------------------------------------------------------------
 // ImageSensor
@@ -200,6 +201,69 @@ impl ObservationSensor for DepthSensor {
 }
 
 // ---------------------------------------------------------------------------
+// SegmentationSensor
+// ---------------------------------------------------------------------------
+
+/// Sensor that reads from [`SegmentationFrameBuffer`] and returns RGB values
+/// normalised to `[0.0, 1.0]`.
+///
+/// Each pixel is stored as three `u8` channels (R, G, B) in the frame buffer.
+/// [`SegmentationSensor::read`] divides each byte by `255.0` so that the
+/// returned [`Observation`] has all values in `[0.0, 1.0]`.
+///
+/// The observation vector has length `width * height * 3`.
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::sensor::SegmentationSensor;
+/// use clankers_core::traits::{Sensor, ObservationSensor};
+///
+/// let sensor = SegmentationSensor {
+///     label: "seg_front".to_string(),
+///     width: 64,
+///     height: 48,
+/// };
+/// assert_eq!(sensor.observation_dim(), 64 * 48 * 3);
+/// ```
+pub struct SegmentationSensor {
+    /// Unique label identifying this segmentation sensor.
+    pub label: String,
+    /// Frame width in pixels.
+    pub width: u32,
+    /// Frame height in pixels.
+    pub height: u32,
+}
+
+impl Sensor for SegmentationSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Self::Output {
+        if let Some(buf) = world.get_resource::<SegmentationFrameBuffer>() {
+            let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
+            return Observation::new(data);
+        }
+
+        // Fall back to a zero observation of the declared dimension.
+        Observation::new(vec![0.0; self.observation_dim()])
+    }
+
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn rate_hz(&self) -> Option<f64> {
+        None
+    }
+}
+
+impl ObservationSensor for SegmentationSensor {
+    fn observation_dim(&self) -> usize {
+        (self.width * self.height * 3) as usize
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -208,6 +272,7 @@ mod tests {
     use super::*;
     use crate::buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
     use crate::config::PixelFormat;
+    use crate::segmentation::SegmentationFrameBuffer;
 
     #[test]
     fn image_sensor_name() {
@@ -437,5 +502,116 @@ mod tests {
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4 * 4);
         assert!(obs.as_slice().iter().all(|&v| v == 0.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // SegmentationSensor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn segmentation_sensor_observation_dim() {
+        let sensor = SegmentationSensor {
+            label: "seg".to_string(),
+            width: 64,
+            height: 48,
+        };
+        assert_eq!(sensor.observation_dim(), 64 * 48 * 3);
+    }
+
+    #[test]
+    fn segmentation_sensor_name() {
+        let sensor = SegmentationSensor {
+            label: "seg_front".to_string(),
+            width: 4,
+            height: 4,
+        };
+        assert_eq!(sensor.name(), "seg_front");
+    }
+
+    #[test]
+    fn segmentation_sensor_rate_is_none() {
+        let sensor = SegmentationSensor {
+            label: "s".to_string(),
+            width: 1,
+            height: 1,
+        };
+        assert!(sensor.rate_hz().is_none());
+    }
+
+    #[test]
+    fn segmentation_sensor_reads_from_frame_buffer_and_normalises() {
+        let mut world = World::new();
+
+        // 2x1 buffer, 2 pixels × 3 channels = 6 bytes
+        let mut buf = SegmentationFrameBuffer::new(2, 1);
+        // pixel 0: (0, 128, 255), pixel 1: (255, 0, 64)
+        buf.write_frame(vec![0_u8, 128, 255, 255, 0, 64]);
+        world.insert_resource(buf);
+
+        let sensor = SegmentationSensor {
+            label: "seg".to_string(),
+            width: 2,
+            height: 1,
+        };
+
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 6);
+
+        // Verify normalisation: u8 / 255.0
+        assert!((obs[0] - 0.0_f32).abs() < f32::EPSILON);
+        assert!((obs[1] - f32::from(128_u8) / 255.0).abs() < 0.001);
+        assert!((obs[2] - 1.0_f32).abs() < f32::EPSILON);
+        assert!((obs[3] - 1.0_f32).abs() < f32::EPSILON);
+        assert!((obs[4] - 0.0_f32).abs() < f32::EPSILON);
+        assert!((obs[5] - f32::from(64_u8) / 255.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn segmentation_sensor_normalises_to_unit_range() {
+        let mut world = World::new();
+        let mut buf = SegmentationFrameBuffer::new(1, 1);
+        buf.write_frame(vec![0_u8, 127, 255]);
+        world.insert_resource(buf);
+
+        let sensor = SegmentationSensor {
+            label: "seg".to_string(),
+            width: 1,
+            height: 1,
+        };
+        let obs = sensor.read(&mut world);
+        for val in obs.as_slice() {
+            assert!(*val >= 0.0);
+            assert!(*val <= 1.0);
+        }
+    }
+
+    #[test]
+    fn segmentation_sensor_fallback_when_no_buffer() {
+        let mut world = World::new();
+        let sensor = SegmentationSensor {
+            label: "seg".to_string(),
+            width: 4,
+            height: 4,
+        };
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 4 * 4 * 3);
+        assert!(obs.as_slice().iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn segmentation_sensor_u8_to_f32_linearisation() {
+        // Verify that specific u8 values map correctly to f32.
+        let cases: &[(u8, f32)] = &[
+            (0, 0.0),
+            (255, 1.0),
+            (128, 128.0 / 255.0),
+        ];
+        for &(byte, expected) in cases {
+            let got = f32::from(byte) / 255.0;
+            assert!(
+                (got - expected).abs() < 0.001,
+                "u8={byte}: got {got}, expected {expected}"
+            );
+        }
     }
 }

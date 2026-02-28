@@ -735,12 +735,86 @@ impl std::fmt::Display for CompositeHandle {
 }
 
 // ---------------------------------------------------------------------------
+// SegmentationClass
+// ---------------------------------------------------------------------------
+
+/// Semantic segmentation class assigned to a scene entity.
+///
+/// Attach this component to mesh entities so the segmentation camera can
+/// render them with a per-class flat colour from the [`SegmentationPalette`].
+///
+/// [`SegmentationPalette`]: crate::types::SegmentationClass
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::SegmentationClass;
+///
+/// let cls = SegmentationClass::ROBOT;
+/// assert_eq!(cls.0, 2);
+/// ```
+#[derive(bevy::prelude::Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentationClass(pub u32);
+
+impl SegmentationClass {
+    /// Ground plane class (id = 0).
+    pub const GROUND: Self = Self(0);
+    /// Wall / boundary class (id = 1).
+    pub const WALL: Self = Self(1);
+    /// Robot body class (id = 2).
+    pub const ROBOT: Self = Self(2);
+    /// Obstacle class (id = 3).
+    pub const OBSTACLE: Self = Self(3);
+    /// Table surface class (id = 4).
+    pub const TABLE: Self = Self(4);
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- SegmentationClass ----
+
+    #[test]
+    fn segmentation_class_constants() {
+        assert_eq!(SegmentationClass::GROUND.0, 0);
+        assert_eq!(SegmentationClass::WALL.0, 1);
+        assert_eq!(SegmentationClass::ROBOT.0, 2);
+        assert_eq!(SegmentationClass::OBSTACLE.0, 3);
+        assert_eq!(SegmentationClass::TABLE.0, 4);
+    }
+
+    #[test]
+    fn segmentation_class_new() {
+        let cls = SegmentationClass(42);
+        assert_eq!(cls.0, 42);
+    }
+
+    #[test]
+    fn segmentation_class_copy_eq_hash() {
+        let a = SegmentationClass::ROBOT;
+        let b = a; // Copy
+        assert_eq!(a, b);
+        let mut set = std::collections::HashSet::new();
+        set.insert(a);
+        set.insert(b); // duplicate
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn segmentation_class_debug() {
+        let s = format!("{:?}", SegmentationClass::WALL);
+        assert!(s.contains("SegmentationClass"));
+    }
+
+    #[test]
+    fn segmentation_class_ne() {
+        assert_ne!(SegmentationClass::GROUND, SegmentationClass::ROBOT);
+    }
 
     // ---- Observation ----
 

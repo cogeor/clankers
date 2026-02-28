@@ -108,7 +108,7 @@ pub mod prelude {
         types::{
             Action, ActionSpace, BatchResetResult, BatchStepResult, CompositeHandle, EnvId,
             ObjectHandle, Observation, ObservationSpace, ResetInfo, ResetResult, RobotGroup,
-            RobotHandle, RobotId, RobotInfo, SensorHandle, StepInfo, StepResult,
+            RobotHandle, RobotId, RobotInfo, SegmentationClass, SensorHandle, StepInfo, StepResult,
         },
     };
 }

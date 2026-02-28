@@ -43,6 +43,7 @@ pub mod camera;
 pub mod config;
 pub mod depth;
 pub mod readback;
+pub mod segmentation;
 pub mod sensor;
 
 use bevy::prelude::*;
@@ -53,7 +54,8 @@ use bevy::prelude::*;
 
 pub use buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
 pub use config::{CameraConfig, RenderConfig};
-pub use sensor::{DepthSensor, ImageSensor};
+pub use segmentation::{SegmentationFrameBuffer, SegmentationPalette};
+pub use sensor::{DepthSensor, ImageSensor, SegmentationSensor};
 
 // ---------------------------------------------------------------------------
 // ClankersRenderPlugin
@@ -96,7 +98,8 @@ pub mod prelude {
         ClankersRenderPlugin,
         buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer},
         config::{CameraConfig, PixelFormat, RenderConfig},
-        sensor::{DepthSensor, ImageSensor},
+        segmentation::{SegmentationFrameBuffer, SegmentationPalette},
+        sensor::{DepthSensor, ImageSensor, SegmentationSensor},
     };
 
     #[cfg(feature = "gpu")]
@@ -104,6 +107,10 @@ pub mod prelude {
         camera::SimCamera,
         depth::{ClankersDepthPlugin, DepthCamera, spawn_depth_camera_sensor},
         readback::ImageCopyPlugin,
+        segmentation::{
+            ClankersSegmentationPlugin, SegmentationCamera, SegmentationImageHandle,
+            SegmentationMaterials, both_layers, spawn_segmentation_camera_sensor,
+        },
     };
 }
 

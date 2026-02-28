@@ -25,7 +25,7 @@ use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTor
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, StanceConfig, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
@@ -1095,7 +1095,6 @@ fn main() {
             solver: MpcSolver::new(config.clone(), 4),
             config,
             swing_config,
-            stance_config: StanceConfig::default(),
             legs,
             swing_starts: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],

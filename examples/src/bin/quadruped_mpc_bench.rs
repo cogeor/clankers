@@ -14,7 +14,7 @@ use clap::Parser;
 use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, StanceConfig, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
@@ -76,14 +76,6 @@ struct Args {
     #[arg(long)]
     f_max: Option<f64>,
 
-    /// Override stance pitch/knee kp
-    #[arg(long)]
-    stance_kp: Option<f32>,
-
-    /// Override stance pitch/knee max_force
-    #[arg(long)]
-    stance_max_f: Option<f32>,
-
     /// Override Raibert velocity error gain
     #[arg(long)]
     raibert_kv: Option<f64>,
@@ -107,6 +99,10 @@ struct Args {
     /// Override swing step height in meters (default 0.10)
     #[arg(long)]
     step_height: Option<f64>,
+
+    /// Override MPC timestep in seconds (default 0.02 = 50Hz)
+    #[arg(long)]
+    mpc_dt: Option<f64>,
 }
 
 fn parse_gait(s: &str) -> GaitType {
@@ -472,6 +468,9 @@ fn main() {
         mpc_config.q_weights[6] = v; // wx
         mpc_config.q_weights[7] = v; // wy
     }
+    if let Some(v) = args.mpc_dt {
+        mpc_config.dt = v;
+    }
     let dt = mpc_config.dt;
 
     // Build swing config with CLI overrides
@@ -483,22 +482,14 @@ fn main() {
         swing_config.step_height = v;
     }
 
-    // Build stance config with CLI overrides
-    let mut stance_config = StanceConfig::default();
-    if let Some(v) = args.stance_kp {
-        stance_config.pitch_knee_kp = v;
-    }
-    if let Some(v) = args.stance_max_f {
-        stance_config.pitch_knee_max_f = v;
-    }
-
     // Print active overrides
     {
         let has_overrides = args.q_vx.is_some() || args.q_pz.is_some() || args.r_weight.is_some()
             || args.horizon.is_some() || args.mu.is_some() || args.f_max.is_some()
-            || args.stance_kp.is_some() || args.stance_max_f.is_some() || args.raibert_kv.is_some()
+            || args.raibert_kv.is_some()
             || args.q_roll.is_some() || args.q_omega.is_some()
-            || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some();
+            || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some()
+            || args.mpc_dt.is_some();
         if has_overrides {
             println!("Overrides:");
             if let Some(v) = args.q_vx { println!("  q_vx={v}"); }
@@ -507,14 +498,13 @@ fn main() {
             if let Some(h) = args.horizon { println!("  horizon={h}"); }
             if let Some(v) = args.mu { println!("  mu={v}"); }
             if let Some(v) = args.f_max { println!("  f_max={v}"); }
-            if let Some(v) = args.stance_kp { println!("  stance_kp={v}"); }
-            if let Some(v) = args.stance_max_f { println!("  stance_max_f={v}"); }
             if let Some(v) = args.raibert_kv { println!("  raibert_kv={v}"); }
             if let Some(v) = args.q_roll { println!("  q_roll={v}"); }
             if let Some(v) = args.q_omega { println!("  q_omega={v}"); }
             if let Some(v) = args.cycle_time { println!("  cycle_time={v}"); }
             if let Some(v) = args.duty_factor { println!("  duty_factor={v}"); }
             if let Some(v) = args.step_height { println!("  step_height={v}"); }
+            if let Some(v) = args.mpc_dt { println!("  mpc_dt={v}"); }
             println!();
         }
     }
@@ -525,7 +515,6 @@ fn main() {
         solver: MpcSolver::new(mpc_config.clone(), 4),
         config: mpc_config,
         swing_config,
-        stance_config,
         legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
@@ -628,7 +617,8 @@ fn main() {
                 joint.data.set_motor_max_force(JointAxis::AngX, mc.max_force);
             }
 
-            let substeps = ctx.substeps;
+            // Compute substeps from MPC dt / physics dt (0.001s)
+            let substeps = (dt / 0.001).round() as usize;
             for _ in 0..substeps {
                 ctx.step();
             }

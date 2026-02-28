@@ -1,8 +1,15 @@
 //! Frame buffer for storing captured pixel data.
 //!
-//! [`FrameBuffer`] is a Bevy resource that holds a single frame of pixel data.
-//! In headless mode it stores a blank frame; when rendering is active, the
-//! capture system writes pixels into this buffer each frame.
+//! [`FrameBuffer`] holds a single frame of pixel data per camera.
+//! [`CameraFrameBuffers`] is a Bevy resource that maps camera labels to their
+//! respective [`FrameBuffer`]s.
+//!
+//! In headless mode the buffers exist but are only written to when external
+//! code explicitly calls [`FrameBuffer::write_frame`]. When the `gpu` feature
+//! is active, the readback system transfers GPU output into the buffers each
+//! frame.
+
+use std::collections::HashMap;
 
 use bevy::prelude::*;
 
@@ -140,6 +147,76 @@ impl Default for FrameBuffer {
 }
 
 // ---------------------------------------------------------------------------
+// CameraFrameBuffers
+// ---------------------------------------------------------------------------
+
+/// Resource holding one [`FrameBuffer`] per named camera sensor.
+///
+/// Each camera is identified by the label set in [`CameraConfig::label`]. The
+/// readback system (active under the `gpu` feature) writes captured frames into
+/// the appropriate entry. Call [`get`][Self::get] to read the latest pixels for
+/// a given camera.
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::buffer::{CameraFrameBuffers, FrameBuffer};
+/// use clankers_render::config::PixelFormat;
+///
+/// let mut bufs = CameraFrameBuffers::default();
+/// bufs.insert("front".to_string(), FrameBuffer::new(4, 4, PixelFormat::Rgba8));
+/// assert!(bufs.get("front").is_some());
+/// ```
+///
+/// [`CameraConfig::label`]: crate::config::CameraConfig::label
+#[derive(Resource, Default, Debug)]
+pub struct CameraFrameBuffers(HashMap<String, FrameBuffer>);
+
+impl CameraFrameBuffers {
+    /// Return a reference to the [`FrameBuffer`] for the named camera, or
+    /// `None` if no buffer has been registered under that label.
+    pub fn get(&self, label: &str) -> Option<&FrameBuffer> {
+        self.0.get(label)
+    }
+
+    /// Return a mutable reference to the [`FrameBuffer`] for the named camera,
+    /// or `None` if no buffer has been registered under that label.
+    pub fn get_mut(&mut self, label: &str) -> Option<&mut FrameBuffer> {
+        self.0.get_mut(label)
+    }
+
+    /// Register (or replace) a [`FrameBuffer`] under the given label.
+    pub fn insert(&mut self, label: String, buf: FrameBuffer) {
+        self.0.insert(label, buf);
+    }
+
+    /// Remove the [`FrameBuffer`] registered under the given label.
+    pub fn remove(&mut self, label: &str) -> Option<FrameBuffer> {
+        self.0.remove(label)
+    }
+
+    /// Iterate over all (label, buffer) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &FrameBuffer)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Iterate mutably over all (label, buffer) pairs.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut FrameBuffer)> {
+        self.0.iter_mut().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Number of cameras registered.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if no cameras are registered.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -259,5 +336,84 @@ mod tests {
         assert_eq!(buf.width(), buf2.width());
         assert_eq!(buf.height(), buf2.height());
         assert_eq!(buf.data(), buf2.data());
+    }
+
+    // -----------------------------------------------------------------------
+    // CameraFrameBuffers tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn camera_frame_buffers_default_is_empty() {
+        let bufs = CameraFrameBuffers::default();
+        assert!(bufs.is_empty());
+        assert_eq!(bufs.len(), 0);
+    }
+
+    #[test]
+    fn camera_frame_buffers_insert_and_get() {
+        let mut bufs = CameraFrameBuffers::default();
+        bufs.insert(
+            "front".to_string(),
+            FrameBuffer::new(4, 4, PixelFormat::Rgba8),
+        );
+        assert!(bufs.get("front").is_some());
+        assert_eq!(bufs.get("front").unwrap().width(), 4);
+        assert!(bufs.get("rear").is_none());
+    }
+
+    #[test]
+    fn camera_frame_buffers_get_mut() {
+        let mut bufs = CameraFrameBuffers::default();
+        bufs.insert(
+            "cam".to_string(),
+            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
+        );
+        let buf = bufs.get_mut("cam").unwrap();
+        buf.write_frame(vec![10, 20, 30]);
+        assert_eq!(bufs.get("cam").unwrap().data(), &[10, 20, 30]);
+    }
+
+    #[test]
+    fn camera_frame_buffers_remove() {
+        let mut bufs = CameraFrameBuffers::default();
+        bufs.insert(
+            "cam".to_string(),
+            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
+        );
+        let removed = bufs.remove("cam");
+        assert!(removed.is_some());
+        assert!(bufs.is_empty());
+    }
+
+    #[test]
+    fn camera_frame_buffers_multiple_cameras() {
+        let mut bufs = CameraFrameBuffers::default();
+        bufs.insert(
+            "cam_a".to_string(),
+            FrameBuffer::new(2, 2, PixelFormat::Rgb8),
+        );
+        bufs.insert(
+            "cam_b".to_string(),
+            FrameBuffer::new(4, 4, PixelFormat::Rgba8),
+        );
+        assert_eq!(bufs.len(), 2);
+        assert_eq!(bufs.get("cam_a").unwrap().format(), PixelFormat::Rgb8);
+        assert_eq!(bufs.get("cam_b").unwrap().format(), PixelFormat::Rgba8);
+    }
+
+    #[test]
+    fn camera_frame_buffers_iter() {
+        let mut bufs = CameraFrameBuffers::default();
+        bufs.insert(
+            "x".to_string(),
+            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
+        );
+        bufs.insert(
+            "y".to_string(),
+            FrameBuffer::new(2, 2, PixelFormat::Rgba8),
+        );
+        let mut labels: Vec<&str> = bufs.iter().map(|(label, _)| label).collect();
+        labels.sort_unstable();
+        assert_eq!(labels, vec!["x", "y"]);
     }
 }

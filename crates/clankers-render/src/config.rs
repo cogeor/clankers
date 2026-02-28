@@ -106,8 +106,13 @@ impl Default for RenderConfig {
 /// Component for camera projection parameters.
 ///
 /// Attached to camera entities to configure the viewpoint for frame capture.
+/// The `label` field uniquely identifies the camera within [`CameraFrameBuffers`].
+///
+/// [`CameraFrameBuffers`]: crate::buffer::CameraFrameBuffers
 #[derive(Component, Clone, Debug)]
 pub struct CameraConfig {
+    /// Unique label identifying this camera's frame buffer entry.
+    pub label: String,
     /// Vertical field of view in radians.
     pub fov_y: f32,
     /// Near clipping plane distance.
@@ -117,33 +122,43 @@ pub struct CameraConfig {
 }
 
 impl CameraConfig {
-    /// Create a camera config with typical defaults.
+    /// Create a camera config with typical defaults and an empty label.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
+            label: String::new(),
             fov_y: std::f32::consts::FRAC_PI_3,
             near: 0.01,
             far: 100.0,
         }
     }
 
+    /// Set the camera label used to key into [`CameraFrameBuffers`].
+    ///
+    /// [`CameraFrameBuffers`]: crate::buffer::CameraFrameBuffers
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
     /// Set the vertical field of view in radians.
     #[must_use]
-    pub const fn with_fov_y(mut self, fov_y: f32) -> Self {
+    pub fn with_fov_y(mut self, fov_y: f32) -> Self {
         self.fov_y = fov_y;
         self
     }
 
     /// Set the near clipping plane.
     #[must_use]
-    pub const fn with_near(mut self, near: f32) -> Self {
+    pub fn with_near(mut self, near: f32) -> Self {
         self.near = near;
         self
     }
 
     /// Set the far clipping plane.
     #[must_use]
-    pub const fn with_far(mut self, far: f32) -> Self {
+    pub fn with_far(mut self, far: f32) -> Self {
         self.far = far;
         self
     }
@@ -240,5 +255,17 @@ mod tests {
         assert!((a.fov_y - b.fov_y).abs() < f32::EPSILON);
         assert!((a.near - b.near).abs() < f32::EPSILON);
         assert!((a.far - b.far).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn camera_config_default_label_is_empty() {
+        let cam = CameraConfig::new();
+        assert!(cam.label.is_empty());
+    }
+
+    #[test]
+    fn camera_config_with_label() {
+        let cam = CameraConfig::new().with_label("front_cam");
+        assert_eq!(cam.label, "front_cam");
     }
 }

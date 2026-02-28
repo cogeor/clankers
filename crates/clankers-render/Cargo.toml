@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+## Enables GPU camera rendering: Camera3d offscreen render targets, GPU readback,
+## and per-camera frame buffer population. Requires a wgpu-capable GPU backend.
+gpu = ["bevy/bevy_render", "bevy/bevy_core_pipeline", "bevy/bevy_pbr"]
+
 [dependencies]
 clankers-core.workspace = true
 bevy.workspace = true

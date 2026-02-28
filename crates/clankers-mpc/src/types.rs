@@ -27,6 +27,10 @@ pub struct MpcConfig {
     pub q_weights: [f64; 12],
     /// Control effort cost weight (applied uniformly to all force components).
     pub r_weight: f64,
+    /// Force rate penalty weight: penalizes ||f_k - f_{k-1}||² to reduce
+    /// high-frequency force chatter that excites contact solver instabilities.
+    /// Set to 0.0 to disable.
+    pub delta_f_weight: f64,
     /// Maximum QP solver iterations.
     pub max_solver_iters: u32,
 }
@@ -59,6 +63,7 @@ impl Default for MpcConfig {
                 150.0, 150.0, 5.0,
             ],
             r_weight: 1e-7,
+            delta_f_weight: 1e-6,
             max_solver_iters: 100,
         }
     }

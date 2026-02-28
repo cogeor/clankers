@@ -1,0 +1,24 @@
+[package]
+name = "clankers-record"
+description = "Offline episode recorder writing MCAP files for the Clankers robotics simulator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+camera = ["dep:clankers-render"]
+
+[dependencies]
+bevy = { workspace = true, features = ["bevy_log"] }
+mcap = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+clankers-core = { workspace = true }
+clankers-actuator = { workspace = true }
+clankers-render = { workspace = true, optional = true }
+
+[lints]
+workspace = true

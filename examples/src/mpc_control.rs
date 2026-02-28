@@ -224,7 +224,10 @@ pub fn compute_mpc_step(
                     stance_duration,
                     swing_duration,
                     ground_height,
-                    state.swing_config.raibert_kv,
+                    state.swing_config.cp_gain,
+                    desired_height - ground_height,
+                    state.config.gravity,
+                    state.swing_config.max_reach,
                 );
             }
 

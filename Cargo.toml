@@ -29,6 +29,7 @@ clankers-viz = { path = "crates/clankers-viz" }
 clankers-test-utils = { path = "crates/clankers-test-utils" }
 clankers-ik = { path = "crates/clankers-ik" }
 clankers-mpc = { path = "crates/clankers-mpc" }
+clankers-record = { path = "crates/clankers-record" }
 
 # External dependencies (single source of truth)
 nalgebra = "0.34"
@@ -48,6 +49,7 @@ clarabel = "0.11"
 rapier3d = "0.32"
 ndarray = "0.16"
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "load-dynamic", "tls-native"] }
+mcap = "0.24"
 
 # Optimize dependencies even in debug builds.
 # nalgebra, clarabel, and rapier are ~10x slower at opt-level=0.

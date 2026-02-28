@@ -10,6 +10,7 @@ Install: pip install diffusers transformers torch accelerate Pillow
 from clanker_gym.augmentation.palette import PaletteRemapper, CLANKERS_PALETTE, ADE20K_MAPPING
 from clanker_gym.augmentation.prompts import PromptBuilder, SceneType
 from clanker_gym.augmentation.pipeline import Sim2RealPipeline
+from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
 
 __all__ = [
     "PaletteRemapper",
@@ -18,4 +19,5 @@ __all__ = [
     "PromptBuilder",
     "SceneType",
     "Sim2RealPipeline",
+    "McapAugmentor",
 ]

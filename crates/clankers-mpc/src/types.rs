@@ -31,6 +31,12 @@ pub struct MpcConfig {
     /// high-frequency force chatter that excites contact solver instabilities.
     /// Set to 0.0 to disable.
     pub delta_f_weight: f64,
+    /// Soft constraint slack penalty weight (L2). When > 0, friction cone
+    /// constraints become soft: violations are penalized in the cost rather
+    /// than causing QP infeasibility. Set to 0.0 to keep hard constraints.
+    /// Typical: 1e4–1e6 (high enough to discourage violation, low enough to
+    /// allow it when necessary).
+    pub slack_weight: f64,
     /// Maximum QP solver iterations.
     pub max_solver_iters: u32,
 }
@@ -64,6 +70,7 @@ impl Default for MpcConfig {
             ],
             r_weight: 1e-7,
             delta_f_weight: 1e-6,
+            slack_weight: 1e5,
             max_solver_iters: 100,
         }
     }
@@ -125,6 +132,8 @@ pub struct MpcSolution {
     pub state_trajectory: DVector<f64>,
     /// Whether the QP solver converged.
     pub converged: bool,
+    /// Maximum constraint slack (0.0 when hard constraints are used or no violation).
+    pub max_slack: f64,
     /// Solve time in microseconds.
     pub solve_time_us: u64,
 }

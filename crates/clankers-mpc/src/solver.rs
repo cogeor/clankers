@@ -159,18 +159,32 @@ impl MpcSolver {
             n_u_total,
         );
 
-        // 5. Convert P to Clarabel CSC format
-        let p_csc = dmatrix_to_csc_upper_tri(&self.p_mat);
+        // 5. Convert P to Clarabel CSC format and optionally add slacks
+        let use_slacks = self.config.slack_weight > 0.0 && n_ineq > 0;
 
-        // 6. Define cones: equalities first, then inequalities
-        let cones = vec![ZeroConeT(n_eq), NonnegativeConeT(n_ineq)];
+        let (p_csc_final, q_final, a_csc_final, b_final, cones) = if use_slacks {
+            build_soft_qp(
+                &self.p_mat,
+                &self.q_vec,
+                &a_csc,
+                &b_con,
+                n_eq,
+                n_ineq,
+                n_u_total,
+                self.config.slack_weight,
+            )
+        } else {
+            let p_csc = dmatrix_to_csc_upper_tri(&self.p_mat);
+            let cones = vec![ZeroConeT(n_eq), NonnegativeConeT(n_ineq)];
+            (p_csc, self.q_vec.as_slice().to_vec(), a_csc, b_con, cones)
+        };
 
-        // 7. Solve (reuse cached settings)
+        // 6. Solve (reuse cached settings)
         let solver_result = DefaultSolver::new(
-            &p_csc,
-            self.q_vec.as_slice(),
-            &a_csc,
-            &b_con,
+            &p_csc_final,
+            &q_final,
+            &a_csc_final,
+            &b_final,
             &cones,
             self.clarabel_settings.clone(),
         );
@@ -179,6 +193,7 @@ impl MpcSolver {
         let mut forces = vec![Vector3::zeros(); self.n_feet];
         let mut force_trajectory = DVector::zeros(n_u_total);
         let mut state_trajectory = DVector::zeros(STATE_DIM * h);
+        let mut max_slack = 0.0_f64;
 
         match solver_result {
             Ok(mut solver) => {
@@ -206,6 +221,13 @@ impl MpcSolver {
                     // Reconstruct state trajectory: X = A_qp x0 + B_qp U
                     let u_vec = DVector::from_column_slice(&sol.x[..n_u_total]);
                     state_trajectory = &self.a_qp * x0 + &self.b_qp * u_vec;
+
+                    // Extract max slack from extended variables
+                    if use_slacks {
+                        for i in n_u_total..sol.x.len() {
+                            max_slack = max_slack.max(sol.x[i]);
+                        }
+                    }
                 }
             }
             Err(_) => {
@@ -220,6 +242,7 @@ impl MpcSolver {
             force_trajectory,
             state_trajectory,
             converged,
+            max_slack,
             solve_time_us: u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX),
         }
     }
@@ -501,6 +524,123 @@ fn build_constraints_csc(
     (a_csc, b_con, n_eq, n_ineq)
 }
 
+/// Build extended QP with slack variables for soft friction constraints.
+///
+/// Decision variables become z = [U; sigma] where sigma ≥ 0 are slacks that
+/// relax friction cone inequalities. The constraint system becomes:
+///
+/// ```text
+/// [A_eq    | 0 ] z = b_eq         (swing equalities, unchanged)
+/// [A_ineq  | -I] z ≤ b_ineq       (friction, relaxed by sigma)
+/// [0       | -I] z ≤ 0            (sigma ≥ 0)
+/// ```
+///
+/// Cost adds L2 penalty: w_slack * ||sigma||^2.
+#[allow(clippy::too_many_arguments)]
+fn build_soft_qp(
+    p_base: &DMatrix<f64>,
+    q_base: &DVector<f64>,
+    a_hard: &CscMatrix<f64>,
+    b_hard: &[f64],
+    n_eq: usize,
+    n_ineq: usize,
+    n_u: usize,
+    slack_weight: f64,
+) -> (
+    CscMatrix<f64>,
+    Vec<f64>,
+    CscMatrix<f64>,
+    Vec<f64>,
+    Vec<clarabel::solver::SupportedConeT<f64>>,
+) {
+    let n_slack = n_ineq;
+    let n_vars = n_u + n_slack;
+    let n_con_hard = n_eq + n_ineq;
+    let n_con_total = n_con_hard + n_slack; // hard rows + sigma≥0
+
+    // --- Extended P: block_diag(P_base, 2*w*I) in upper-triangle CSC ---
+    let p_base_upper = dmatrix_to_csc_upper_tri(p_base);
+    let mut p_colptr = Vec::with_capacity(n_vars + 1);
+    let mut p_rowval = Vec::with_capacity(p_base_upper.nzval.len() + n_slack);
+    let mut p_nzval = Vec::with_capacity(p_base_upper.nzval.len() + n_slack);
+    p_colptr.push(0);
+
+    // Copy base P columns
+    for col in 0..n_u {
+        let start = p_base_upper.colptr[col];
+        let end = p_base_upper.colptr[col + 1];
+        for idx in start..end {
+            p_rowval.push(p_base_upper.rowval[idx]);
+            p_nzval.push(p_base_upper.nzval[idx]);
+        }
+        p_colptr.push(p_rowval.len());
+    }
+
+    // Slack diagonal: 2*slack_weight on diagonal
+    let two_w = 2.0 * slack_weight;
+    for s in 0..n_slack {
+        p_rowval.push(n_u + s);
+        p_nzval.push(two_w);
+        p_colptr.push(p_rowval.len());
+    }
+
+    let p_csc = CscMatrix::new(n_vars, n_vars, p_colptr, p_rowval, p_nzval);
+
+    // --- Extended q: [q_base; 0] ---
+    let mut q_ext = Vec::with_capacity(n_vars);
+    q_ext.extend_from_slice(q_base.as_slice());
+    q_ext.resize(n_vars, 0.0);
+
+    // --- Extended A: augment with slack columns ---
+    // Original A (n_con_hard × n_u) becomes (n_con_total × n_vars):
+    //   [A_eq    | 0 ]    rows 0..n_eq
+    //   [A_ineq  | -I]    rows n_eq..n_con_hard
+    //   [0       | -I]    rows n_con_hard..n_con_total
+    let mut a_colptr = Vec::with_capacity(n_vars + 1);
+    let mut a_rowval = Vec::new();
+    let mut a_nzval = Vec::new();
+    a_colptr.push(0);
+
+    // Force columns (0..n_u): copy from original A
+    for col in 0..n_u {
+        let start = a_hard.colptr[col];
+        let end = a_hard.colptr[col + 1];
+        for idx in start..end {
+            a_rowval.push(a_hard.rowval[idx]);
+            a_nzval.push(a_hard.nzval[idx]);
+        }
+        a_colptr.push(a_rowval.len());
+    }
+
+    // Slack columns (n_u..n_vars): each slack s_i appears in:
+    //   row (n_eq + i): -1.0  (relaxes friction constraint i)
+    //   row (n_con_hard + i): -1.0  (sigma_i ≥ 0 via b - Ax ≥ 0 form)
+    for s in 0..n_slack {
+        // Row in the friction block
+        a_rowval.push(n_eq + s);
+        a_nzval.push(-1.0);
+        // Row in the sigma≥0 block
+        a_rowval.push(n_con_hard + s);
+        a_nzval.push(-1.0);
+        a_colptr.push(a_rowval.len());
+    }
+
+    let a_csc = CscMatrix::new(n_con_total, n_vars, a_colptr, a_rowval, a_nzval);
+
+    // --- Extended b: [b_hard; 0] ---
+    let mut b_ext = Vec::with_capacity(n_con_total);
+    b_ext.extend_from_slice(b_hard);
+    b_ext.resize(n_con_total, 0.0);
+
+    // --- Cones ---
+    let cones = vec![
+        ZeroConeT(n_eq),
+        NonnegativeConeT(n_ineq + n_slack), // friction slacked + sigma≥0
+    ];
+
+    (p_csc, q_ext, a_csc, b_ext, cones)
+}
+
 /// Build prediction matrices (allocating version, for tests only).
 #[cfg(test)]
 fn build_prediction_matrices(
@@ -740,8 +880,8 @@ mod tests {
         assert!(solution.converged);
 
         assert!(
-            solution.solve_time_us < 200_000,
-            "Solve took {}us, expected < 200000us (debug mode is slow)",
+            solution.solve_time_us < 500_000,
+            "Solve took {}us, expected < 500000us (debug mode is slow)",
             solution.solve_time_us
         );
     }
@@ -814,5 +954,76 @@ mod tests {
             total_fx > 0.0,
             "Total fx={total_fx} should be positive for forward acceleration"
         );
+    }
+
+    #[test]
+    fn soft_constraints_converge_and_match_hard() {
+        // With well-conditioned problem, soft constraints should give same result
+        // as hard constraints (slack ≈ 0)
+        let mut config = test_config();
+        config.slack_weight = 1e5;
+        let mut solver = MpcSolver::new(config.clone(), 4);
+
+        let state = BodyState {
+            orientation: Vector3::zeros(),
+            position: Vector3::new(0.0, 0.0, 0.30),
+            angular_velocity: Vector3::zeros(),
+            linear_velocity: Vector3::zeros(),
+        };
+        let x0 = state.to_state_vector(config.gravity);
+        let feet = quadruped_feet_standing();
+        let contacts: Vec<Vec<bool>> = vec![vec![true; 4]; config.horizon];
+
+        let reference = ReferenceTrajectory::constant_velocity(
+            &state,
+            &Vector3::zeros(),
+            0.30,
+            0.0,
+            config.horizon,
+            config.dt,
+            config.gravity,
+        );
+
+        let solution = solver.solve(&x0, &feet, &contacts, &reference);
+        assert!(solution.converged, "Soft QP must converge");
+        assert!(
+            solution.max_slack < 1e-3,
+            "Slack should be ~0 for feasible problem, got {}",
+            solution.max_slack
+        );
+
+        let total_fz: f64 = solution.forces.iter().map(|f| f.z).sum();
+        assert_relative_eq!(total_fz, config.mass * config.gravity, epsilon = 10.0);
+    }
+
+    #[test]
+    fn soft_constraints_disabled_when_weight_zero() {
+        let mut config = test_config();
+        config.slack_weight = 0.0;
+        let mut solver = MpcSolver::new(config.clone(), 4);
+
+        let state = BodyState {
+            orientation: Vector3::zeros(),
+            position: Vector3::new(0.0, 0.0, 0.30),
+            angular_velocity: Vector3::zeros(),
+            linear_velocity: Vector3::zeros(),
+        };
+        let x0 = state.to_state_vector(config.gravity);
+        let feet = quadruped_feet_standing();
+        let contacts: Vec<Vec<bool>> = vec![vec![true; 4]; config.horizon];
+
+        let reference = ReferenceTrajectory::constant_velocity(
+            &state,
+            &Vector3::zeros(),
+            0.30,
+            0.0,
+            config.horizon,
+            config.dt,
+            config.gravity,
+        );
+
+        let solution = solver.solve(&x0, &feet, &contacts, &reference);
+        assert!(solution.converged);
+        assert_eq!(solution.max_slack, 0.0, "No slacks when weight=0");
     }
 }

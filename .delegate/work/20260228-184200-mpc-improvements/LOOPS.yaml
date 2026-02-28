@@ -1,0 +1,64 @@
+loops:
+  - id: 1
+    summary: "Bezier swing trajectories"
+    scope: clankers-mpc
+    description: |
+      Replace min-jerk quintic in swing_foot_position/swing_foot_velocity with
+      12-point Bezier curves (MIT Cheetah style). Boundary conditions: zero
+      velocity and acceleration at liftoff/touchdown. Update existing tests.
+    files:
+      - crates/clankers-mpc/src/swing.rs
+
+  - id: 2
+    summary: "Decouple viz framerate from simulation"
+    scope: clankers-viz
+    description: |
+      Use Bevy FixedUpdate schedule to run physics/MPC at fixed 50Hz regardless
+      of render frame rate. Move ClankersSet run conditions to FixedUpdate.
+      OK to drop viz frames.
+    files:
+      - crates/clankers-viz/src/plugin.rs
+      - crates/clankers-viz/src/systems.rs
+      - examples/src/bin/quadruped_mpc_viz.rs
+
+  - id: 3
+    summary: "Torque rate clamping"
+    scope: clankers-physics
+    description: |
+      Add torque/motor-command rate limiting to MotorOverrides application.
+      Clamp delta between consecutive commands per joint. Not inside MPC QP.
+    files:
+      - crates/clankers-physics/src/rapier/systems.rs
+
+  - id: 4
+    summary: "Adaptive gait timing wiring"
+    scope: clankers-mpc
+    description: |
+      Wire existing AdaptiveGaitConfig into the MPC binaries. Enable
+      velocity-dependent gait adaptation (duty factor, cycle time) in both
+      bench and viz. Make it opt-in via config.
+    files:
+      - examples/src/mpc_control.rs
+      - examples/src/bin/quadruped_mpc_bench.rs
+      - examples/src/bin/quadruped_mpc_viz.rs
+
+  - id: 5
+    summary: "High-frequency inner PD loop"
+    scope: clankers-physics
+    description: |
+      Add inner PD interpolation within physics substeps. Motor targets
+      are set once per control step (50Hz) but PD interpolates smoothly
+      across the 20 substeps (1000Hz effective rate).
+    files:
+      - crates/clankers-physics/src/rapier/systems.rs
+
+  - id: 6
+    summary: "Raibert heuristic tuning config"
+    scope: clankers-mpc
+    description: |
+      Add velocity-dependent cp_gain profile to SwingConfig. Create a
+      lookup/interpolation so cp_gain adapts with speed. Document tuning
+      guidelines.
+    files:
+      - crates/clankers-mpc/src/swing.rs
+      - examples/src/mpc_control.rs

@@ -190,6 +190,24 @@ impl RapierContext {
         ])
     }
 
+    /// Check if a named link has any active contact pairs in the narrow phase.
+    pub fn has_active_contacts(&self, link_name: &str) -> bool {
+        let Some(&body_handle) = self.body_handles.get(link_name) else {
+            return false;
+        };
+        let Some(body) = self.rigid_body_set.get(body_handle) else {
+            return false;
+        };
+        for &collider_handle in body.colliders() {
+            for contact_pair in self.narrow_phase.contact_pairs_with(collider_handle) {
+                if contact_pair.has_any_active_contact() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Run one physics substep.
     pub fn step(&mut self) {
         self.physics_pipeline.step(

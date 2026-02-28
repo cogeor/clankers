@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use clankers_actuator::components::{Actuator, JointCommand, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{AdaptiveGaitConfig, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
@@ -374,6 +374,7 @@ fn main() {
         swing_targets: vec![Vector3::zeros(); n_feet],
         prev_contacts: vec![true; n_feet],
         init_joint_angles,
+        foot_link_names: Some(foot_link_names.iter().map(|s| (*s).to_string()).collect()),
     };
 
     // 9. Start episode
@@ -394,11 +395,13 @@ fn main() {
             println!("  >>> Switched to Trot at step {step}");
         }
 
-        // --- Floating origin rebase + read body state ---
-        let (body_state, body_quat) = {
+        // --- Floating origin rebase + read body state + detect contacts ---
+        let (body_state, body_quat, actual_contacts) = {
             let mut ctx = scene.app.world_mut().resource_mut::<RapierContext>();
             ctx.rebase_origin("body", 50.0);
-            body_state_from_rapier(ctx.as_ref(), "body").expect("body not found in Rapier")
+            let (bs, bq) = body_state_from_rapier(ctx.as_ref(), "body").expect("body not found in Rapier");
+            let contacts = detect_foot_contacts(ctx.as_ref(), &mpc_state);
+            (bs, bq, contacts)
         };
 
         // --- Read joint states ---
@@ -439,6 +442,7 @@ fn main() {
             desired_height,
             desired_yaw,
             ground_height,
+            actual_contacts.as_deref(),
         );
 
         // --- Apply motor commands + step physics manually ---

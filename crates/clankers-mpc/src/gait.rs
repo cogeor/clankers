@@ -32,6 +32,9 @@ pub struct GaitScheduler {
     cycle_time: f64,
     /// Current phase in the gait cycle [0, 1).
     phase: f64,
+    /// Per-foot contact override from ground-truth sensors.
+    /// When set, overrides the scheduled contact state for that foot.
+    contact_overrides: Vec<Option<bool>>,
 }
 
 impl GaitScheduler {
@@ -45,6 +48,7 @@ impl GaitScheduler {
         };
         Self {
             n_feet: 4,
+            contact_overrides: vec![None; 4],
             offsets,
             duty_factor,
             cycle_time,
@@ -53,7 +57,7 @@ impl GaitScheduler {
     }
 
     /// Create a custom gait scheduler.
-    pub const fn custom(
+    pub fn custom(
         offsets: Vec<f64>,
         duty_factor: f64,
         cycle_time: f64,
@@ -61,6 +65,7 @@ impl GaitScheduler {
         let n_feet = offsets.len();
         Self {
             n_feet,
+            contact_overrides: vec![None; n_feet],
             offsets,
             duty_factor,
             cycle_time,
@@ -69,8 +74,11 @@ impl GaitScheduler {
     }
 
     /// Advance the gait phase by `dt` seconds.
+    ///
+    /// Also clears contact overrides from the previous step.
     pub fn advance(&mut self, dt: f64) {
         self.phase = (self.phase + dt / self.cycle_time) % 1.0;
+        self.clear_contact_overrides();
     }
 
     /// Get the current phase [0, 1).
@@ -84,7 +92,22 @@ impl GaitScheduler {
     }
 
     /// Check if a specific foot is in contact at the current phase.
+    ///
+    /// If a contact override is set for this foot (via [`apply_contact_feedback`]),
+    /// the override takes precedence over the scheduled contact.
     pub fn is_contact(&self, foot: usize) -> bool {
+        if let Some(override_val) = self.contact_overrides[foot] {
+            return override_val;
+        }
+        if self.duty_factor >= 1.0 {
+            return true;
+        }
+        let foot_phase = (self.phase + self.offsets[foot]) % 1.0;
+        foot_phase < self.duty_factor
+    }
+
+    /// Get the scheduled contact state (ignoring overrides).
+    pub fn scheduled_contact(&self, foot: usize) -> bool {
         if self.duty_factor >= 1.0 {
             return true;
         }
@@ -148,6 +171,33 @@ impl GaitScheduler {
     /// Set the duty factor [0, 1].
     pub fn set_duty_factor(&mut self, duty_factor: f64) {
         self.duty_factor = duty_factor;
+    }
+
+    /// Apply ground-truth contact feedback to override the gait schedule.
+    ///
+    /// When actual contact disagrees with the schedule:
+    /// - **Early touchdown** (actual contact during scheduled swing): override to stance.
+    ///   This prevents the swing controller from fighting ground reaction forces.
+    /// - **Late liftoff** (no contact during scheduled stance): override to swing.
+    ///   This prevents the MPC from commanding forces through a foot in the air.
+    ///
+    /// Overrides are consumed by `is_contact()` and cleared on the next `advance()`.
+    pub fn apply_contact_feedback(&mut self, actual_contacts: &[bool]) {
+        for foot in 0..self.n_feet.min(actual_contacts.len()) {
+            let scheduled = self.scheduled_contact(foot);
+            if actual_contacts[foot] != scheduled {
+                self.contact_overrides[foot] = Some(actual_contacts[foot]);
+            } else {
+                self.contact_overrides[foot] = None;
+            }
+        }
+    }
+
+    /// Clear all contact overrides.
+    pub fn clear_contact_overrides(&mut self) {
+        for o in &mut self.contact_overrides {
+            *o = None;
+        }
     }
 
     /// Adapt gait timing based on desired speed using feasibility constraints.
@@ -352,6 +402,45 @@ mod tests {
 
         sched.adapt_timing(5.0, &cfg); // duty = 0.5 - 0.05*5 = 0.25 → clamped to 0.4
         assert!((sched.duty_factor() - 0.4).abs() < 1e-10);
+    }
+
+    #[test]
+    fn contact_feedback_overrides_schedule() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        sched.set_phase(0.0);
+        // At phase 0: FL(0) and RR(3) in stance, FR(1) and RL(2) in swing
+        assert!(sched.is_contact(0));
+        assert!(!sched.is_contact(1));
+
+        // Override: FL loses contact (early liftoff), FR touches ground (early touchdown)
+        sched.apply_contact_feedback(&[false, true, false, true]);
+        assert!(!sched.is_contact(0)); // overridden to swing
+        assert!(sched.is_contact(1)); // overridden to stance
+        assert!(!sched.is_contact(2)); // matches schedule, no override
+        assert!(sched.is_contact(3)); // matches schedule, no override
+    }
+
+    #[test]
+    fn contact_feedback_cleared_on_advance() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        sched.set_phase(0.0);
+        sched.apply_contact_feedback(&[false, true, false, true]);
+        assert!(!sched.is_contact(0)); // overridden
+
+        sched.advance(0.001); // tiny step, FL still in stance by schedule
+        // Override cleared, back to schedule
+        assert!(sched.is_contact(0));
+    }
+
+    #[test]
+    fn scheduled_contact_ignores_overrides() {
+        let mut sched = GaitScheduler::quadruped(GaitType::Trot);
+        sched.set_phase(0.0);
+        sched.apply_contact_feedback(&[false, true, false, true]);
+
+        // scheduled_contact returns the schedule, not the override
+        assert!(sched.scheduled_contact(0)); // FL scheduled stance
+        assert!(!sched.scheduled_contact(1)); // FR scheduled swing
     }
 
     #[test]

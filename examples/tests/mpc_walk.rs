@@ -315,6 +315,7 @@ fn setup_quadruped() -> MpcTestHarness {
         swing_targets: vec![Vector3::zeros(); n_feet],
         prev_contacts: vec![true; n_feet],
         init_joint_angles,
+        foot_link_names: None,
     };
 
     // Insert MotorOverrides resource for position motor control
@@ -383,6 +384,7 @@ fn run_mpc_step(
         desired_height,
         desired_yaw,
         ground_height,
+        None,
     );
 
     // Convert MotorCommands → MotorOverrideParams

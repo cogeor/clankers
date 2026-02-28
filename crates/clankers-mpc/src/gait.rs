@@ -237,12 +237,12 @@ mod tests {
     #[test]
     fn advance_wraps_phase() {
         let mut sched = GaitScheduler::quadruped(GaitType::Trot);
-        // Cycle time = 0.5s, advance by 0.3s → phase = 0.6
-        sched.advance(0.3);
+        // Cycle time = 0.35s, advance by 0.21s → phase = 0.21/0.35 = 0.6
+        sched.advance(0.21);
         assert!((sched.phase() - 0.6).abs() < 1e-10);
 
-        // Advance another 0.3s → phase = 0.6 + 0.6 = 1.2 → 0.2
-        sched.advance(0.3);
+        // Advance another 0.21s → phase = 0.6 + 0.6 = 1.2 → 0.2
+        sched.advance(0.21);
         assert!((sched.phase() - 0.2).abs() < 1e-10);
     }
 }

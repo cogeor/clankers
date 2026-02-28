@@ -273,6 +273,49 @@ impl Default for EndEffectorState {
 }
 
 // ---------------------------------------------------------------------------
+// LidarConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration component for a simulated lidar sensor.
+///
+/// Describes the ray layout of a rotating or solid-state lidar:
+/// `num_channels` vertical channels (like Velodyne layers) each sweeping
+/// `num_rays` horizontal azimuth samples.  The total observation size is
+/// `num_rays × num_channels` distance values.
+///
+/// Angles are specified as **half-FOV** values so the full sweep spans
+/// `[-half_fov, +half_fov]`.  Set `vertical_half_fov` to `0.0` for a flat
+/// 2-D lidar.
+#[derive(Component, Clone, Debug)]
+pub struct LidarConfig {
+    /// Number of horizontal rays per channel.
+    pub num_rays: usize,
+    /// Number of vertical channels (like Velodyne layers).
+    pub num_channels: usize,
+    /// Maximum sensing range in metres.
+    pub max_range: f32,
+    /// Horizontal half-FOV in radians.  Full sweep = `2 × half_fov`.
+    pub half_fov: f32,
+    /// Vertical half-FOV in radians.  `0.0` gives a flat 2-D scan.
+    pub vertical_half_fov: f32,
+    /// Offset of the sensor origin from the body frame origin (metres).
+    pub origin_offset: Vec3,
+}
+
+impl Default for LidarConfig {
+    fn default() -> Self {
+        Self {
+            num_rays: 64,
+            num_channels: 1,
+            max_range: 10.0,
+            half_fov: std::f32::consts::PI,
+            vertical_half_fov: 0.0,
+            origin_offset: Vec3::ZERO,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -405,5 +448,34 @@ mod tests {
         assert_send_sync::<ContactData>();
         assert_send_sync::<RaycastResult>();
         assert_send_sync::<EndEffectorState>();
+        assert_send_sync::<LidarConfig>();
+    }
+
+    // -- LidarConfig --
+
+    #[test]
+    fn lidar_config_default_values() {
+        let cfg = LidarConfig::default();
+        assert_eq!(cfg.num_rays, 64);
+        assert_eq!(cfg.num_channels, 1);
+        assert!((cfg.max_range - 10.0).abs() < f32::EPSILON);
+        assert!((cfg.half_fov - std::f32::consts::PI).abs() < f32::EPSILON);
+        assert!((cfg.vertical_half_fov - 0.0).abs() < f32::EPSILON);
+        assert_eq!(cfg.origin_offset, Vec3::ZERO);
+    }
+
+    #[test]
+    fn lidar_config_custom() {
+        let cfg = LidarConfig {
+            num_rays: 32,
+            num_channels: 16,
+            max_range: 50.0,
+            half_fov: std::f32::consts::FRAC_PI_2,
+            vertical_half_fov: 0.2,
+            origin_offset: Vec3::new(0.0, 0.5, 0.0),
+        };
+        assert_eq!(cfg.num_rays, 32);
+        assert_eq!(cfg.num_channels, 16);
+        assert!((cfg.max_range - 50.0).abs() < f32::EPSILON);
     }
 }

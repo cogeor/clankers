@@ -92,8 +92,8 @@ pub mod prelude {
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
         // Physics
         physics::{
-            ContactData, EndEffectorState, ExternalForce, ImuData, Mass, RaycastResult,
-            SurfaceFriction,
+            ContactData, EndEffectorState, ExternalForce, ImuData, LidarConfig, Mass,
+            RaycastResult, SurfaceFriction,
         },
         // Seeds
         seed::{SeedHierarchy, derive_seed, derive_seed_indexed},

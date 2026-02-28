@@ -40,12 +40,36 @@ pub struct MotorOverrides {
     pub joints: HashMap<Entity, MotorOverrideParams>,
 }
 
+/// Per-joint motor command rate limiting.
+///
+/// Clamps the change in motor target position between consecutive control
+/// steps: `target = clamp(target, prev - delta_max, prev + delta_max)`.
+/// Applied at the actuator output, NOT inside the MPC QP.
+#[derive(Resource)]
+pub struct MotorRateLimits {
+    /// Maximum position change per control step (radians for revolute).
+    pub delta_max: f32,
+    /// Previous target positions, keyed by entity.
+    pub prev_targets: HashMap<Entity, f32>,
+}
+
+impl MotorRateLimits {
+    /// Create rate limits with the given maximum position delta per step.
+    pub fn new(delta_max: f32) -> Self {
+        Self {
+            delta_max,
+            prev_targets: HashMap::new(),
+        }
+    }
+}
+
 /// Apply joint torques, step physics, read back joint state.
 #[allow(clippy::needless_pass_by_value)]
 pub fn rapier_step_system(
     mut context: ResMut<RapierContext>,
     mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
     motor_overrides: Option<Res<MotorOverrides>>,
+    mut rate_limits: Option<ResMut<MotorRateLimits>>,
 ) {
     // 1. Apply torques to rapier joints via motor trick (or position motor override)
     for (entity, torque, _) in &joints {
@@ -67,7 +91,20 @@ pub fn rapier_step_system(
             if let Some(ref overrides) = motor_overrides
                 && let Some(mo) = overrides.joints.get(&entity)
             {
-                joint.data.set_motor(axis, mo.target_pos, mo.target_vel, mo.stiffness, mo.damping);
+                // Apply rate limiting if configured
+                let target_pos = if let Some(ref mut limits) = rate_limits {
+                    let prev = limits.prev_targets.get(&entity).copied().unwrap_or(mo.target_pos);
+                    let clamped = mo.target_pos.clamp(
+                        prev - limits.delta_max,
+                        prev + limits.delta_max,
+                    );
+                    limits.prev_targets.insert(entity, clamped);
+                    clamped
+                } else {
+                    mo.target_pos
+                };
+
+                joint.data.set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
                 joint.data.set_motor_max_force(axis, mo.max_force);
             } else {
                 // Motor trick: ForceBased motor with huge target velocity,

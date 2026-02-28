@@ -18,6 +18,7 @@
 //! reaction forces (12*H variables for 4 feet over H horizon steps).
 
 pub mod centroidal;
+pub mod disturbance;
 pub mod gait;
 #[cfg(feature = "bevy")]
 pub mod plugin;
@@ -27,6 +28,7 @@ pub mod types;
 pub mod wbc;
 
 pub use centroidal::{build_continuous_dynamics, discretize_euler, discretize_matrix_exp};
+pub use disturbance::{DisturbanceEstimator, DisturbanceEstimatorConfig};
 pub use gait::{AdaptiveGaitConfig, GaitScheduler, GaitType};
 #[cfg(feature = "bevy")]
 pub use plugin::{

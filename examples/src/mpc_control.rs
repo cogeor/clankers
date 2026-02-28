@@ -10,8 +10,8 @@
 use bevy::prelude::{Entity, EulerRot};
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget};
 use clankers_mpc::{
-    AdaptiveGaitConfig, BodyState, GaitScheduler, MpcConfig, MpcSolution, MpcSolver,
-    ReferenceTrajectory, SwingConfig, raibert_foot_target, swing_foot_position,
+    AdaptiveGaitConfig, BodyState, DisturbanceEstimator, GaitScheduler, MpcConfig, MpcSolution,
+    MpcSolver, ReferenceTrajectory, SwingConfig, raibert_foot_target, swing_foot_position,
     swing_foot_velocity,
     wbc::{
         compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques,
@@ -44,6 +44,9 @@ pub struct MpcLoopState {
     /// Foot link names for contact detection (e.g., ["fl_foot", "fr_foot", ...]).
     /// When set, enables ground-truth contact feedback to override the gait schedule.
     pub foot_link_names: Option<Vec<String>>,
+    /// Disturbance estimator for model-mismatch compensation.
+    /// When set, corrects MPC initial state using estimated velocity biases.
+    pub disturbance_estimator: Option<DisturbanceEstimator>,
 }
 
 /// A single joint motor command produced by the MPC step.
@@ -180,7 +183,16 @@ pub fn compute_mpc_step(
     let contacts_seq = state.gait.contact_sequence(state.config.horizon, dt);
 
     // --- MPC reference trajectory ---
-    let x0 = body_state.to_state_vector(state.config.gravity);
+    let x0_raw = body_state.to_state_vector(state.config.gravity);
+
+    // Apply disturbance compensation if estimator is active
+    let x0 = if let Some(ref mut est) = state.disturbance_estimator {
+        est.update(&x0_raw, None);
+        est.compensate_state(&x0_raw)
+    } else {
+        x0_raw.clone()
+    };
+
     let reference = ReferenceTrajectory::constant_velocity(
         body_state,
         desired_velocity,
@@ -193,6 +205,14 @@ pub fn compute_mpc_step(
 
     // --- Solve MPC ---
     let solution = state.solver.solve(&x0, &foot_world, &contacts_seq, &reference);
+
+    // Store prediction for next disturbance estimate update
+    if let Some(ref mut est) = state.disturbance_estimator {
+        if solution.converged && solution.state_trajectory.len() >= 13 {
+            let x_pred = solution.state_trajectory.rows(0, 13).into_owned();
+            est.set_prediction(x_pred);
+        }
+    }
     let stance_duration = state.gait.duty_factor() * state.gait.cycle_time();
 
     // --- Generate motor commands ---

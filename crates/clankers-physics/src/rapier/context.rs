@@ -6,7 +6,7 @@ use bevy::prelude::{Entity, Quat, Resource, Vec3};
 use rapier3d::prelude::{
     CCDSolver, ColliderSet, DefaultBroadPhase, ImpulseJointHandle, ImpulseJointSet,
     IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline,
-    RigidBodyHandle, RigidBodySet,
+    QueryFilter, Ray, RigidBodyHandle, RigidBodySet,
 };
 
 // ---------------------------------------------------------------------------
@@ -188,6 +188,35 @@ impl RapierContext {
             f64::from(t.y) + self.world_origin[1],
             f64::from(t.z) + self.world_origin[2],
         ])
+    }
+
+    /// Cast a ray through the physics world and return the hit distance.
+    ///
+    /// Uses the broad-phase BVH to build a temporary [`QueryPipeline`] view and
+    /// then casts a ray from `origin` in `direction` up to `max_range` metres.
+    /// Returns `None` if nothing is hit within range.
+    ///
+    /// Both `origin` and `direction` are in world space as Bevy [`Vec3`] values.
+    /// The direction need not be normalised; rapier normalises it internally.
+    ///
+    /// The `solid` flag controls behaviour when the ray origin is inside a shape:
+    /// `true` returns a hit immediately, `false` ignores the enclosing shape.
+    pub fn cast_ray_bevy(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_range: f32,
+        solid: bool,
+    ) -> Option<f32> {
+        // rapier3d uses parry3d's Ray where origin and dir are `Vector = Vec3` (glam).
+        let ray = Ray::new(origin, direction);
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            QueryFilter::default(),
+        );
+        qp.cast_ray(&ray, max_range, solid).map(|(_, toi)| toi)
     }
 
     /// Check if a named link has any active contact pairs in the narrow phase.

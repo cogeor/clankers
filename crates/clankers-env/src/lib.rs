@@ -117,7 +117,7 @@ pub mod prelude {
         episode::{Episode, EpisodeConfig, EpisodeState},
         sensors::{
             ContactSensor, EndEffectorPoseSensor, ImuSensor, JointCommandSensor, JointStateSensor,
-            JointTorqueSensor, NoisySensor, RaycastSensor, RobotContactSensor,
+            JointTorqueSensor, LidarSensor, NoisySensor, RaycastSensor, RobotContactSensor,
             RobotEndEffectorPoseSensor, RobotImuSensor, RobotJointCommandSensor,
             RobotJointStateSensor, RobotJointTorqueSensor, RobotRaycastSensor,
         },

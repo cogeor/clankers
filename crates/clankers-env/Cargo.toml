@@ -11,6 +11,7 @@ rust-version.workspace = true
 clankers-core.workspace = true
 clankers-noise.workspace = true
 clankers-actuator.workspace = true
+clankers-physics.workspace = true
 bevy.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

@@ -5,11 +5,12 @@
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::{
-    physics::{ContactData, EndEffectorState, ImuData, RaycastResult},
+    physics::{ContactData, EndEffectorState, ImuData, LidarConfig, RaycastResult},
     traits::{ObservationSensor, Sensor},
     types::{Observation, RobotId},
 };
 use clankers_noise::prelude::NoiseModel;
+use clankers_physics::rapier::RapierContext;
 
 use bevy::prelude::*;
 
@@ -644,6 +645,120 @@ impl ObservationSensor for RobotEndEffectorPoseSensor {
 }
 
 // ---------------------------------------------------------------------------
+// LidarSensor
+// ---------------------------------------------------------------------------
+
+/// CPU raycasting lidar sensor using the Rapier physics world.
+///
+/// Fires `num_channels × num_rays` rays from the given world-space origin
+/// (defined by `config.origin_offset` added to `sensor_origin`) and returns
+/// the hit distances as a flat `f32` array.  Rays that miss all colliders
+/// within `config.max_range` produce `f32::NAN`.
+///
+/// Ray directions are computed as:
+///
+/// - azimuth  = −half_fov + ray_idx   × (2 × half_fov / (num_rays − 1))
+/// - elevation = −vertical_half_fov + ch_idx × (2 × vertical_half_fov / (num_channels − 1))
+///
+/// and rotated into world space by `sensor_rotation`.  When `num_rays == 1`
+/// the single ray points straight ahead (azimuth = 0).  Likewise for channels.
+///
+/// # Access
+///
+/// `read()` fetches the [`RapierContext`] resource from the world to perform
+/// raycasts.  If the resource is absent the sensor returns an all-NaN vector.
+pub struct LidarSensor {
+    /// Lidar configuration (layout and range).
+    pub config: LidarConfig,
+    /// World-space origin of the sensor (body position + origin_offset).
+    pub sensor_origin: Vec3,
+    /// World-space rotation of the sensor frame.
+    pub sensor_rotation: Quat,
+}
+
+impl LidarSensor {
+    /// Create a new `LidarSensor` at the given world-space pose.
+    pub fn new(config: LidarConfig, sensor_origin: Vec3, sensor_rotation: Quat) -> Self {
+        Self {
+            config,
+            sensor_origin,
+            sensor_rotation,
+        }
+    }
+
+    /// Compute the world-space ray direction for a given azimuth and elevation.
+    fn ray_direction(rotation: Quat, azimuth: f32, elevation: f32) -> Vec3 {
+        // Start with forward (+Z) and rotate by elevation then azimuth.
+        let cos_el = elevation.cos();
+        let sin_el = elevation.sin();
+        let cos_az = azimuth.cos();
+        let sin_az = azimuth.sin();
+
+        // Local-frame direction (right-handed, +Z forward, +Y up).
+        let local_dir = Vec3::new(sin_az * cos_el, sin_el, cos_el * cos_az);
+        rotation * local_dir
+    }
+}
+
+impl Sensor for LidarSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Observation {
+        let total = self.config.num_rays * self.config.num_channels;
+        let mut data = vec![f32::NAN; total];
+
+        let Some(ctx) = world.get_resource::<RapierContext>() else {
+            return Observation::new(data);
+        };
+
+        let origin = self.config.origin_offset + self.sensor_origin;
+        let nr = self.config.num_rays;
+        let nc = self.config.num_channels;
+        let hfov = self.config.half_fov;
+        let vhfov = self.config.vertical_half_fov;
+        let max_range = self.config.max_range;
+
+        for ch in 0..nc {
+            let elevation = if nc <= 1 {
+                0.0_f32
+            } else {
+                -vhfov + ch as f32 * (2.0 * vhfov / (nc - 1) as f32)
+            };
+
+            for ray_idx in 0..nr {
+                let azimuth = if nr <= 1 {
+                    0.0_f32
+                } else {
+                    -hfov + ray_idx as f32 * (2.0 * hfov / (nr - 1) as f32)
+                };
+
+                let dir = Self::ray_direction(self.sensor_rotation, azimuth, elevation);
+
+                // Convert bevy Vec3 → rapier Vector (nalgebra)
+                let dist = ctx
+                    .cast_ray_bevy(origin, dir, max_range, true)
+                    .unwrap_or(f32::NAN);
+
+                data[ch * nr + ray_idx] = dist;
+            }
+        }
+
+        Observation::new(data)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "LidarSensor"
+    }
+}
+
+impl ObservationSensor for LidarSensor {
+    fn observation_dim(&self) -> usize {
+        self.config.num_rays * self.config.num_channels
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NoisySensor
 // ---------------------------------------------------------------------------
 
@@ -1272,6 +1387,64 @@ mod tests {
         assert_eq!(s3.observation_dim(), 4);
     }
 
+    // -- LidarSensor --
+
+    #[test]
+    fn lidar_config_default() {
+        let cfg = LidarConfig::default();
+        assert_eq!(cfg.num_rays, 64);
+        assert_eq!(cfg.num_channels, 1);
+        assert!((cfg.max_range - 10.0).abs() < f32::EPSILON);
+        assert!((cfg.half_fov - std::f32::consts::PI).abs() < f32::EPSILON);
+        assert!((cfg.vertical_half_fov - 0.0).abs() < f32::EPSILON);
+        assert_eq!(cfg.origin_offset, Vec3::ZERO);
+    }
+
+    #[test]
+    fn lidar_observation_dim() {
+        let cfg = LidarConfig {
+            num_rays: 16,
+            num_channels: 4,
+            ..LidarConfig::default()
+        };
+        let sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
+        assert_eq!(sensor.observation_dim(), 64); // 16 × 4
+    }
+
+    #[test]
+    fn lidar_sensor_name() {
+        let sensor = LidarSensor::new(LidarConfig::default(), Vec3::ZERO, Quat::IDENTITY);
+        assert_eq!(sensor.name(), "LidarSensor");
+    }
+
+    #[test]
+    fn lidar_sensor_no_rapier_context_returns_nan() {
+        // Without a RapierContext resource every ray should be NaN.
+        let mut world = World::new();
+        let cfg = LidarConfig {
+            num_rays: 4,
+            num_channels: 1,
+            ..LidarConfig::default()
+        };
+        let sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 4);
+        for v in obs.as_slice() {
+            assert!(v.is_nan(), "expected NaN but got {v}");
+        }
+    }
+
+    #[test]
+    fn lidar_sensor_single_ray_dim() {
+        let cfg = LidarConfig {
+            num_rays: 1,
+            num_channels: 1,
+            ..LidarConfig::default()
+        };
+        let sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
+        assert_eq!(sensor.observation_dim(), 1);
+    }
+
     // -- Send + Sync --
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -1292,5 +1465,6 @@ mod tests {
         assert_send_sync::<RobotContactSensor>();
         assert_send_sync::<RobotRaycastSensor>();
         assert_send_sync::<RobotEndEffectorPoseSensor>();
+        assert_send_sync::<LidarSensor>();
     }
 }

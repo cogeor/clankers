@@ -7,13 +7,27 @@
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 
+use clankers_core::types::ObservationSpace;
+
 use crate::env::GymEnv;
-use crate::framing::{read_message, write_message};
+use crate::framing::{read_message, write_binary_frame, write_message};
 use crate::protocol::{
-    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
+    EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
+    negotiate_version,
 };
 use crate::state_machine::ProtocolStateMachine;
 use crate::vec_env::GymVecEnv;
+
+// ---------------------------------------------------------------------------
+// SessionState
+// ---------------------------------------------------------------------------
+
+/// Per-connection session state tracking negotiated capabilities.
+#[derive(Debug, Default)]
+struct SessionState {
+    /// Whether the client negotiated the `binary_obs` capability.
+    binary_obs: bool,
+}
 
 // ---------------------------------------------------------------------------
 // ServerConfig
@@ -32,10 +46,12 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
+        let mut capabilities = HashMap::new();
+        capabilities.insert("binary_obs".into(), true);
         Self {
             env_name: "clankers".into(),
             env_version: "0.1.0".into(),
-            capabilities: HashMap::new(),
+            capabilities,
         }
     }
 }
@@ -165,6 +181,7 @@ fn handle_connection(
     let mut reader = stream.try_clone().map_err(ProtocolError::Io)?;
     let mut writer = stream;
     let mut sm = ProtocolStateMachine::new();
+    let mut session = SessionState::default();
 
     loop {
         let request: Option<Request> = read_message(&mut reader)?;
@@ -173,14 +190,19 @@ fn handle_connection(
         };
 
         // Validate state transition
-        let response = match sm.on_request(&request) {
-            Ok(()) => dispatch(env, &request, config, &sm),
-            Err(e) => e.into_response(),
+        let (response, binary_payload) = match sm.on_request(&request) {
+            Ok(()) => dispatch(env, &request, config, &sm, &mut session),
+            Err(e) => (e.into_response(), None),
         };
 
         // Update state machine after response
         sm.on_response(&response);
         write_message(&mut writer, &response)?;
+
+        // Send binary observation frame immediately after the JSON response
+        if let Some(payload) = binary_payload {
+            write_binary_frame(&mut writer, &payload)?;
+        }
 
         if sm.state() == ProtocolState::Disconnected {
             break;
@@ -190,12 +212,14 @@ fn handle_connection(
     Ok(())
 }
 
+/// Returns the response and an optional binary payload to send after the JSON frame.
 fn dispatch(
     env: &mut GymEnv,
     request: &Request,
     config: &ServerConfig,
     _sm: &ProtocolStateMachine,
-) -> Response {
+    session: &mut SessionState,
+) -> (Response, Option<Vec<u8>>) {
     match request {
         Request::Init {
             protocol_version,
@@ -206,7 +230,7 @@ fn dispatch(
             // Negotiate protocol version
             let negotiated_version = match negotiate_version(protocol_version, PROTOCOL_VERSION) {
                 Ok(v) => v,
-                Err(e) => return e.into_response(),
+                Err(e) => return (e.into_response(), None),
             };
 
             // Negotiate capabilities (logical AND)
@@ -218,34 +242,75 @@ fn dispatch(
                 })
                 .collect();
 
-            Response::InitResponse {
-                protocol_version: negotiated_version,
-                env_name: config.env_name.clone(),
-                env_version: config.env_version.clone(),
-                env_info: EnvInfo {
-                    n_agents: 1,
-                    observation_space: env.observation_space().clone(),
-                    action_space: env.action_space().clone(),
+            // Update session state from negotiated capabilities
+            session.binary_obs = negotiated.get("binary_obs").copied().unwrap_or(false);
+
+            (
+                Response::InitResponse {
+                    protocol_version: negotiated_version,
+                    env_name: config.env_name.clone(),
+                    env_version: config.env_version.clone(),
+                    env_info: EnvInfo {
+                        n_agents: 1,
+                        observation_space: env.observation_space().clone(),
+                        action_space: env.action_space().clone(),
+                    },
+                    capabilities: negotiated,
+                    seed_accepted: seed.is_some(),
                 },
-                capabilities: negotiated,
-                seed_accepted: seed.is_some(),
+                None,
+            )
+        }
+        Request::Spaces => (
+            Response::Spaces {
+                observation_space: env.observation_space().clone(),
+                action_space: env.action_space().clone(),
+            },
+            None,
+        ),
+        Request::Reset { seed } => (Response::from_reset(env.reset(*seed)), None),
+        Request::Step { action } => {
+            let result = env.step(action);
+            if session.binary_obs {
+                if let ObservationSpace::Image {
+                    width,
+                    height,
+                    channels,
+                } = env.observation_space()
+                {
+                    // Convert f32 observation data to u8 pixels (multiply by 255)
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let pixel_bytes: Vec<u8> = result
+                        .observation
+                        .as_slice()
+                        .iter()
+                        .map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8)
+                        .collect();
+
+                    let encoding = ObsEncoding::RawU8 {
+                        width: *width,
+                        height: *height,
+                        #[allow(clippy::cast_possible_truncation)]
+                        channels: *channels as u8,
+                    };
+                    return (Response::from_step_binary(result, encoding), Some(pixel_bytes));
+                }
             }
+            (Response::from_step(result), None)
         }
-        Request::Spaces => Response::Spaces {
-            observation_space: env.observation_space().clone(),
-            action_space: env.action_space().clone(),
-        },
-        Request::Reset { seed } => Response::from_reset(env.reset(*seed)),
-        Request::Step { action } => Response::from_step(env.step(action)),
-        Request::Close => Response::Close,
-        Request::BatchReset { .. } | Request::BatchStep { .. } => {
+        Request::Close => (Response::Close, None),
+        Request::BatchReset { .. } | Request::BatchStep { .. } => (
             // Batch operations require a VecEnv server (not single-env GymServer)
-            Response::error("batch operations not supported on single-env server")
-        }
-        Request::Ping { timestamp } => Response::Pong {
-            timestamp: *timestamp,
-            server_time: 0,
-        },
+            Response::error("batch operations not supported on single-env server"),
+            None,
+        ),
+        Request::Ping { timestamp } => (
+            Response::Pong {
+                timestamp: *timestamp,
+                server_time: 0,
+            },
+            None,
+        ),
     }
 }
 

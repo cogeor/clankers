@@ -297,6 +297,7 @@ mod tests {
             terminated: true,
             truncated: false,
             info: clankers_core::types::StepInfo::default(),
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::Ready);
     }
@@ -314,6 +315,7 @@ mod tests {
             terminated: false,
             truncated: true,
             info: clankers_core::types::StepInfo::default(),
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::Ready);
     }

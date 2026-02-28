@@ -29,7 +29,8 @@ pub mod vec_env;
 
 pub use env::GymEnv;
 pub use protocol::{
-    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
+    EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
+    negotiate_version,
 };
 pub use server::{GymServer, ServerConfig, VecGymServer};
 pub use state_machine::ProtocolStateMachine;
@@ -43,8 +44,8 @@ pub mod prelude {
     pub use crate::{
         GymEnv, GymServer, GymVecEnv, ProtocolStateMachine, ServerConfig, VecGymServer,
         protocol::{
-            EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
-            negotiate_version,
+            EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request,
+            Response, negotiate_version,
         },
     };
 }

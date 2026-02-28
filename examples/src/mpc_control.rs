@@ -7,7 +7,7 @@
 //! IK-derived q_desired makes kp*(q_ik-q) ≈ 0 during stance, so the
 //! effective torque is dominated by the MPC feedforward term.
 
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, EulerRot};
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget};
 use clankers_mpc::{
     AdaptiveGaitConfig, BodyState, GaitScheduler, MpcConfig, MpcSolution, MpcSolver,
@@ -18,6 +18,7 @@ use clankers_mpc::{
         transform_frames_to_world,
     },
 };
+use clankers_physics::rapier::RapierContext;
 use nalgebra::{UnitQuaternion, Vector3};
 
 /// Per-leg kinematic and entity data shared across all MPC consumers.
@@ -76,6 +77,44 @@ const HIP_AB_MAX_F: f32 = 200.0;
 
 /// Swing max motor force (N).
 const SWING_MAX_F: f32 = 60.0;
+
+/// Extract body state and quaternion from Rapier, applying floating origin offset.
+///
+/// The returned position is in true world coordinates (f64), computed as
+/// `rapier_local_pos + world_origin` to preserve precision over long runs.
+pub fn body_state_from_rapier(
+    ctx: &RapierContext,
+    link_name: &str,
+) -> Option<(BodyState, UnitQuaternion<f64>)> {
+    let handle = ctx.body_handles.get(link_name)?;
+    let body = ctx.rigid_body_set.get(*handle)?;
+
+    let r = body.rotation();
+    let (yaw, pitch, roll) = r.to_euler(EulerRot::ZYX);
+
+    let lv = body.linvel();
+    let av = body.angvel();
+
+    let body_quat = UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+        f64::from(r.w),
+        f64::from(r.x),
+        f64::from(r.y),
+        f64::from(r.z),
+    ));
+
+    // Use world_position_f64 which adds the floating origin offset
+    let world_pos = ctx.world_position_f64(*handle)?;
+
+    Some((
+        BodyState {
+            orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
+            position: Vector3::new(world_pos[0], world_pos[1], world_pos[2]),
+            angular_velocity: Vector3::new(f64::from(av.x), f64::from(av.y), f64::from(av.z)),
+            linear_velocity: Vector3::new(f64::from(lv.x), f64::from(lv.y), f64::from(lv.z)),
+        },
+        body_quat,
+    ))
+}
 
 /// Compute one full MPC control step and return motor commands for all joints.
 ///

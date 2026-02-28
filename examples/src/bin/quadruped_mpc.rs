@@ -13,14 +13,13 @@
 
 use std::collections::HashMap;
 
-use bevy::math::EulerRot;
 use clankers_actuator::components::{Actuator, JointCommand, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
-use clankers_mpc::{AdaptiveGaitConfig, BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
+use clankers_mpc::{AdaptiveGaitConfig, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
 use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_sim::SceneBuilder;
@@ -29,39 +28,6 @@ use rapier3d::prelude::{
     ColliderBuilder, Group, InteractionGroups, InteractionTestMode, JointAxis, MassProperties,
     RigidBodyBuilder,
 };
-
-/// Read body state and rotation quaternion from Rapier's rigid body set.
-fn body_state_from_rapier(
-    ctx: &RapierContext,
-    link_name: &str,
-) -> Option<(BodyState, nalgebra::UnitQuaternion<f64>)> {
-    let handle = ctx.body_handles.get(link_name)?;
-    let body = ctx.rigid_body_set.get(*handle)?;
-
-    let t = body.translation();
-    let r = body.rotation();
-    let (yaw, pitch, roll) = r.to_euler(EulerRot::ZYX);
-
-    let lv = body.linvel();
-    let av = body.angvel();
-
-    let body_quat = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-        f64::from(r.w),
-        f64::from(r.x),
-        f64::from(r.y),
-        f64::from(r.z),
-    ));
-
-    Some((
-        BodyState {
-            orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
-            position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
-            angular_velocity: Vector3::new(f64::from(av.x), f64::from(av.y), f64::from(av.z)),
-            linear_velocity: Vector3::new(f64::from(lv.x), f64::from(lv.y), f64::from(lv.z)),
-        },
-        body_quat,
-    ))
-}
 
 fn main() {
     println!("=== Quadruped MPC Example (3-DOF legs) ===\n");
@@ -428,10 +394,11 @@ fn main() {
             println!("  >>> Switched to Trot at step {step}");
         }
 
-        // --- Read body state from Rapier ---
+        // --- Floating origin rebase + read body state ---
         let (body_state, body_quat) = {
-            let ctx = scene.app.world().resource::<RapierContext>();
-            body_state_from_rapier(ctx, "body").expect("body not found in Rapier")
+            let mut ctx = scene.app.world_mut().resource_mut::<RapierContext>();
+            ctx.rebase_origin("body", 50.0);
+            body_state_from_rapier(ctx.as_ref(), "body").expect("body not found in Rapier")
         };
 
         // --- Read joint states ---

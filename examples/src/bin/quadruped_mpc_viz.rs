@@ -18,14 +18,13 @@
 
 use std::collections::HashMap;
 
-use bevy::math::EulerRot;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, compute_mpc_step};
+use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
 use clankers_ik::KinematicChain;
 use clankers_mpc::{
@@ -132,34 +131,12 @@ struct QuadMpcState {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn body_state_from_rapier(ctx: &RapierContext, link_name: &str) -> Option<(BodyState, Quat, nalgebra::UnitQuaternion<f64>)> {
+fn body_state_from_rapier_viz(ctx: &RapierContext, link_name: &str) -> Option<(BodyState, Quat, nalgebra::UnitQuaternion<f64>)> {
     let handle = ctx.body_handles.get(link_name)?;
     let body = ctx.rigid_body_set.get(*handle)?;
-
-    let t = body.translation();
-    let r = body.rotation();
-    let (yaw, pitch, roll) = r.to_euler(EulerRot::ZYX);
-
-    let lv = body.linvel();
-    let av = body.angvel();
-
-    let body_quat_na = nalgebra::UnitQuaternion::from_quaternion(
-        nalgebra::Quaternion::new(
-            f64::from(r.w), f64::from(r.x),
-            f64::from(r.y), f64::from(r.z),
-        ),
-    );
-
-    Some((
-        BodyState {
-            orientation: Vector3::new(f64::from(roll), f64::from(pitch), f64::from(yaw)),
-            position: Vector3::new(f64::from(t.x), f64::from(t.y), f64::from(t.z)),
-            angular_velocity: Vector3::new(f64::from(av.x), f64::from(av.y), f64::from(av.z)),
-            linear_velocity: Vector3::new(f64::from(lv.x), f64::from(lv.y), f64::from(lv.z)),
-        },
-        *r,
-        body_quat_na,
-    ))
+    let bevy_quat = *body.rotation();
+    let (bs, na_quat) = body_state_from_rapier(ctx, link_name)?;
+    Some((bs, bevy_quat, na_quat))
 }
 
 fn phys_to_vis(pos: Vec3) -> Vec3 {
@@ -289,7 +266,7 @@ fn leak_str(s: &str) -> &'static str {
 
 #[allow(clippy::needless_pass_by_value)]
 fn mpc_control_system(
-    rapier: ResMut<RapierContext>,
+    mut rapier: ResMut<RapierContext>,
     mut mpc: ResMut<QuadMpcState>,
     mut mpc_ui: ResMut<MpcUiState>,
     mut motor_overrides: ResMut<MotorOverrides>,
@@ -372,7 +349,10 @@ fn mpc_control_system(
         println!("  >>> Switched to {:?} at step {}", mpc_ui.gait, mpc.step);
     }
 
-    let Some((body_state, _body_rot_bevy, body_quat_na)) = body_state_from_rapier(&rapier, "body") else {
+    // Floating origin: keep Rapier coords near zero for f32 precision
+    rapier.rebase_origin("body", 50.0);
+
+    let Some((body_state, _body_rot_bevy, body_quat_na)) = body_state_from_rapier_viz(&rapier, "body") else {
         return;
     };
     let body_pos = body_state.position;

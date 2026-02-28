@@ -3,11 +3,69 @@
 //! When a foot is in swing phase, it follows a trajectory from the current
 //! position to a target landing position, with a smooth height profile.
 //!
-//! Supports two trajectory types:
-//! - **Min-jerk quintic** (default): zero velocity/acceleration at endpoints
-//! - **Parabolic arc**: simpler, nonzero endpoint velocities
+//! Uses 12-point (degree-11) Bezier curves (MIT Cheetah style) for both
+//! horizontal interpolation and height profile. The control points are arranged
+//! to guarantee zero velocity and acceleration at liftoff (t=0) and
+//! touchdown (t=1).
 
 use nalgebra::Vector3;
+
+// 12-point Bezier for horizontal interpolation (S-curve from 0 to 1).
+// First 3 and last 3 control points are equal → zero velocity and acceleration
+// at both endpoints.
+const BEZIER_S: [f64; 12] = [
+    0.0, 0.0, 0.0, // zero vel/accel at start
+    0.5, 0.5, // transition
+    0.5, 0.5, // midpoint plateau
+    0.5, 0.5, // transition
+    1.0, 1.0, 1.0, // zero vel/accel at end
+];
+
+// 12-point Bezier for height profile (peaks near t=0.5).
+// First 3 and last 3 are 0 → zero height + zero vel/accel at endpoints.
+// Multiplied by step_height / BEZIER_H_PEAK at evaluation time so the actual
+// peak equals step_height.
+const BEZIER_H: [f64; 12] = [
+    0.0, 0.0, 0.0, // zero at liftoff
+    0.9, 0.9, // rise
+    1.0, 1.0, // peak
+    0.9, 0.9, // descent
+    0.0, 0.0, 0.0, // zero at touchdown
+];
+
+// Peak value of bezier_eval(&BEZIER_H, 0.5). Pre-computed so we can normalize
+// the height profile to exactly step_height at the midpoint.
+const BEZIER_H_PEAK: f64 = 0.886230468750;
+
+/// Evaluate a degree-11 Bezier curve at parameter `t` using De Casteljau's algorithm.
+fn bezier_eval(points: &[f64; 12], t: f64) -> f64 {
+    let mut work = *points;
+    for k in 1..12 {
+        for i in 0..(12 - k) {
+            work[i] = work[i] * (1.0 - t) + work[i + 1] * t;
+        }
+    }
+    work[0]
+}
+
+/// Evaluate the derivative of a degree-11 Bezier curve at parameter `t`.
+///
+/// Uses the hodograph property: B'(t) = 11 * sum of degree-10 Bezier on
+/// the forward differences of control points.
+fn bezier_derivative(points: &[f64; 12], t: f64) -> f64 {
+    // Forward differences: 11 values for degree-10 hodograph
+    let mut diffs = [0.0; 11];
+    for i in 0..11 {
+        diffs[i] = points[i + 1] - points[i];
+    }
+    // Evaluate degree-10 Bezier on diffs
+    for k in 1..11 {
+        for i in 0..(11 - k) {
+            diffs[i] = diffs[i] * (1.0 - t) + diffs[i + 1] * t;
+        }
+    }
+    11.0 * diffs[0]
+}
 
 /// Configuration for swing leg trajectories.
 #[derive(Clone, Debug)]
@@ -48,15 +106,12 @@ impl Default for SwingConfig {
     }
 }
 
-/// Compute a swing foot position using min-jerk quintic interpolation.
+/// Compute a swing foot position using 12-point Bezier interpolation.
 ///
-/// The min-jerk polynomial `s(t) = 10t^3 - 15t^4 + 6t^5` ensures:
+/// Uses MIT Cheetah-style Bezier curves with control points arranged for:
 /// - Zero velocity at start (t=0) and end (t=1)
 /// - Zero acceleration at start and end
-/// - Smooth, continuous motion
-///
-/// Height profile uses a symmetric bump: `64 * s^3 * (1-s)^3 * step_height`
-/// which also has zero velocity at endpoints.
+/// - Smooth, continuous motion throughout swing
 ///
 /// # Arguments
 /// * `start` - Foot position at liftoff (world frame)
@@ -71,19 +126,14 @@ pub fn swing_foot_position(
 ) -> Vector3<f64> {
     let t = phase.clamp(0.0, 1.0);
 
-    // Min-jerk smooth interpolation: s = 10t^3 - 15t^4 + 6t^5
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let s = 10.0 * t3 - 15.0 * t2 * t2 + 6.0 * t2 * t3;
+    // Bezier S-curve for horizontal interpolation (0→1)
+    let s = bezier_eval(&BEZIER_S, t);
 
-    // XY: smooth interpolation
+    // XY: smooth Bezier interpolation
     let xy = start + (target - start) * s;
 
-    // Z: smooth interpolation + symmetric height bump
-    // Height bump: 64 * t^3 * (1-t)^3 peaks at t=0.5 with value step_height
-    // This function has zero first and second derivatives at t=0 and t=1
-    let u = t * (1.0 - t);
-    let height_offset = 64.0 * u * u * u * step_height;
+    // Z: smooth interpolation + normalized Bezier height profile
+    let height_offset = bezier_eval(&BEZIER_H, t) * (step_height / BEZIER_H_PEAK);
     let z_interp = start.z + (target.z - start.z) * s;
 
     Vector3::new(xy.x, xy.y, z_interp + height_offset)
@@ -91,7 +141,8 @@ pub fn swing_foot_position(
 
 /// Compute the desired swing foot velocity at a given phase.
 ///
-/// Analytical derivative of the min-jerk trajectory with respect to time.
+/// Uses the hodograph (derivative) of the Bezier curves, scaled by 1/swing_duration
+/// to convert from parametric to time domain.
 pub fn swing_foot_velocity(
     start: &Vector3<f64>,
     target: &Vector3<f64>,
@@ -106,18 +157,15 @@ pub fn swing_foot_velocity(
 
     let inv_dur = 1.0 / swing_duration;
 
-    // ds/dt = (30t^2 - 60t^3 + 30t^4) / T
-    let t2 = t * t;
-    let ds_dt = (30.0 * t2 - 60.0 * t * t2 + 30.0 * t2 * t2) * inv_dur;
+    // ds/dt in time domain = bezier_derivative(BEZIER_S, t) / T
+    let ds_dt = bezier_derivative(&BEZIER_S, t) * inv_dur;
 
     // d/dt of XY interpolation
     let diff = target - start;
     let dxy = diff * ds_dt;
 
-    // d/dt of height bump: 64 * 3 * t^2 * (1-t)^3 * (-1) + 64 * t^3 * 3 * (1-t)^2 * (-1)
-    // Simplify: d/dt[64 t^3 (1-t)^3] = 64 * 3 * t^2 * (1-t)^2 * [(1-t) - t]
-    //         = 192 * t^2 * (1-t)^2 * (1-2t)
-    let dh_dt = 192.0 * t * t * (1.0 - t) * (1.0 - t) * (1.0 - 2.0 * t) * inv_dur * step_height;
+    // d/dt of height profile in time domain (with same normalization)
+    let dh_dt = bezier_derivative(&BEZIER_H, t) * (step_height / BEZIER_H_PEAK) * inv_dur;
 
     let dz_interp = (target.z - start.z) * ds_dt;
 
@@ -239,14 +287,12 @@ mod tests {
 
         let v_mid = swing_foot_velocity(&start, &target, 0.5, 0.06, dur);
 
-        // At midpoint, XY velocity should be maximal (for min-jerk)
-        // ds/dt at t=0.5 = 30*0.25 - 60*0.125 + 30*0.0625 = 7.5 - 7.5 + 1.875 = 1.875
-        // Actually: 30*(0.25) - 60*(0.125) + 30*(0.0625) = 7.5 - 7.5 + 1.875 = 1.875
-        // vx = (0.1 - 0) * 1.875 / 0.2 = 0.9375
-        assert!(v_mid.x > 0.5, "vx at midpoint should be significant");
+        // Bezier S-curve derivative at midpoint: ds/dt ≈ 0.4834 / 0.2 ≈ 2.417
+        // vx = 0.1 * 2.417 ≈ 0.2417
+        assert!(v_mid.x > 0.1, "vx at midpoint should be significant");
 
-        // Z velocity should be zero at midpoint (height bump peak)
-        assert_relative_eq!(v_mid.z, 0.0, epsilon = 1e-10);
+        // Z velocity should be zero at midpoint (height profile peak)
+        assert_relative_eq!(v_mid.z, 0.0, epsilon = 1e-8);
     }
 
     #[test]

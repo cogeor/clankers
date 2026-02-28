@@ -1,10 +1,10 @@
 //! Serializable frame types written as MCAP message payloads.
 //!
 //! Each frame type corresponds to one MCAP topic:
-//! - `JointFrame`  → `/joints`
-//! - `ActionFrame` → `/action`
+//! - `JointFrame`  → `/joint_states`
+//! - `ActionFrame` → `/actions`
 //! - `RewardFrame` → `/reward`
-//! - `ImageFrame`  → `/camera/{label}` (feature "camera")
+//! - `ImageFrame`  → `/camera/{label}` (feature "camera", raw bytes via `application/octet-stream`)
 
 use serde::{Deserialize, Serialize};
 

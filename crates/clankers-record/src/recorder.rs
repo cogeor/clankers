@@ -10,12 +10,12 @@
 //!
 //! Each data stream gets its own MCAP channel:
 //!
-//! | Topic             | Payload type    | Encoding           |
-//! |-------------------|-----------------|-------------------|
-//! | `/joints`         | [`JointFrame`]  | `application/json` |
-//! | `/action`         | [`ActionFrame`] | `application/json` |
-//! | `/reward`         | [`RewardFrame`] | `application/json` |
-//! | `/camera/{label}` | [`ImageFrame`]  | `application/json` |
+//! | Topic             | Payload type    | Encoding                    |
+//! |-------------------|-----------------|-----------------------------|
+//! | `/joint_states`   | [`JointFrame`]  | `application/json`          |
+//! | `/actions`        | [`ActionFrame`] | `application/json`          |
+//! | `/reward`         | [`RewardFrame`] | `application/json`          |
+//! | `/camera/{label}` | raw pixels      | `application/octet-stream`  |
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -44,9 +44,9 @@ use crate::types::{ActionFrame, JointFrame, RewardFrame};
 pub struct RecordingConfig {
     /// Path for the output MCAP file.
     pub output_path: PathBuf,
-    /// Whether to record joint state (`/joints` channel).
+    /// Whether to record joint state (`/joint_states` channel).
     pub record_joints: bool,
-    /// Whether to record actions (`/action` channel).
+    /// Whether to record actions (`/actions` channel).
     pub record_actions: bool,
     /// Whether to record rewards (`/reward` channel).
     pub record_rewards: bool,
@@ -85,9 +85,9 @@ pub struct ChannelIds {
 /// Recording systems must use [`NonSendMut<Recorder>`] to access it.
 pub struct Recorder {
     /// The underlying MCAP writer, if the file is still open.
-    pub writer: Option<McapWriter<BufWriter<File>>>,
+    pub(crate) writer: Option<McapWriter<BufWriter<File>>>,
     /// Monotonically increasing message sequence counter.
-    pub sequence: u32,
+    pub(crate) sequence: u32,
 }
 
 impl Recorder {
@@ -107,8 +107,8 @@ impl Recorder {
         })
     }
 
-    /// Register the JSON schema used for all channels in this recorder.
-    pub fn register_json_schema(
+    /// Register the JSON schema used for all channels in this recorder (static).
+    pub(crate) fn register_json_schema(
         writer: &mut McapWriter<BufWriter<File>>,
     ) -> Result<u16, Box<dyn std::error::Error>> {
         // Use an empty schema for JSON — schema data is optional for JSON encoding.
@@ -116,12 +116,35 @@ impl Recorder {
         Ok(schema_id)
     }
 
-    /// Add a channel for the given topic using JSON encoding.
-    pub fn add_json_channel(
+    /// Add a channel for the given topic using JSON encoding (static).
+    pub(crate) fn add_json_channel(
         writer: &mut McapWriter<BufWriter<File>>,
         schema_id: u16,
         topic: &str,
     ) -> Result<u16, Box<dyn std::error::Error>> {
+        let channel_id =
+            writer.add_channel(schema_id, topic, "application/json", &BTreeMap::new())?;
+        Ok(channel_id)
+    }
+
+    /// Register the JSON schema on this recorder's writer.
+    ///
+    /// Returns the schema ID on success.
+    pub fn register_schema(&mut self) -> Result<u16, Box<dyn std::error::Error>> {
+        let writer = self.writer.as_mut().ok_or("writer not open")?;
+        let schema_id = writer.add_schema("json", "jsonschema", &[])?;
+        Ok(schema_id)
+    }
+
+    /// Add a JSON-encoded channel for the given topic on this recorder's writer.
+    ///
+    /// Returns the channel ID on success.
+    pub fn add_channel(
+        &mut self,
+        schema_id: u16,
+        topic: &str,
+    ) -> Result<u16, Box<dyn std::error::Error>> {
+        let writer = self.writer.as_mut().ok_or("writer not open")?;
         let channel_id =
             writer.add_channel(schema_id, topic, "application/json", &BTreeMap::new())?;
         Ok(channel_id)
@@ -272,18 +295,18 @@ pub fn setup_channels(
         match Recorder::register_json_schema(writer) {
             Ok(schema_id) => {
                 if config.record_joints {
-                    match Recorder::add_json_channel(writer, schema_id, "/joints") {
+                    match Recorder::add_json_channel(writer, schema_id, "/joint_states") {
                         Ok(id) => channel_ids.joints = Some(id),
                         Err(e) => {
-                            error!("clankers-record: failed to add /joints channel: {e}");
+                            error!("clankers-record: failed to add /joint_states channel: {e}");
                         }
                     }
                 }
                 if config.record_actions {
-                    match Recorder::add_json_channel(writer, schema_id, "/action") {
+                    match Recorder::add_json_channel(writer, schema_id, "/actions") {
                         Ok(id) => channel_ids.action = Some(id),
                         Err(e) => {
-                            error!("clankers-record: failed to add /action channel: {e}");
+                            error!("clankers-record: failed to add /actions channel: {e}");
                         }
                     }
                 }
@@ -413,14 +436,18 @@ pub mod camera {
     //! Optional camera recording system.
     use super::*;
     use clankers_render::buffer::CameraFrameBuffers;
-    use crate::types::ImageFrame;
     use std::collections::HashMap;
 
     /// Per-camera MCAP channel ID cache.
     #[derive(Resource, Default)]
-    pub struct CameraChannelIds(pub HashMap<String, u16>);
+    pub struct CameraChannelIds {
+        /// Channel IDs keyed by camera label.
+        pub channels: HashMap<String, u16>,
+        /// Shared schema ID for binary image channels (registered once).
+        pub schema_id: Option<u16>,
+    }
 
-    /// `PostUpdate` system: writes one [`ImageFrame`] per registered camera.
+    /// `PostUpdate` system: writes raw pixel bytes per registered camera.
     #[allow(clippy::needless_pass_by_value)] // Bevy system parameters are extracted by value
     pub fn record_image_system(
         recorder: Option<NonSendMut<Recorder>>,
@@ -434,29 +461,43 @@ pub mod camera {
 
         for (label, buf) in frame_buffers.iter() {
             // Lazily register a channel per camera label.
-            let channel_id = if let Some(&id) = cam_channels.0.get(label) {
+            let channel_id = if let Some(&id) = cam_channels.channels.get(label) {
                 id
             } else {
-                // Register schema + channel on first use.
                 if let Some(ref mut writer) = recorder.writer {
-                    let schema_id = match writer.add_schema("json", "jsonschema", &[]) {
-                        Ok(id) => id,
-                        Err(e) => {
-                            error!(
-                                "clankers-record: failed to register schema for camera {label}: {e}"
-                            );
-                            continue;
-                        }
+                    // Register shared binary schema once.
+                    let schema_id = if let Some(id) = cam_channels.schema_id {
+                        id
+                    } else {
+                        let id = match writer.add_schema("binary", "application/octet-stream", &[]) {
+                            Ok(id) => id,
+                            Err(e) => {
+                                error!(
+                                    "clankers-record: failed to register binary schema: {e}"
+                                );
+                                continue;
+                            }
+                        };
+                        cam_channels.schema_id = Some(id);
+                        id
                     };
+
                     let topic = format!("/camera/{label}");
+                    let mut metadata = BTreeMap::new();
+                    metadata.insert("width".to_string(), buf.width().to_string());
+                    metadata.insert("height".to_string(), buf.height().to_string());
+                    metadata.insert(
+                        "channels".to_string(),
+                        (buf.format().bytes_per_pixel()).to_string(),
+                    );
                     match writer.add_channel(
                         schema_id,
                         &topic,
-                        "application/json",
-                        &BTreeMap::new(),
+                        "application/octet-stream",
+                        &metadata,
                     ) {
                         Ok(id) => {
-                            cam_channels.0.insert(label.to_string(), id);
+                            cam_channels.channels.insert(label.to_string(), id);
                             id
                         }
                         Err(e) => {
@@ -469,22 +510,9 @@ pub mod camera {
                 }
             };
 
-            let frame = ImageFrame {
-                timestamp_ns: sim_time.nanos(),
-                width: buf.width(),
-                height: buf.height(),
-                label: label.to_string(),
-                data: buf.data().to_vec(),
-            };
-
-            let ts = frame.timestamp_ns;
-            let payload = match serde_json::to_vec(&frame) {
-                Ok(b) => b,
-                Err(e) => {
-                    error!("clankers-record: failed to serialize ImageFrame: {e}");
-                    continue;
-                }
-            };
+            // Write raw pixel bytes directly.
+            let ts = sim_time.nanos();
+            let payload = buf.data();
 
             let seq = recorder.sequence;
             recorder.sequence = recorder.sequence.wrapping_add(1);
@@ -496,7 +524,7 @@ pub mod camera {
                         log_time: ts,
                         publish_time: ts,
                     },
-                    &payload,
+                    payload,
                 ) {
                     error!("clankers-record: failed to write image frame: {e}");
                 }

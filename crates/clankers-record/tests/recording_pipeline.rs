@@ -29,11 +29,10 @@ fn open_with_channels(
     path: &PathBuf,
 ) -> (Recorder, u16, u16, u16) {
     let mut recorder = Recorder::open(path).expect("open recorder");
-    let writer = recorder.writer.as_mut().expect("writer present");
-    let schema_id = Recorder::register_json_schema(writer).expect("register schema");
-    let joints_ch = Recorder::add_json_channel(writer, schema_id, "/joints").expect("add /joints");
-    let action_ch = Recorder::add_json_channel(writer, schema_id, "/action").expect("add /action");
-    let reward_ch = Recorder::add_json_channel(writer, schema_id, "/reward").expect("add /reward");
+    let schema_id = recorder.register_schema().expect("register schema");
+    let joints_ch = recorder.add_channel(schema_id, "/joint_states").expect("add /joint_states");
+    let action_ch = recorder.add_channel(schema_id, "/actions").expect("add /actions");
+    let reward_ch = recorder.add_channel(schema_id, "/reward").expect("add /reward");
     (recorder, joints_ch, action_ch, reward_ch)
 }
 
@@ -108,12 +107,12 @@ fn write_and_verify_mcap() {
         *counts.entry(topic.clone()).or_insert(0) += 1;
 
         match topic.as_str() {
-            "/joints" => {
+            "/joint_states" => {
                 let frame: JointFrame =
                     serde_json::from_slice(&msg.data).expect("deserialize JointFrame");
                 joint_frames.push(frame);
             }
-            "/action" => {
+            "/actions" => {
                 let frame: ActionFrame =
                     serde_json::from_slice(&msg.data).expect("deserialize ActionFrame");
                 action_frames.push(frame);
@@ -128,8 +127,8 @@ fn write_and_verify_mcap() {
     }
 
     // Verify counts.
-    assert_eq!(counts.get("/joints"), Some(&10), "expected 10 /joints messages");
-    assert_eq!(counts.get("/action"), Some(&10), "expected 10 /action messages");
+    assert_eq!(counts.get("/joint_states"), Some(&10), "expected 10 /joint_states messages");
+    assert_eq!(counts.get("/actions"), Some(&10), "expected 10 /actions messages");
     assert_eq!(counts.get("/reward"), Some(&10), "expected 10 /reward messages");
 
     // Verify payload content for a few frames.

@@ -118,12 +118,12 @@ fn load_mcap_file(
         let payload = &message.data;
 
         match topic.as_str() {
-            "/joints" => {
+            "/joint_states" => {
                 if let Ok(frame) = serde_json::from_slice::<JointFrame>(payload) {
                     joint_frames.push(frame);
                 }
             }
-            "/action" => {
+            "/actions" => {
                 if let Ok(frame) = serde_json::from_slice::<ActionFrame>(payload) {
                     action_frames.push(frame);
                 }

@@ -229,9 +229,11 @@ mod gpu_impl {
     impl Plugin for ClankersSegmentationPlugin {
         fn build(&self, app: &mut App) {
             app.init_resource::<SegmentationPalette>()
-                .init_resource::<SegmentationMaterials>()
-                .add_plugins(GpuReadbackPlugin::default())
-                .add_systems(Startup, build_segmentation_materials)
+                .init_resource::<SegmentationMaterials>();
+            if !app.is_plugin_added::<GpuReadbackPlugin>() {
+                app.add_plugins(GpuReadbackPlugin::default());
+            }
+            app.add_systems(Startup, build_segmentation_materials)
                 .add_systems(Update, attach_readback_to_segmentation_cameras)
                 .add_observer(handle_segmentation_readback_complete);
         }

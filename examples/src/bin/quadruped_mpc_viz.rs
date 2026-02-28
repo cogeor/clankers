@@ -1084,6 +1084,9 @@ fn main() {
             prev_contacts: vec![true; n_feet],
             init_joint_angles,
             foot_link_names: Some(foot_link_names.iter().map(|s| (*s).to_string()).collect()),
+            disturbance_estimator: Some(clankers_mpc::DisturbanceEstimator::new(
+                clankers_mpc::DisturbanceEstimatorConfig::default(),
+            )),
         },
         step: 0,
         stabilize_steps: 100,

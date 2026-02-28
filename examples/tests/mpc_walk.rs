@@ -316,6 +316,7 @@ fn setup_quadruped() -> MpcTestHarness {
         prev_contacts: vec![true; n_feet],
         init_joint_angles,
         foot_link_names: None,
+        disturbance_estimator: None,
     };
 
     // Insert MotorOverrides resource for position motor control

@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use clankers_core::traits::{ObservationSensor, Sensor};
 use clankers_core::types::Observation;
 
-use crate::buffer::CameraFrameBuffers;
+use crate::buffer::{CameraFrameBuffers, DepthFrameBuffer};
 
 // ---------------------------------------------------------------------------
 // ImageSensor
@@ -116,13 +116,97 @@ impl ObservationSensor for ImageSensor {
 }
 
 // ---------------------------------------------------------------------------
+// DepthSensor
+// ---------------------------------------------------------------------------
+
+/// Sensor that reads from [`DepthFrameBuffer`] and returns linearised depth.
+///
+/// Raw depth values from the GPU are in a non-linear (hyperbolic) space.
+/// [`DepthSensor::read`] applies the standard linearisation formula:
+///
+/// ```text
+/// depth_m = (2 * near * far) / (far + near - raw * (far - near))
+/// ```
+///
+/// The returned [`Observation`] contains one `f32` depth value (in metres)
+/// per pixel, with length `width * height`.
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::sensor::DepthSensor;
+/// use clankers_core::traits::{Sensor, ObservationSensor};
+///
+/// let sensor = DepthSensor {
+///     label: "depth_front".to_string(),
+///     width: 64,
+///     height: 48,
+///     near: 0.1,
+///     far: 100.0,
+/// };
+/// assert_eq!(sensor.observation_dim(), 64 * 48);
+/// ```
+pub struct DepthSensor {
+    /// Unique label identifying this depth sensor.
+    pub label: String,
+    /// Frame width in pixels.
+    pub width: u32,
+    /// Frame height in pixels.
+    pub height: u32,
+    /// Near clipping plane distance in metres.
+    pub near: f32,
+    /// Far clipping plane distance in metres.
+    pub far: f32,
+}
+
+impl DepthSensor {
+    /// Linearise a raw GPU depth value to metres.
+    ///
+    /// Applies `(2 * near * far) / (far + near - raw * (far - near))`.
+    #[must_use]
+    pub fn linearise(&self, raw: f32) -> f32 {
+        let near = self.near;
+        let far = self.far;
+        (2.0 * near * far) / (far + near - raw * (far - near))
+    }
+}
+
+impl Sensor for DepthSensor {
+    type Output = Observation;
+
+    fn read(&self, world: &mut World) -> Self::Output {
+        if let Some(buf) = world.get_resource::<DepthFrameBuffer>() {
+            let depth: Vec<f32> = buf.data().iter().map(|&raw| self.linearise(raw)).collect();
+            return Observation::new(depth);
+        }
+
+        // Fall back to a zero observation of the declared dimension.
+        Observation::new(vec![0.0; self.observation_dim()])
+    }
+
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn rate_hz(&self) -> Option<f64> {
+        None
+    }
+}
+
+impl ObservationSensor for DepthSensor {
+    fn observation_dim(&self) -> usize {
+        (self.width * self.height) as usize
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::{CameraFrameBuffers, FrameBuffer};
+    use crate::buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
     use crate::config::PixelFormat;
 
     #[test]
@@ -239,5 +323,119 @@ mod tests {
         assert_eq!(sensor.width(), 16);
         assert_eq!(sensor.height(), 8);
         assert_eq!(sensor.channels(), 4);
+    }
+
+    // -----------------------------------------------------------------------
+    // DepthSensor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn depth_sensor_observation_dim() {
+        let sensor = DepthSensor {
+            label: "depth".to_string(),
+            width: 64,
+            height: 48,
+            near: 0.1,
+            far: 100.0,
+        };
+        assert_eq!(sensor.observation_dim(), 64 * 48);
+    }
+
+    #[test]
+    fn depth_sensor_name() {
+        let sensor = DepthSensor {
+            label: "depth_front".to_string(),
+            width: 4,
+            height: 4,
+            near: 0.1,
+            far: 50.0,
+        };
+        assert_eq!(sensor.name(), "depth_front");
+    }
+
+    #[test]
+    fn depth_sensor_rate_is_none() {
+        let sensor = DepthSensor {
+            label: "d".to_string(),
+            width: 1,
+            height: 1,
+            near: 0.1,
+            far: 10.0,
+        };
+        assert!(sensor.rate_hz().is_none());
+    }
+
+    #[test]
+    fn depth_sensor_linearise_known_values() {
+        // With near=1.0 and far=10.0:
+        //   raw=0.0 should give linear depth = 1.0 (near plane)
+        //   raw=1.0 should give linear depth = 10.0 (far plane)
+        //
+        // Formula: (2*near*far) / (far + near - raw*(far-near))
+        let sensor = DepthSensor {
+            label: "d".to_string(),
+            width: 1,
+            height: 1,
+            near: 1.0,
+            far: 10.0,
+        };
+
+        // raw = 0.0: (2*1*10) / (10+1 - 0*(10-1)) = 20/11 ≈ 1.818
+        let linearised_zero = sensor.linearise(0.0);
+        // Formula at raw=0: 2*near*far / (far+near) = 20/11
+        let expected_zero = 2.0 * 1.0 * 10.0 / (10.0 + 1.0);
+        assert!(
+            (linearised_zero - expected_zero).abs() < 1e-5,
+            "linearise(0.0) = {linearised_zero}, expected {expected_zero}"
+        );
+
+        // raw = 1.0: (2*1*10) / (10+1 - 1*(10-1)) = 20/(11-9) = 20/2 = 10
+        let linearised_one = sensor.linearise(1.0);
+        assert!(
+            (linearised_one - 10.0).abs() < 1e-5,
+            "linearise(1.0) = {linearised_one}, expected 10.0"
+        );
+    }
+
+    #[test]
+    fn depth_sensor_reads_from_depth_frame_buffer() {
+        let mut world = World::new();
+
+        // Set up a 2x1 depth buffer with known raw values.
+        let mut buf = DepthFrameBuffer::new(2, 1);
+        buf.write_depth_frame(vec![0.0, 1.0]);
+        world.insert_resource(buf);
+
+        let sensor = DepthSensor {
+            label: "depth".to_string(),
+            width: 2,
+            height: 1,
+            near: 1.0,
+            far: 10.0,
+        };
+
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 2);
+
+        // Verify linearisation was applied.
+        let expected_0 = sensor.linearise(0.0);
+        let expected_1 = sensor.linearise(1.0);
+        assert!((obs[0] - expected_0).abs() < 1e-5);
+        assert!((obs[1] - expected_1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn depth_sensor_fallback_when_no_buffer() {
+        let mut world = World::new();
+        let sensor = DepthSensor {
+            label: "d".to_string(),
+            width: 4,
+            height: 4,
+            near: 0.1,
+            far: 100.0,
+        };
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 4 * 4);
+        assert!(obs.as_slice().iter().all(|&v| v == 0.0));
     }
 }

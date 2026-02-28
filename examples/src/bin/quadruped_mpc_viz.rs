@@ -26,7 +26,7 @@ use clankers_env::prelude::*;
 use clankers_examples::mpc_control::{MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
 use clankers_examples::quadruped_setup::{QuadrupedSetupConfig, setup_quadruped};
 use clankers_mpc::{
-    BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+    AdaptiveGaitConfig, BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
 };
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::ClankersTeleopPlugin;
@@ -41,6 +41,10 @@ struct Args {
     /// Override MPC timestep in seconds (default 0.02 = 50Hz, use 0.01 for 100Hz)
     #[arg(long, default_value_t = 0.02)]
     mpc_dt: f64,
+
+    /// Enable velocity-dependent adaptive gait timing
+    #[arg(long)]
+    adaptive_gait: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +819,7 @@ fn main() {
             solver: MpcSolver::new(config.clone(), 4),
             config,
             swing_config,
-            adaptive_gait: None,
+            adaptive_gait: if args.adaptive_gait { Some(AdaptiveGaitConfig::default()) } else { None },
             legs: setup.legs,
             swing_starts: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],

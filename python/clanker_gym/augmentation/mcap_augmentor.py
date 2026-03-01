@@ -2,7 +2,11 @@
 
 Reads simulation segmentation images from MCAP recordings, transforms them
 into photorealistic images using the Sim2RealPipeline, and writes the results
-to a new MCAP file in the same format as camera recordings.
+to a new MCAP file using raw bytes encoding (matching ``clankers-record``
+output format).
+
+Supports both raw-bytes camera channels (written by ``clankers-record``) and
+legacy JSON-encoded ``ImageFrame`` messages.
 
 Requires: mcap>=1.0.0
 """
@@ -51,6 +55,14 @@ class McapAugmentor:
     through a :class:`~clanker_gym.augmentation.pipeline.Sim2RealPipeline`,
     and writes the augmented images to a new MCAP file with a configurable
     topic suffix.
+
+    Supports two image encodings:
+
+    - **Raw bytes** (``application/octet-stream``): width/height/channels
+      stored in MCAP channel metadata.  This is the format produced by
+      ``clankers-record`` and is the default output format.
+    - **JSON** (``application/json``): legacy ``ImageFrame`` dicts with
+      ``width``, ``height``, ``label``, and ``data`` (flat uint8 list).
 
     Parameters
     ----------
@@ -129,16 +141,28 @@ class McapAugmentor:
 
         # Channel ID -> output channel ID mapping (lazily populated).
         _out_channel_ids: dict[int, int] = {}
+        # Collect channel metadata for image dimensions.
+        _channel_meta: dict[int, dict[str, str]] = {}
 
         with open(input_path, "rb") as fin, open(output_path, "wb") as fout:
             reader = make_reader(fin)  # type: ignore[possibly-undefined]
             writer = McapWriter(fout)  # type: ignore[possibly-undefined]
             writer.start()
 
-            # Register a single JSON schema for all output channels.
-            schema_id = writer.register_schema(
+            # Register schemas for output channels.
+            json_schema_id = writer.register_schema(
                 name="json", encoding="jsonschema", data=b""
             )
+            binary_schema_id = writer.register_schema(
+                name="binary", encoding="application/octet-stream", data=b""
+            )
+
+            # Pre-scan channel metadata for image dimensions.
+            summary = reader.get_summary()
+            if summary and summary.channels:
+                for ch in summary.channels.values():
+                    if ch.metadata:
+                        _channel_meta[ch.id] = dict(ch.metadata)
 
             for _schema, channel, message in reader.iter_messages():
                 topic: str = channel.topic
@@ -150,9 +174,10 @@ class McapAugmentor:
                         out_cid = self._ensure_channel(
                             _out_channel_ids,
                             writer,
-                            schema_id,
+                            json_schema_id,
                             channel.id,
                             topic,
+                            message_encoding=channel.message_encoding,
                         )
                         writer.add_message(
                             channel_id=out_cid,
@@ -169,40 +194,17 @@ class McapAugmentor:
                 if max_images is not None and images_processed >= max_images:
                     continue
 
-                # Parse ImageFrame JSON.
-                try:
-                    frame = json.loads(message.data.decode("utf-8"))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    logger.warning(
-                        "Skipping non-JSON message on %s at t=%d",
-                        topic,
-                        message.log_time,
-                    )
-                    continue
-
-                width = int(frame.get("width", 0))
-                height = int(frame.get("height", 0))
-                pixel_data = frame.get("data", [])
-
-                if width <= 0 or height <= 0 or not pixel_data:
-                    logger.warning(
-                        "Skipping invalid ImageFrame on %s (w=%d, h=%d, len=%d)",
-                        topic,
-                        width,
-                        height,
-                        len(pixel_data),
-                    )
-                    continue
-
-                # Reconstruct numpy image from flat uint8 list.
-                seg_image = self._decode_image(pixel_data, height, width)
+                # Decode image — handle both raw bytes and JSON formats.
+                seg_image = self._decode_camera_message(
+                    message.data,
+                    channel,
+                    _channel_meta.get(channel.id, {}),
+                )
                 if seg_image is None:
                     logger.warning(
-                        "Could not decode image on %s at t=%d (expected %d bytes, got %d)",
+                        "Skipping undecodable message on %s at t=%d",
                         topic,
                         message.log_time,
-                        height * width * 3,
-                        len(pixel_data),
                     )
                     continue
 
@@ -218,25 +220,25 @@ class McapAugmentor:
                     seed=img_seed,
                 )
 
-                # Build output ImageFrame.
-                out_frame = self._encode_image_frame(
-                    augmented, frame, message.log_time
-                )
-
-                # Write to output channel.
+                # Write augmented image as raw bytes to output channel.
                 out_topic = topic + self._output_suffix
-                out_cid = self._ensure_channel(
+                h, w = augmented.shape[:2]
+                channels = augmented.shape[2] if augmented.ndim == 3 else 1
+                out_cid = self._ensure_image_channel(
                     _out_channel_ids,
                     writer,
-                    schema_id,
+                    binary_schema_id,
                     channel.id,
                     out_topic,
+                    width=w,
+                    height=h,
+                    channels=channels,
                 )
                 writer.add_message(
                     channel_id=out_cid,
                     log_time=message.log_time,
                     publish_time=message.publish_time,
-                    data=json.dumps(out_frame).encode("utf-8"),
+                    data=augmented.tobytes(),
                 )
 
                 images_processed += 1
@@ -253,7 +255,7 @@ class McapAugmentor:
             writer.finish()
 
         duration = time.monotonic() - t0
-        summary: dict[str, Any] = {
+        summary_dict: dict[str, Any] = {
             "images_processed": images_processed,
             "channels_found": sorted(channels_found),
             "output_path": str(output_path),
@@ -265,38 +267,62 @@ class McapAugmentor:
             duration,
             output_path,
         )
-        return summary
+        return summary_dict
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _decode_image(
-        pixel_data: list[int], height: int, width: int, channels: int = 3
+    def _decode_camera_message(
+        data: bytes,
+        channel: Any,
+        meta: dict[str, str],
     ) -> NDArray[np.uint8] | None:
-        """Convert a flat list of uint8 values to a (H, W, C) numpy array."""
+        """Decode a camera message from either raw bytes or JSON format.
+
+        Raw bytes format: message is a flat H*W*C uint8 buffer with
+        width/height/channels in channel metadata.
+
+        JSON format (legacy): message is a JSON dict with ``width``,
+        ``height``, ``data`` (flat uint8 list).
+        """
+        encoding = getattr(channel, "message_encoding", "")
+
+        # Try raw bytes first (preferred format from clankers-record).
+        if encoding == "application/octet-stream" or (
+            meta and "width" in meta and "height" in meta
+        ):
+            width = int(meta.get("width", 0))
+            height = int(meta.get("height", 0))
+            channels = int(meta.get("channels", 3))
+            if width > 0 and height > 0:
+                expected = height * width * channels
+                raw = bytes(data)
+                if len(raw) == expected:
+                    return np.frombuffer(raw, dtype=np.uint8).reshape(
+                        height, width, channels
+                    )
+
+        # Fall back to JSON ImageFrame format.
+        try:
+            frame = json.loads(data.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
+        width = int(frame.get("width", 0))
+        height = int(frame.get("height", 0))
+        pixel_data = frame.get("data", [])
+
+        if width <= 0 or height <= 0 or not pixel_data:
+            return None
+
+        channels = 3
         expected = height * width * channels
         if len(pixel_data) != expected:
             return None
-        arr = np.array(pixel_data, dtype=np.uint8)
-        return arr.reshape(height, width, channels)
 
-    @staticmethod
-    def _encode_image_frame(
-        image: NDArray[np.uint8],
-        original_frame: dict[str, Any],
-        timestamp_ns: int,
-    ) -> dict[str, Any]:
-        """Build an ImageFrame dict from an augmented numpy image."""
-        h, w = image.shape[:2]
-        return {
-            "timestamp_ns": original_frame.get("timestamp_ns", timestamp_ns),
-            "width": w,
-            "height": h,
-            "label": original_frame.get("label", "augmented"),
-            "data": image.flatten().tolist(),
-        }
+        return np.array(pixel_data, dtype=np.uint8).reshape(height, width, channels)
 
     @staticmethod
     def _ensure_channel(
@@ -305,13 +331,42 @@ class McapAugmentor:
         schema_id: int,
         source_channel_id: int,
         topic: str,
+        message_encoding: str = "application/json",
     ) -> int:
         """Return (and lazily register) the output channel id for a source channel."""
         if source_channel_id not in cache:
             cid = writer.register_channel(
                 schema_id=schema_id,
                 topic=topic,
-                message_encoding="application/json",
+                message_encoding=message_encoding,
             )
             cache[source_channel_id] = cid
         return cache[source_channel_id]
+
+    @staticmethod
+    def _ensure_image_channel(
+        cache: dict[int, int],
+        writer: "McapWriter",
+        schema_id: int,
+        source_channel_id: int,
+        topic: str,
+        width: int,
+        height: int,
+        channels: int,
+    ) -> int:
+        """Register an output channel for raw-bytes image data with metadata."""
+        # Use a distinct cache key for image output channels.
+        cache_key = source_channel_id + 1_000_000
+        if cache_key not in cache:
+            cid = writer.register_channel(
+                schema_id=schema_id,
+                topic=topic,
+                message_encoding="application/octet-stream",
+                metadata={
+                    "width": str(width),
+                    "height": str(height),
+                    "channels": str(channels),
+                },
+            )
+            cache[cache_key] = cid
+        return cache[cache_key]

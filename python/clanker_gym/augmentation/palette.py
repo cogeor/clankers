@@ -25,16 +25,17 @@ CLANKERS_PALETTE: Dict[str, Tuple[int, int, int]] = {
     "object":   (128, 0, 128),
 }
 
-# ADE20K palette: class indices and their standard colors.
-# Selected ADE20K classes that best match our simulation classes.
-# Reference: https://docs.google.com/spreadsheets/d/1se8YEtb2detS7OuPE86fXGyD269pMycAWe2mtKUj2W8
+# ADE20K palette: verified against mmseg PALETTE used by ControlNet-seg
+# (lllyasviel/control_v11p_sd15_seg).  The mmseg palette is 0-indexed;
+# ADE20K CSV class N corresponds to mmseg palette index N-1.
+# Reference: https://github.com/lllyasviel/ControlNet-v1-1-nightly/blob/main/annotator/uniformer/mmseg/datasets/ade.py
 ADE20K_MAPPING: Dict[str, Tuple[int, int, int]] = {
-    "ground":   (80, 50, 50),      # ADE20K class 3 "floor"
-    "wall":     (120, 120, 120),   # ADE20K class 0 "wall"
-    "robot":    (100, 100, 100),   # ADE20K metallic gray (custom -- no exact ADE class for robot arm)
-    "obstacle": (255, 245, 238),   # ADE20K class 93 "box"
-    "table":    (4, 200, 3),       # ADE20K class 15 "table"
-    "object":   (8, 255, 51),      # ADE20K class 37 "bottle/object"
+    "ground":   (80, 50, 50),      # ADE20K "floor" (class 4, palette idx 3)
+    "wall":     (120, 120, 120),   # ADE20K "wall"  (class 1, palette idx 0)
+    "robot":    (140, 140, 140),   # ADE20K "road"  (class 7, palette idx 6) — neutral gray surface
+    "obstacle": (0, 255, 20),      # ADE20K "box"   (class 42, palette idx 41)
+    "table":    (255, 6, 82),      # ADE20K "table" (class 16, palette idx 15)
+    "object":   (255, 0, 163),     # ADE20K "ball"  (class 120, palette idx 119)
 }
 
 

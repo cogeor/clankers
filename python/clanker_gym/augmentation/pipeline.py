@@ -176,15 +176,16 @@ class Sim2RealPipeline:
 
         # 5. Run inference
         h, w = segmentation_image.shape[:2]
-        # SD 1.5 works best at multiples of 8; round to nearest
-        gen_h = (h // 8) * 8
-        gen_w = (w // 8) * 8
+        # SD 1.5 UNet requires dimensions divisible by 64.
+        # Clamp to at least 64 to avoid zero-size or too-small images.
+        gen_h = max(64, (h // 64) * 64)
+        gen_w = max(64, (w // 64) * 64)
 
         assert self._pipe is not None  # guaranteed by _load_pipeline()
         result = self._pipe(
             prompt=prompt,
             negative_prompt=negative,
-            image=control_image.resize((gen_w, gen_h)),
+            image=control_image.resize((gen_w, gen_h), Image.NEAREST),
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
             controlnet_conditioning_scale=controlnet_conditioning_scale,

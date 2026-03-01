@@ -127,3 +127,36 @@ class TestPaletteRemapper:
         img = np.full((2, 2, 3), (42, 42, 42), dtype=np.uint8)
         result = remapper.remap(img)
         assert np.all(result == np.array(bg, dtype=np.uint8))
+
+
+class TestADE20KPaletteValues:
+    """Pin the ADE20K palette values to prevent regressions.
+
+    These RGB values are from the mmseg PALETTE used by ControlNet-seg
+    (lllyasviel/control_v11p_sd15_seg). The mmseg palette is 0-indexed;
+    ADE20K CSV class N = mmseg palette index N-1.
+    """
+
+    def test_ground_is_floor_color(self):
+        """ground → ADE20K 'floor' (class 4, palette idx 3) = (80, 50, 50)."""
+        assert ADE20K_MAPPING["ground"] == (80, 50, 50)
+
+    def test_wall_color(self):
+        """wall → ADE20K 'wall' (class 1, palette idx 0) = (120, 120, 120)."""
+        assert ADE20K_MAPPING["wall"] == (120, 120, 120)
+
+    def test_robot_color(self):
+        """robot → ADE20K 'road' (class 7, palette idx 6) = (140, 140, 140)."""
+        assert ADE20K_MAPPING["robot"] == (140, 140, 140)
+
+    def test_obstacle_is_box_color(self):
+        """obstacle → ADE20K 'box' (class 42, palette idx 41) = (0, 255, 20)."""
+        assert ADE20K_MAPPING["obstacle"] == (0, 255, 20)
+
+    def test_table_color(self):
+        """table → ADE20K 'table' (class 16, palette idx 15) = (255, 6, 82)."""
+        assert ADE20K_MAPPING["table"] == (255, 6, 82)
+
+    def test_object_is_ball_color(self):
+        """object → ADE20K 'ball' (class 120, palette idx 119) = (255, 0, 163)."""
+        assert ADE20K_MAPPING["object"] == (255, 0, 163)

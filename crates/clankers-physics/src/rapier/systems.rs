@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use rapier3d::prelude::JointAxis;
 
 use clankers_actuator::components::{JointState, JointTorque};
+use clankers_core::physics::ContactData;
 
 use super::context::RapierContext;
 
@@ -260,6 +261,63 @@ pub fn rapier_step_system(
             // Angular velocity around axis
             let relative_angvel = child_body.angvel() - parent_body.angvel();
             state.velocity = relative_angvel.dot(info.axis);
+        }
+    }
+}
+
+/// Read contact forces from Rapier's narrow phase and populate [`ContactData`] components.
+///
+/// For each active contact pair, computes the total impulse and converts to force (N).
+/// Entities not involved in any contact are reset to zero.
+#[allow(clippy::needless_pass_by_value)]
+pub fn contact_update_system(
+    context: Res<RapierContext>,
+    mut contacts: Query<&mut ContactData>,
+) {
+    // Reset all ContactData to zero
+    for mut cd in &mut contacts {
+        cd.normal_force = Vec3::ZERO;
+    }
+
+    let dt = context.integration_parameters.dt;
+    if dt <= 0.0 {
+        return;
+    }
+
+    // Iterate all contact pairs from the narrow phase
+    for contact_pair in context.narrow_phase.contact_pairs() {
+        if !contact_pair.has_any_active_contact() {
+            continue;
+        }
+
+        // total_impulse() sums per-manifold impulses scaled by their normals
+        let impulse = contact_pair.total_impulse();
+        let force = impulse / dt;
+
+        // Find which rigid bodies own these colliders
+        let body1 = context
+            .collider_set
+            .get(contact_pair.collider1)
+            .and_then(rapier3d::geometry::Collider::parent);
+        let body2 = context
+            .collider_set
+            .get(contact_pair.collider2)
+            .and_then(rapier3d::geometry::Collider::parent);
+
+        // Accumulate force on the entity owning body1
+        if let Some(body_handle) = body1
+            && let Some(&entity) = context.body_to_entity.get(&body_handle)
+            && let Ok(mut cd) = contacts.get_mut(entity)
+        {
+            cd.normal_force += force;
+        }
+
+        // Accumulate negative force on body2 (Newton's 3rd law)
+        if let Some(body_handle) = body2
+            && let Some(&entity) = context.body_to_entity.get(&body_handle)
+            && let Ok(mut cd) = contacts.get_mut(entity)
+        {
+            cd.normal_force -= force;
         }
     }
 }

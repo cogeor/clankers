@@ -8,7 +8,7 @@ use clankers_core::config::SimConfig;
 use crate::backend::PhysicsBackend;
 
 use super::context::RapierContext;
-use super::systems::rapier_step_system;
+use super::systems::{contact_update_system, rapier_step_system};
 
 /// Shared setup: insert `RapierContext` resource from `SimConfig`.
 fn insert_rapier_context(app: &mut App) {
@@ -37,7 +37,12 @@ pub struct RapierBackend;
 impl PhysicsBackend for RapierBackend {
     fn build(&self, app: &mut App) {
         insert_rapier_context(app);
-        app.add_systems(Update, rapier_step_system.in_set(ClankersSet::Simulate));
+        app.add_systems(
+            Update,
+            (rapier_step_system, contact_update_system)
+                .chain()
+                .in_set(ClankersSet::Simulate),
+        );
     }
 
     fn name(&self) -> &'static str {
@@ -57,7 +62,9 @@ impl PhysicsBackend for RapierBackendFixed {
         insert_rapier_context(app);
         app.add_systems(
             FixedUpdate,
-            rapier_step_system.in_set(ClankersSet::Simulate),
+            (rapier_step_system, contact_update_system)
+                .chain()
+                .in_set(ClankersSet::Simulate),
         );
     }
 

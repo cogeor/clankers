@@ -12,6 +12,8 @@ use rapier3d::prelude::{
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::{JointType, RobotModel};
 
+use clankers_core::physics::ContactData;
+
 use crate::components::{PhysicsBody, PhysicsJoint};
 
 use super::context::{JointInfo, RapierContext};
@@ -113,6 +115,7 @@ pub fn register_robot(
                             is_prismatic: joint_data.joint_type == JointType::Prismatic,
                         },
                     );
+                    context.body_to_entity.insert(child_handle, entity);
 
                     // Insert marker components
                     world.entity_mut(entity).insert((
@@ -121,6 +124,7 @@ pub fn register_robot(
                             parent_body: entity,
                             child_body: entity,
                         },
+                        ContactData::default(),
                     ));
                 }
             } else if joint_data.joint_type == JointType::Fixed {

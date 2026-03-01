@@ -12,4 +12,4 @@ pub mod systems;
 
 pub use backend::{RapierBackend, RapierBackendFixed};
 pub use context::RapierContext;
-pub use systems::{InnerPdState, MotorOverrideParams, MotorOverrides, MotorRateLimits};
+pub use systems::{InnerPdState, MotorOverrideParams, MotorOverrides, MotorRateLimits, contact_update_system};

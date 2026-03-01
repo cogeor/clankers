@@ -61,6 +61,8 @@ pub struct RapierContext {
     pub joint_info: HashMap<Entity, JointInfo>,
     /// Link name → `RigidBodyHandle`.
     pub body_handles: HashMap<String, RigidBodyHandle>,
+    /// Reverse mapping: `RigidBodyHandle` → ECS `Entity` (the joint entity whose child body this is).
+    pub body_to_entity: HashMap<RigidBodyHandle, Entity>,
 
     // -- Initial state for reset --
     /// Initial body translations, stored after `register_robot`.
@@ -101,6 +103,7 @@ impl RapierContext {
             joint_handles: HashMap::new(),
             joint_info: HashMap::new(),
             body_handles: HashMap::new(),
+            body_to_entity: HashMap::new(),
             initial_body_positions: HashMap::new(),
             initial_body_rotations: HashMap::new(),
             world_origin: [0.0; 3],

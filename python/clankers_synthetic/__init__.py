@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from clankers_synthetic.ik_solver import (
+    DlsSolver,
+    IKResult,
+    JointInfo,
+    KinematicChain,
+)
+from clankers_synthetic.openai_client import OpenAIClient, OpenAIClientError
+from clankers_synthetic.parser import VALID_SKILLS, PlanParser
+from clankers_synthetic.validator import SimValidator
 from clankers_synthetic.specs import (
     CanonicalPlan,
     ConstraintSpec,
@@ -57,6 +66,19 @@ __all__ = [
     "LLMRequest",
     # Dataset models
     "DatasetManifest",
+    # OpenAI client
+    "OpenAIClient",
+    "OpenAIClientError",
+    # Parser
+    "PlanParser",
+    "VALID_SKILLS",
+    # IK solver
+    "DlsSolver",
+    "KinematicChain",
+    "JointInfo",
+    "IKResult",
+    # Validator
+    "SimValidator",
 ]
 
 __version__ = "0.1.0"

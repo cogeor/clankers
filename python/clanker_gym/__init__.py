@@ -10,7 +10,7 @@ from clanker_gym.rewards import (
     RewardFunction,
     SparseReward,
 )
-from clanker_gym.spaces import Box, Discrete
+from clanker_gym.spaces import Box, Dict, Discrete
 from clanker_gym.terminations import (
     BoundsTermination,
     CompositeTermination,
@@ -24,6 +24,7 @@ from clanker_gym.vec_env import ClankerVecEnv
 
 __all__ = [
     "Box",
+    "Dict",
     "Discrete",
     "GymClient",
     "ClankerEnv",
@@ -53,6 +54,32 @@ try:
     )
 
     __all__.extend(["ClankerGymnasiumEnv", "make_cartpole_gymnasium_env"])
+except ImportError:
+    pass
+
+# Optional GoalEnv wrapper for HER (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.goal_env import (  # noqa: F401
+        ClankerGoalEnv,
+        DenseGoalReward,
+        GoalRewardFn,
+        SparseGoalReward,
+    )
+
+    __all__.extend(
+        ["ClankerGoalEnv", "GoalRewardFn", "SparseGoalReward", "DenseGoalReward"]
+    )
+except ImportError:
+    pass
+
+# Optional observation wrappers (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.wrappers import (  # noqa: F401
+        FrameStack,
+        NormalizeObservation,
+    )
+
+    __all__.extend(["NormalizeObservation", "FrameStack"])
 except ImportError:
     pass
 

@@ -10,8 +10,10 @@ from clankers_synthetic.ik_solver import (
     KinematicChain,
 )
 from clankers_synthetic.openai_client import OpenAIClient, OpenAIClientError
+from clankers_synthetic.packager import DatasetPackager
 from clankers_synthetic.parser import VALID_SKILLS, PlanParser
 from clankers_synthetic.planner import LLMPlanner, PromptAssembler
+from clankers_synthetic.pvcb_refiner import PVCBRefiner
 from clankers_synthetic.validator import SimValidator
 from clankers_synthetic.specs import (
     CanonicalPlan,
@@ -84,6 +86,10 @@ __all__ = [
     "LLMPlanner",
     # Compiler
     "SkillCompiler",
+    # PVCB Refiner
+    "PVCBRefiner",
+    # Packager
+    "DatasetPackager",
     # Validator
     "SimValidator",
 ]

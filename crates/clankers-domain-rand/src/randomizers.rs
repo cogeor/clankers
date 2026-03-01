@@ -9,7 +9,9 @@ use clankers_actuator::components::Actuator;
 use clankers_actuator_core::friction::FrictionModel;
 use clankers_actuator_core::motor::{DcMotor, FullDcMotor, IdealMotor, MotorType};
 use clankers_actuator_core::transmission::Transmission;
+use clankers_physics::rapier::RapierContext;
 use rand::Rng;
+use rapier3d::prelude::{SharedShape, TypedShape};
 
 // ---------------------------------------------------------------------------
 // MotorRandomizer
@@ -245,6 +247,43 @@ impl GeometryRandomizer {
             let s = r.sample(rng).max(0.01); // scale must be positive
             transform.scale = bevy::prelude::Vec3::splat(s);
         }
+    }
+}
+
+/// Scale all collider shapes in a [`RapierContext`] by a uniform factor.
+///
+/// Iterates over every collider and rebuilds its shape with dimensions
+/// multiplied by `scale`. Supports cuboid, ball, cylinder, and capsule
+/// shapes; other shape types are silently skipped.
+pub fn scale_colliders(context: &mut RapierContext, scale: f32) {
+    // Collect handles first to avoid borrowing issues with iter_mut.
+    let handles: Vec<_> = context.collider_set.iter().map(|(h, _)| h).collect();
+    for handle in handles {
+        let Some(collider) = context.collider_set.get_mut(handle) else {
+            continue;
+        };
+        let new_shape = match collider.shape().as_typed_shape() {
+            TypedShape::Ball(ball) => {
+                SharedShape::ball(ball.radius * scale)
+            }
+            TypedShape::Cuboid(cuboid) => {
+                let he = cuboid.half_extents;
+                SharedShape::cuboid(he.x * scale, he.y * scale, he.z * scale)
+            }
+            TypedShape::Cylinder(cylinder) => {
+                SharedShape::cylinder(cylinder.half_height * scale, cylinder.radius * scale)
+            }
+            TypedShape::Capsule(capsule) => {
+                // Capsule is defined by a segment (two endpoints) and a radius.
+                // Scale the segment endpoint coordinates and the radius.
+                let a = capsule.segment.a * scale;
+                let b = capsule.segment.b * scale;
+                SharedShape::capsule(a, b, capsule.radius * scale)
+            }
+            // Unsupported shapes (meshes, compounds, etc.) are left unchanged.
+            _ => continue,
+        };
+        collider.set_shape(new_shape);
     }
 }
 

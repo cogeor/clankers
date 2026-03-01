@@ -23,12 +23,13 @@ use clankers_actuator::components::Actuator;
 use clankers_core::ClankersSet;
 use clankers_core::seed::SeedHierarchy;
 use clankers_env::episode::{Episode, EpisodeState};
+use clankers_physics::rapier::RapierContext;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::randomizers::{
     ActuatorRandomizer, ExternalForceRandomizer, GeometryRandomizer, MassRandomizer,
-    SurfaceFrictionRandomizer,
+    SurfaceFrictionRandomizer, scale_colliders,
 };
 
 // ---------------------------------------------------------------------------
@@ -144,6 +145,7 @@ fn randomize_on_reset_system(
     episode: Res<Episode>,
     mut state: ResMut<DomainRandState>,
     seed_hierarchy: Option<Res<SeedHierarchy>>,
+    mut rapier_context: Option<ResMut<RapierContext>>,
     mut actuators: Query<&mut Actuator>,
     mut masses: Query<&mut clankers_core::physics::Mass>,
     mut surface_frictions: Query<&mut clankers_core::physics::SurfaceFriction>,
@@ -188,6 +190,14 @@ fn randomize_on_reset_system(
 
     for mut transform in &mut geometry_transforms {
         config.geometry.randomize(&mut transform, &mut rng);
+    }
+
+    // Also scale Rapier collider shapes to match the visual geometry change.
+    if let Some(ref range) = config.geometry.scale {
+        if let Some(ref mut ctx) = rapier_context {
+            let scale = range.sample(&mut rng).max(0.01);
+            scale_colliders(ctx, scale);
+        }
     }
 
     for mut ef in &mut external_forces {

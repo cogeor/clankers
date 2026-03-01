@@ -361,10 +361,42 @@ pub struct StepResult {
     pub info: StepInfo,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// A contact event between two bodies in the simulation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContactEvent {
+    /// Name of the first body involved in the contact.
+    pub body_a: String,
+    /// Name of the second body involved in the contact.
+    pub body_b: String,
+    /// Magnitude of the contact force (Newtons).
+    pub force_magnitude: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepInfo {
     pub episode_length: u32,
     pub custom: HashMap<String, f32>,
+    /// Named body poses as [x, y, z, qx, qy, qz, qw].
+    #[serde(default)]
+    pub body_poses: HashMap<String, [f32; 7]>,
+    /// Active contact events this step.
+    #[serde(default)]
+    pub contact_events: Vec<ContactEvent>,
+    /// Whether the episode achieved its success condition.
+    #[serde(default)]
+    pub is_success: bool,
+}
+
+impl Default for StepInfo {
+    fn default() -> Self {
+        Self {
+            episode_length: 0,
+            custom: HashMap::new(),
+            body_poses: HashMap::new(),
+            contact_events: Vec::new(),
+            is_success: false,
+        }
+    }
 }
 
 /// Result of `env.reset()`.
@@ -1371,6 +1403,7 @@ mod tests {
             info: StepInfo {
                 episode_length: 100,
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         assert!(!result.terminated);
@@ -1389,6 +1422,7 @@ mod tests {
             info: StepInfo {
                 episode_length: 50,
                 custom,
+                ..Default::default()
             },
         };
         let json = serde_json::to_string(&result).unwrap();
@@ -1539,6 +1573,7 @@ mod tests {
                 info: StepInfo {
                     episode_length: 10,
                     custom: HashMap::new(),
+                    ..Default::default()
                 },
             },
         ];

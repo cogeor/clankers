@@ -942,6 +942,7 @@ mod tests {
             info: StepInfo {
                 episode_length: 10,
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         let resp = Response::from_step(result);
@@ -1308,6 +1309,7 @@ mod tests {
             info: StepInfo {
                 episode_length: 5,
                 custom: HashMap::new(),
+                ..Default::default()
             },
             obs_encoding: Some(ObsEncoding::RawU8 {
                 width: 84,
@@ -1341,6 +1343,7 @@ mod tests {
             info: StepInfo {
                 episode_length: 1,
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         let resp = Response::from_step(result);

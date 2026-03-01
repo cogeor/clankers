@@ -209,10 +209,12 @@ def cartpole_termination(
     position_index : int
         Index of cart position in observation vector (default: 0).
     """
-    return CompositeTermination([
-        BoundsTermination(angle_index, angle_threshold, "PoleAngleTermination"),
-        BoundsTermination(position_index, position_threshold, "CartPositionTermination"),
-    ])
+    return CompositeTermination(
+        [
+            BoundsTermination(angle_index, angle_threshold, "PoleAngleTermination"),
+            BoundsTermination(position_index, position_threshold, "CartPositionTermination"),
+        ]
+    )
 
 
 class CompositeTermination(TerminationFn):

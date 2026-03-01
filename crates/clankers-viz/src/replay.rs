@@ -43,6 +43,7 @@ impl Default for PlaybackState {
 
 impl PlaybackState {
     /// Normalized position \[0.0, 1.0\].
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     pub fn progress(&self) -> f32 {
         if self.duration_ns == 0 {
             return 0.0;
@@ -51,16 +52,23 @@ impl PlaybackState {
     }
 
     /// Set cursor from normalized position \[0.0, 1.0\].
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub fn seek(&mut self, t: f32) {
-        self.cursor_ns = ((t.clamp(0.0, 1.0) as f64) * self.duration_ns as f64) as u64;
+        self.cursor_ns = (f64::from(t.clamp(0.0, 1.0)) * self.duration_ns as f64) as u64;
     }
 
     /// Current time in seconds.
+    #[allow(clippy::cast_precision_loss)]
     pub fn time_secs(&self) -> f64 {
         self.cursor_ns as f64 / 1_000_000_000.0
     }
 
     /// Duration in seconds.
+    #[allow(clippy::cast_precision_loss)]
     pub fn duration_secs(&self) -> f64 {
         self.duration_ns as f64 / 1_000_000_000.0
     }
@@ -213,7 +221,8 @@ pub fn replay_advance_system(
         return;
     }
 
-    let delta_ns = (time.delta_secs_f64() * state.speed as f64 * 1_000_000_000.0) as u64;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let delta_ns = (time.delta_secs_f64() * f64::from(state.speed) * 1_000_000_000.0) as u64;
     state.cursor_ns = (state.cursor_ns + delta_ns).min(state.duration_ns);
 
     // Auto-pause at end.

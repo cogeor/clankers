@@ -53,7 +53,7 @@ mod tests {
 
     impl PhysicsBackend for TestBackend {
         fn build(&self, _app: &mut App) {}
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             self.name
         }
     }

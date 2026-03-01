@@ -38,7 +38,7 @@ class ProgressCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         if self.num_timesteps - self._last_print >= self.print_freq:
-            ep_rewards = self.training_env.get_attr("_last_obs")
+            self.training_env.get_attr("_last_obs")
             infos = self.locals.get("infos", [])
             # Get episode info if available
             ep_info = None
@@ -64,13 +64,13 @@ def evaluate_policy(env, model, n_episodes: int = 50) -> dict:
     episode_lengths = []
 
     for _ in range(n_episodes):
-        obs, info = env.reset()
+        obs, _info = env.reset()
         total_reward = 0.0
         steps = 0
 
         while True:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, _info = env.step(action)
             total_reward += reward
             steps += 1
 
@@ -87,7 +87,7 @@ def evaluate_policy(env, model, n_episodes: int = 50) -> dict:
         "std_length": np.std(episode_lengths),
         "max_length": np.max(episode_lengths),
         "min_length": np.min(episode_lengths),
-        "survived_500": sum(1 for l in episode_lengths if l >= 500),
+        "survived_500": sum(1 for length in episode_lengths if length >= 500),
         "n_episodes": n_episodes,
     }
 
@@ -106,10 +106,10 @@ def main() -> None:
     total_timesteps = 50_000
 
     print(f"\nTraining PPO for {total_timesteps} timesteps...")
-    print(f"  policy: MlpPolicy (64x64)")
-    print(f"  learning_rate: 3e-4")
-    print(f"  n_steps: 2048")
-    print(f"  batch_size: 64")
+    print("  policy: MlpPolicy (64x64)")
+    print("  learning_rate: 3e-4")
+    print("  n_steps: 2048")
+    print("  batch_size: 64")
 
     t0 = time.perf_counter()
 
@@ -136,10 +136,10 @@ def main() -> None:
     print(f"\nTraining completed in {train_time:.1f}s")
 
     # Evaluate
-    print(f"\nEvaluating trained policy (50 episodes)...")
+    print("\nEvaluating trained policy (50 episodes)...")
     eval_results = evaluate_policy(env, model, n_episodes=50)
 
-    print(f"\n=== Evaluation Results ===")
+    print("\n=== Evaluation Results ===")
     print(f"  Mean reward:  {eval_results['mean_reward']:.1f} +/- {eval_results['std_reward']:.1f}")
     print(f"  Mean length:  {eval_results['mean_length']:.1f} +/- {eval_results['std_length']:.1f}")
     print(f"  Max length:   {eval_results['max_length']}")
@@ -148,11 +148,11 @@ def main() -> None:
 
     success = eval_results["mean_length"] > 400
     if success:
-        print(f"\n  SUCCESS: PPO learned to balance the pole!")
+        print("\n  SUCCESS: PPO learned to balance the pole!")
         print(f"  Mean episode length {eval_results['mean_length']:.0f} > 400 threshold")
     else:
         print(f"\n  PARTIAL: Mean length {eval_results['mean_length']:.0f} (target: >400)")
-        print(f"  May need more training timesteps or hyperparameter tuning")
+        print("  May need more training timesteps or hyperparameter tuning")
 
     # Save model
     model_path = "python/examples/cartpole_ppo_model"

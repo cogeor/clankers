@@ -17,9 +17,9 @@ import time
 import numpy as np
 
 sys.path.insert(0, "python")
-from clanker_gym.vec_env import ClankerVecEnv
 from clanker_gym.rewards import ConstantReward
 from clanker_gym.terminations import cartpole_termination
+from clanker_gym.vec_env import ClankerVecEnv
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
     env = ClankerVecEnv(host=host, port=port)
 
     print("Connecting to vectorized cart-pole server...")
-    resp = env.connect()
+    env.connect()
     num_envs = env.num_envs
     print(f"  num_envs: {num_envs}")
     print(f"  obs_space: {env.observation_space}")
@@ -37,16 +37,16 @@ def main() -> None:
 
     # Reset all
     t0 = time.perf_counter()
-    obs, infos = env.reset()
+    obs, _infos = env.reset()
     reset_time = time.perf_counter() - t0
-    print(f"\nReset {num_envs} envs in {reset_time*1000:.1f}ms")
+    print(f"\nReset {num_envs} envs in {reset_time * 1000:.1f}ms")
     print(f"  obs shape: {obs.shape}")
     print(f"  env 0 initial: cart_pos={obs[0, 0]:+.4f}, pole_angle={obs[0, 2]:+.4f}")
 
     # Benchmark: step all envs with constant action
     num_batches = 500
     reward_fn = ConstantReward(value=1.0)
-    termination_fn = cartpole_termination()
+    cartpole_termination()
 
     total_rewards = np.zeros(num_envs)
     episode_lengths = np.zeros(num_envs, dtype=int)
@@ -64,16 +64,19 @@ def main() -> None:
                 cart_vel = obs[i, 1]
                 pole_angle = obs[i, 2]
                 pole_vel = obs[i, 3]
-                force = float(np.clip(
-                    5.0 * pole_angle + 1.0 * pole_vel + 0.5 * cart_pos + 1.0 * cart_vel,
-                    -1.0, 1.0
-                ))
+                force = float(
+                    np.clip(
+                        5.0 * pole_angle + 1.0 * pole_vel + 0.5 * cart_pos + 1.0 * cart_vel,
+                        -1.0,
+                        1.0,
+                    )
+                )
             else:
                 force = 0.0
             actions.append([force, 0.0])
 
         actions_arr = np.array(actions, dtype=np.float32)
-        obs, terminated, truncated, infos = env.step(actions_arr)
+        obs, _terminated, _truncated, _infos = env.step(actions_arr)
 
         for i in range(num_envs):
             total_rewards[i] += reward_fn.compute(obs[i])
@@ -91,7 +94,7 @@ def main() -> None:
     batches_per_sec = num_batches / elapsed
     ms_per_batch = elapsed * 1000.0 / num_batches
 
-    print(f"\n=== Benchmark Results ===")
+    print("\n=== Benchmark Results ===")
     print(f"  Environments:    {num_envs}")
     print(f"  Batches:         {num_batches}")
     print(f"  Total steps:     {total_steps}")
@@ -103,12 +106,9 @@ def main() -> None:
     print(f"  Mean ep length:  {np.mean(episode_lengths):.0f}")
 
     # Final state across envs
-    print(f"\n  Final observations (first 4 envs):")
+    print("\n  Final observations (first 4 envs):")
     for i in range(min(4, num_envs)):
-        print(
-            f"    env {i}: cart_pos={obs[i, 0]:+.4f}, "
-            f"pole_angle={obs[i, 2]:+.4f}"
-        )
+        print(f"    env {i}: cart_pos={obs[i, 0]:+.4f}, pole_angle={obs[i, 2]:+.4f}")
 
     env.close()
     print("\nDone.")

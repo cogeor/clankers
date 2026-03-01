@@ -18,7 +18,7 @@ pub trait PhysicsBackend: Send + Sync + 'static {
     fn build(&self, app: &mut App);
 
     /// Human-readable engine name (e.g., "rapier3d").
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,9 +38,9 @@ mod tests {
     /// Verify the trait bound includes Send + Sync.
     #[test]
     fn trait_is_send_sync() {
-        fn _assert_send_sync<T: Send + Sync>() {}
+        fn assert_send_sync<T: Send + Sync>() {}
         // A boxed trait object should be Send + Sync because the trait requires it.
-        _assert_send_sync::<Box<dyn PhysicsBackend>>();
+        assert_send_sync::<Box<dyn PhysicsBackend>>();
     }
 
     /// Minimal backend for testing.
@@ -48,7 +48,7 @@ mod tests {
 
     impl PhysicsBackend for DummyBackend {
         fn build(&self, _app: &mut App) {}
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "dummy"
         }
     }

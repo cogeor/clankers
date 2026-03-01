@@ -80,6 +80,7 @@ mod tests {
 
     #[test]
     fn ground_plane_default() {
-        let _gp = GroundPlane::default();
+        let gp = GroundPlane;
+        let _ = gp;
     }
 }

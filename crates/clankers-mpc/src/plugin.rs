@@ -18,8 +18,8 @@ use crate::solver::MpcSolver;
 use crate::swing::{SwingConfig, raibert_foot_target, swing_foot_position, swing_foot_velocity};
 use crate::types::{BodyState, MpcConfig, ReferenceTrajectory};
 use crate::wbc::{
-    compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques,
-    stance_damping_torques, transform_frames_to_world,
+    compute_leg_jacobian, frames_f32_to_f64, jacobian_transpose_torques, stance_damping_torques,
+    transform_frames_to_world,
 };
 
 /// Bevy plugin for MPC-based locomotion control.
@@ -141,11 +141,7 @@ pub fn build_leg_configs(
             })
             .collect();
 
-        let is_prismatic = chain
-            .joints()
-            .iter()
-            .map(|j| j.is_prismatic)
-            .collect();
+        let is_prismatic = chain.joints().iter().map(|j| j.is_prismatic).collect();
 
         legs.push(LegConfig {
             chain,

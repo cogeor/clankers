@@ -9,14 +9,16 @@ use std::collections::HashMap;
 use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step};
 use clankers_examples::QUADRUPED_URDF;
-use clankers_ik::KinematicChain;
-use clankers_mpc::{
-    BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+use clankers_examples::mpc_control::{
+    LegRuntime, MpcLoopState, body_state_from_rapier, compute_mpc_step,
 };
-use clankers_physics::rapier::{bridge::register_robot, MotorOverrideParams, MotorOverrides, RapierBackend, RapierContext};
+use clankers_ik::KinematicChain;
+use clankers_mpc::{BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{
+    MotorOverrideParams, MotorOverrides, RapierBackend, RapierContext, bridge::register_robot,
+};
 use clankers_sim::SceneBuilder;
 use nalgebra::Vector3;
 use rapier3d::prelude::{
@@ -97,16 +99,10 @@ fn setup_quadruped() -> MpcTestHarness {
         }
 
         // Collision groups: robot links only collide with ground
-        let robot_group = InteractionGroups::new(
-            Group::GROUP_1,
-            Group::GROUP_2,
-            InteractionTestMode::And,
-        );
-        let ground_group = InteractionGroups::new(
-            Group::GROUP_2,
-            Group::GROUP_1,
-            InteractionTestMode::And,
-        );
+        let robot_group =
+            InteractionGroups::new(Group::GROUP_1, Group::GROUP_2, InteractionTestMode::And);
+        let ground_group =
+            InteractionGroups::new(Group::GROUP_2, Group::GROUP_1, InteractionTestMode::And);
 
         let ground_body = RigidBodyBuilder::fixed()
             .translation(bevy::math::Vec3::new(0.0, 0.0, -0.05))
@@ -124,22 +120,106 @@ fn setup_quadruped() -> MpcTestHarness {
         );
 
         let link_colliders: &[(&str, ColliderBuilder)] = &[
-            ("fl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("fr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rl_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("rr_foot", ColliderBuilder::ball(0.02).friction(1.0).restitution(0.0).collision_groups(robot_group)),
-            ("fl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("fr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("rl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("rr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("fl_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fr_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rl_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rr_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fl_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fr_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rl_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rr_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
+            (
+                "fl_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(1.0)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(1.0)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(1.0)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(1.0)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
         ];
         for (name, builder) in link_colliders {
             if let Some(&handle) = ctx.body_handles.get(*name) {
@@ -165,26 +245,35 @@ fn setup_quadruped() -> MpcTestHarness {
 
         // Warmup: bend knees with position motors (matching examples)
         let joint_names = [
-            "fl_hip_ab", "fl_hip_pitch", "fl_knee_pitch",
-            "fr_hip_ab", "fr_hip_pitch", "fr_knee_pitch",
-            "rl_hip_ab", "rl_hip_pitch", "rl_knee_pitch",
-            "rr_hip_ab", "rr_hip_pitch", "rr_knee_pitch",
+            "fl_hip_ab",
+            "fl_hip_pitch",
+            "fl_knee_pitch",
+            "fr_hip_ab",
+            "fr_hip_pitch",
+            "fr_knee_pitch",
+            "rl_hip_ab",
+            "rl_hip_pitch",
+            "rl_knee_pitch",
+            "rr_hip_ab",
+            "rr_hip_pitch",
+            "rr_knee_pitch",
         ];
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(&jh) = ctx.joint_handles.get(&entity) {
-                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
-                        let target = if name.contains("knee") {
-                            init_knee_pitch
-                        } else if name.contains("hip_pitch") {
-                            init_hip_pitch
-                        } else {
-                            init_hip_ab
-                        };
-                        joint.data.set_motor(JointAxis::AngX, target, 0.0, 500.0, 50.0);
-                        joint.data.set_motor_max_force(JointAxis::AngX, 100.0);
-                    }
-                }
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(&jh) = ctx.joint_handles.get(&entity)
+                && let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true)
+            {
+                let target = if name.contains("knee") {
+                    init_knee_pitch
+                } else if name.contains("hip_pitch") {
+                    init_hip_pitch
+                } else {
+                    init_hip_ab
+                };
+                joint
+                    .data
+                    .set_motor(JointAxis::AngX, target, 0.0, 500.0, 50.0);
+                joint.data.set_motor_max_force(JointAxis::AngX, 100.0);
             }
         }
 
@@ -194,18 +283,17 @@ fn setup_quadruped() -> MpcTestHarness {
 
         // Switch motors off after warmup
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(&jh) = ctx.joint_handles.get(&entity) {
-                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
-                        joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
-                        joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
-                    }
-                }
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(&jh) = ctx.joint_handles.get(&entity)
+                && let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true)
+            {
+                joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
+                joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
             }
         }
 
         // Zero velocities so MPC starts from rest
-        for (_, &handle) in &ctx.body_handles {
+        for &handle in ctx.body_handles.values() {
             if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
                 body.set_linvel(bevy::math::Vec3::ZERO, true);
                 body.set_angvel(bevy::math::Vec3::ZERO, true);
@@ -214,19 +302,19 @@ fn setup_quadruped() -> MpcTestHarness {
 
         // Read back joint positions from Rapier after warmup
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(info) = ctx.joint_info.get(&entity) {
-                    let parent_body = ctx.rigid_body_set.get(info.parent_body);
-                    let child_body = ctx.rigid_body_set.get(info.child_body);
-                    if let (Some(pb), Some(cb)) = (parent_body, child_body) {
-                        let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
-                        let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
-                        let sin_proj = sin_half.dot(info.axis);
-                        let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(info) = ctx.joint_info.get(&entity)
+            {
+                let parent_body = ctx.rigid_body_set.get(info.parent_body);
+                let child_body = ctx.rigid_body_set.get(info.child_body);
+                if let (Some(pb), Some(cb)) = (parent_body, child_body) {
+                    let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
+                    let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
+                    let sin_proj = sin_half.dot(info.axis);
+                    let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
 
-                        if let Some(mut js) = world.get_mut::<JointState>(entity) {
-                            js.position = angle;
-                        }
+                    if let Some(mut js) = world.get_mut::<JointState>(entity) {
+                        js.position = angle;
                     }
                 }
             }
@@ -333,10 +421,7 @@ fn setup_quadruped() -> MpcTestHarness {
 
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
 
-    MpcTestHarness {
-        scene,
-        mpc_state,
-    }
+    MpcTestHarness { scene, mpc_state }
 }
 
 /// Run one MPC control step using shared module + position motors via MotorOverrides.
@@ -390,16 +475,23 @@ fn run_mpc_step(
 
     // Convert MotorCommands → MotorOverrideParams
     {
-        let mut overrides = harness.scene.app.world_mut().resource_mut::<MotorOverrides>();
+        let mut overrides = harness
+            .scene
+            .app
+            .world_mut()
+            .resource_mut::<MotorOverrides>();
         overrides.joints.clear();
         for mc in &result.motor_commands {
-            overrides.joints.insert(mc.entity, MotorOverrideParams {
-                target_pos: mc.target_pos,
-                target_vel: mc.target_vel,
-                stiffness: mc.stiffness,
-                damping: mc.damping,
-                max_force: mc.max_force,
-            });
+            overrides.joints.insert(
+                mc.entity,
+                MotorOverrideParams {
+                    target_pos: mc.target_pos,
+                    target_vel: mc.target_vel,
+                    stiffness: mc.stiffness,
+                    damping: mc.damping,
+                    max_force: mc.max_force,
+                },
+            );
         }
     }
 
@@ -435,7 +527,12 @@ fn autocorrelation(signal: &[f64], lag: usize) -> f64 {
 }
 
 /// Find the dominant period of a signal using autocorrelation.
-fn find_dominant_period(signal: &[f64], min_lag: usize, max_lag: usize, threshold: f64) -> Option<usize> {
+fn find_dominant_period(
+    signal: &[f64],
+    min_lag: usize,
+    max_lag: usize,
+    threshold: f64,
+) -> Option<usize> {
     let max_lag = max_lag.min(signal.len() / 2);
     if min_lag >= max_lag {
         return None;
@@ -450,10 +547,12 @@ fn find_dominant_period(signal: &[f64], min_lag: usize, max_lag: usize, threshol
             return Some(min_lag + i);
         }
     }
-    if let Some(&last) = acf.last() {
-        if acf.len() >= 2 && last > acf[acf.len() - 2] && last > threshold {
-            return Some(max_lag);
-        }
+    if let Some(&last) = acf.last()
+        && acf.len() >= 2
+        && last > acf[acf.len() - 2]
+        && last > threshold
+    {
+        return Some(max_lag);
     }
     None
 }
@@ -534,26 +633,22 @@ fn standing_maintains_height() {
 #[test]
 fn trot_com_velocity_nonzero() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Trot,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Trot, &desired_velocity, 100, 400);
 
     let ramp_steps = 50;
     let mut stall_count = 0;
     for snap in loco.iter().skip(ramp_steps) {
         let vx = snap.body.linear_velocity.x;
         let vy = snap.body.linear_velocity.y;
-        let speed_xy = (vx * vx + vy * vy).sqrt();
+        let speed_xy = vx.hypot(vy);
         if speed_xy < 1e-4 {
             stall_count += 1;
         }
     }
 
     let checked_steps = loco.len() - ramp_steps;
-    let stall_frac = stall_count as f64 / checked_steps as f64;
+    let stall_frac = f64::from(stall_count) / checked_steps as f64;
     assert!(
         stall_frac < 0.10,
         "COM horizontal speed was ~0 for {:.0}% of trot steps (expected < 10%)",
@@ -564,12 +659,8 @@ fn trot_com_velocity_nonzero() {
 #[test]
 fn trot_feet_above_ground() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Trot,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Trot, &desired_velocity, 100, 400);
 
     let foot_z_floor = -0.10;
     let mut worst_z = f64::MAX;
@@ -596,15 +687,15 @@ fn trot_feet_above_ground() {
 #[ignore = "body periodicity requires further physics tuning"]
 fn trot_body_height_is_cyclic() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Trot,
-        &desired_velocity,
-        100,
-        500,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Trot, &desired_velocity, 100, 500);
 
     let settle = 100;
-    let body_z: Vec<f64> = loco.iter().skip(settle).map(|s| s.body.position.z).collect();
+    let body_z: Vec<f64> = loco
+        .iter()
+        .skip(settle)
+        .map(|s| s.body.position.z)
+        .collect();
 
     let period = find_dominant_period(&body_z, 5, 30, 0.05);
 
@@ -621,14 +712,11 @@ fn trot_body_height_is_cyclic() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn trot_contact_pattern_alternates() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Trot,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Trot, &desired_velocity, 100, 400);
 
     let mut pair_a_count = 0_usize;
     let mut pair_b_count = 0_usize;
@@ -657,7 +745,8 @@ fn trot_contact_pattern_alternates() {
         "Diagonal pair B (FR+RL) appeared only {pair_b_count}/{total} steps — expected ~50%",
     );
 
-    let ratio = pair_a_count.max(pair_b_count) as f64 / pair_a_count.min(pair_b_count).max(1) as f64;
+    let ratio =
+        pair_a_count.max(pair_b_count) as f64 / pair_a_count.min(pair_b_count).max(1) as f64;
     assert!(
         ratio < 2.0,
         "Diagonal pair imbalance: A={pair_a_count} B={pair_b_count} ratio={ratio:.1} (expected < 2.0)",
@@ -667,12 +756,8 @@ fn trot_contact_pattern_alternates() {
 #[test]
 fn trot_moves_forward() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Trot,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Trot, &desired_velocity, 100, 400);
 
     let final_body = &loco.last().unwrap().body;
 
@@ -693,12 +778,8 @@ fn trot_moves_forward() {
 #[test]
 fn walk_feet_above_ground() {
     let desired_velocity = Vector3::new(0.15, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Walk,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Walk, &desired_velocity, 100, 400);
 
     let foot_z_floor = -0.10;
     let mut worst_foot_z = f64::MAX;
@@ -724,12 +805,8 @@ fn walk_feet_above_ground() {
 #[test]
 fn walk_at_least_three_feet_stance() {
     let desired_velocity = Vector3::new(0.15, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Walk,
-        &desired_velocity,
-        100,
-        400,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Walk, &desired_velocity, 100, 400);
 
     for (step_idx, snap) in loco.iter().enumerate() {
         let n_stance = snap.contacts.iter().filter(|&&c| c).count();
@@ -745,15 +822,15 @@ fn walk_at_least_three_feet_stance() {
 #[ignore = "body periodicity requires further physics tuning"]
 fn walk_body_height_is_cyclic() {
     let desired_velocity = Vector3::new(0.15, 0.0, 0.0);
-    let (_harness, _stand, loco) = run_stand_then_locomote(
-        GaitType::Walk,
-        &desired_velocity,
-        100,
-        600,
-    );
+    let (_harness, _stand, loco) =
+        run_stand_then_locomote(GaitType::Walk, &desired_velocity, 100, 600);
 
     let settle = 150;
-    let body_z: Vec<f64> = loco.iter().skip(settle).map(|s| s.body.position.z).collect();
+    let body_z: Vec<f64> = loco
+        .iter()
+        .skip(settle)
+        .map(|s| s.body.position.z)
+        .collect();
 
     let period = find_dominant_period(&body_z, 5, 50, 0.05);
 

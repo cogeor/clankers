@@ -56,18 +56,21 @@ def main() -> None:
     slow_mode = True  # Add delay to watch the policy work
 
     for ep in range(num_episodes):
-        obs, info = env.reset()
+        obs, _info = env.reset()
         total_reward = 0.0
         max_angle = 0.0
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Episode {ep + 1}/{num_episodes}")
-        print(f"{'='*70}")
-        print(f"{'step':>5}  {'cart_pos':>8}  {'cart_vel':>8}  {'pole_deg':>8}  {'action':>7}  cart position")
+        print(f"{'=' * 70}")
+        print(
+            f"{'step':>5}  {'cart_pos':>8}  {'cart_vel':>8}  "
+            f"{'pole_deg':>8}  {'action':>7}  cart position"
+        )
 
         for step in range(500):
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, _info = env.step(action)
             total_reward += reward
             max_angle = max(max_angle, abs(float(obs[2])))
 
@@ -80,7 +83,7 @@ def main() -> None:
             if step % 10 == 0 or terminated or truncated:
                 bar = render_bar(cart_pos, width=50, lo=-2.5, hi=2.5)
                 print(
-                    f"{step+1:5d}  {cart_pos:+8.4f}  {cart_vel:+8.4f}  "
+                    f"{step + 1:5d}  {cart_pos:+8.4f}  {cart_vel:+8.4f}  "
                     f"{pole_deg:+8.3f}  {act_val:+7.3f}  [{bar}]"
                 )
 
@@ -91,10 +94,14 @@ def main() -> None:
                 break
 
         status = "BALANCED" if step + 1 >= 500 else "FELL"
-        print(f"\n  Result: {status} | steps={step+1} | reward={total_reward:.0f} | max_angle={np.degrees(max_angle):.2f}deg")
+        print(
+            f"\n  Result: {status} | steps={step + 1} "
+            f"| reward={total_reward:.0f} "
+            f"| max_angle={np.degrees(max_angle):.2f}deg"
+        )
 
     env.close()
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Done.")
 
 

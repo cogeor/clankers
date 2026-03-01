@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import tempfile
 
 import numpy as np
 import pytest
@@ -40,9 +38,7 @@ def _write_synthetic_mcap(path: str) -> None:
         writer = Writer(f, compression=CompressionType.NONE)
         writer.start()
 
-        schema_id = writer.register_schema(
-            name="json", encoding="jsonschema", data=b""
-        )
+        schema_id = writer.register_schema(name="json", encoding="jsonschema", data=b"")
         joint_ch = writer.register_channel(
             topic="/joint_states",
             message_encoding="application/json",
@@ -169,14 +165,10 @@ class TestLoaderWithSyntheticMcap:
         assert data["timestamps_ns"][0] == 1_000_000
 
         # Check positions at step 0: [0.0, 0.0].
-        np.testing.assert_allclose(
-            data["joint_positions"][0], [0.0, 0.0], atol=1e-6
-        )
+        np.testing.assert_allclose(data["joint_positions"][0], [0.0, 0.0], atol=1e-6)
 
         # Check positions at step 5: [0.5, -0.5].
-        np.testing.assert_allclose(
-            data["joint_positions"][5], [0.5, -0.5], atol=1e-6
-        )
+        np.testing.assert_allclose(data["joint_positions"][5], [0.5, -0.5], atol=1e-6)
 
         # Check rewards at step 10: 1.0.
         np.testing.assert_allclose(data["rewards"][10], 1.0, atol=1e-6)

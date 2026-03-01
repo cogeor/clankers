@@ -78,7 +78,13 @@ pub struct InnerPdState {
 ///
 /// When [`InnerPdState`] is present, motor target positions are linearly
 /// interpolated across substeps for effective 1000Hz PD control.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_lines,
+    clippy::items_after_statements,
+    clippy::cast_precision_loss,
+    clippy::branches_sharing_code
+)]
 pub fn rapier_step_system(
     mut context: ResMut<RapierContext>,
     mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
@@ -125,11 +131,14 @@ pub fn rapier_step_system(
             {
                 // Apply rate limiting if configured
                 let target_pos = if let Some(ref mut limits) = rate_limits {
-                    let prev = limits.prev_targets.get(&entity).copied().unwrap_or(mo.target_pos);
-                    let clamped = mo.target_pos.clamp(
-                        prev - limits.delta_max,
-                        prev + limits.delta_max,
-                    );
+                    let prev = limits
+                        .prev_targets
+                        .get(&entity)
+                        .copied()
+                        .unwrap_or(mo.target_pos);
+                    let clamped = mo
+                        .target_pos
+                        .clamp(prev - limits.delta_max, prev + limits.delta_max);
                     limits.prev_targets.insert(entity, clamped);
                     clamped
                 } else {
@@ -153,11 +162,15 @@ pub fn rapier_step_system(
                     });
                     // Set initial interpolated target (substep 0)
                     let alpha = 1.0 / substeps as f32;
-                    let interp = prev_pos + (target_pos - prev_pos) * alpha;
-                    joint.data.set_motor(axis, interp, mo.target_vel, mo.stiffness, mo.damping);
+                    let interp = (target_pos - prev_pos).mul_add(alpha, prev_pos);
+                    joint
+                        .data
+                        .set_motor(axis, interp, mo.target_vel, mo.stiffness, mo.damping);
                     joint.data.set_motor_max_force(axis, mo.max_force);
                 } else {
-                    joint.data.set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
+                    joint
+                        .data
+                        .set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
                     joint.data.set_motor_max_force(axis, mo.max_force);
                 }
             } else {
@@ -186,8 +199,14 @@ pub fn rapier_step_system(
             let alpha = (sub + 1) as f32 / substeps as f32;
             for entry in &override_entries {
                 if let Some(joint) = context.impulse_joint_set.get_mut(entry.joint_handle, true) {
-                    let interp = entry.prev_pos + (entry.target_pos - entry.prev_pos) * alpha;
-                    joint.data.set_motor(entry.axis, interp, entry.target_vel, entry.stiffness, entry.damping);
+                    let interp = (entry.target_pos - entry.prev_pos).mul_add(alpha, entry.prev_pos);
+                    joint.data.set_motor(
+                        entry.axis,
+                        interp,
+                        entry.target_vel,
+                        entry.stiffness,
+                        entry.damping,
+                    );
                     joint.data.set_motor_max_force(entry.axis, entry.max_force);
                 }
             }

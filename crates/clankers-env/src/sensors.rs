@@ -657,8 +657,8 @@ impl ObservationSensor for RobotEndEffectorPoseSensor {
 ///
 /// Ray directions are computed as:
 ///
-/// - azimuth  = −half_fov + ray_idx   × (2 × half_fov / (num_rays − 1))
-/// - elevation = −vertical_half_fov + ch_idx × (2 × vertical_half_fov / (num_channels − 1))
+/// - azimuth  = −`half_fov` + `ray_idx`   × (2 × `half_fov` / (`num_rays` − 1))
+/// - elevation = −`vertical_half_fov` + `ch_idx` × (2 × `vertical_half_fov` / (`num_channels` − 1))
 ///
 /// and rotated into world space by `sensor_rotation`.  When `num_rays == 1`
 /// the single ray points straight ahead (azimuth = 0).  Likewise for channels.
@@ -670,7 +670,7 @@ impl ObservationSensor for RobotEndEffectorPoseSensor {
 pub struct LidarSensor {
     /// Lidar configuration (layout and range).
     pub config: LidarConfig,
-    /// World-space origin of the sensor (body position + origin_offset).
+    /// World-space origin of the sensor (body position + `origin_offset`).
     pub sensor_origin: Vec3,
     /// World-space rotation of the sensor frame.
     pub sensor_rotation: Quat,
@@ -678,7 +678,7 @@ pub struct LidarSensor {
 
 impl LidarSensor {
     /// Create a new `LidarSensor` at the given world-space pose.
-    pub fn new(config: LidarConfig, sensor_origin: Vec3, sensor_rotation: Quat) -> Self {
+    pub const fn new(config: LidarConfig, sensor_origin: Vec3, sensor_rotation: Quat) -> Self {
         Self {
             config,
             sensor_origin,
@@ -722,14 +722,16 @@ impl Sensor for LidarSensor {
             let elevation = if nc <= 1 {
                 0.0_f32
             } else {
-                -vhfov + ch as f32 * (2.0 * vhfov / (nc - 1) as f32)
+                #[allow(clippy::cast_precision_loss)]
+                (ch as f32).mul_add(2.0 * vhfov / (nc - 1) as f32, -vhfov)
             };
 
             for ray_idx in 0..nr {
                 let azimuth = if nr <= 1 {
                     0.0_f32
                 } else {
-                    -hfov + ray_idx as f32 * (2.0 * hfov / (nr - 1) as f32)
+                    #[allow(clippy::cast_precision_loss)]
+                    (ray_idx as f32).mul_add(2.0 * hfov / (nr - 1) as f32, -hfov)
                 };
 
                 let dir = Self::ray_direction(self.sensor_rotation, azimuth, elevation);

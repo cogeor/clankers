@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from clanker_gym.augmentation.palette import (
     ADE20K_MAPPING,

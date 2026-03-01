@@ -7,11 +7,11 @@ camera -- realistic lighting, sensor noise, non-ideal conditions.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
 
 
 class SceneType(Enum):
     """Predefined scene contexts for prompt generation."""
+
     MANIPULATION = "manipulation"
     INDOOR_NAV = "indoor_nav"
     OUTDOOR = "outdoor"
@@ -84,7 +84,7 @@ class PromptBuilder:
     def __init__(
         self,
         scene_type: SceneType = SceneType.MANIPULATION,
-        custom_suffix: Optional[str] = None,
+        custom_suffix: str | None = None,
     ) -> None:
         self.scene_type = scene_type
         self.custom_suffix = custom_suffix

@@ -11,8 +11,11 @@ use clankers_actuator::components::{Actuator, JointState};
 use clankers_actuator_core::prelude::{IdealMotor, MotorType};
 use clankers_env::prelude::*;
 use clankers_ik::KinematicChain;
-use clankers_physics::rapier::{bridge::register_robot, InnerPdState, MotorRateLimits, RapierBackend, RapierBackendFixed, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{
+    InnerPdState, MotorRateLimits, RapierBackend, RapierBackendFixed, RapierContext,
+    bridge::register_robot,
+};
 use clankers_sim::{SceneBuilder, SpawnedScene};
 use clankers_urdf::RobotModel;
 use nalgebra::Vector3;
@@ -21,10 +24,11 @@ use rapier3d::prelude::{
     RigidBodyBuilder,
 };
 
-use crate::mpc_control::LegRuntime;
 use crate::QUADRUPED_URDF;
+use crate::mpc_control::LegRuntime;
 
 /// Configuration for quadruped setup — knobs that differ between binaries.
+#[derive(Clone, Copy)]
 pub struct QuadrupedSetupConfig {
     /// Ground/foot friction coefficient (default 0.6, bench overrides via `--mu-sim`).
     pub sim_friction: f32,
@@ -76,14 +80,17 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         .with_max_episode_steps(config.max_episode_steps)
         .with_robot(model.clone(), HashMap::new());
 
-    if let Some(mpc_dt) = config.mpc_dt {
-        if (mpc_dt - 0.02).abs() > 1e-6 {
-            builder = builder.with_sim_config(clankers_core::config::SimConfig {
-                control_dt: mpc_dt,
-                ..clankers_core::config::SimConfig::default()
-            });
-            println!("  MPC dt={mpc_dt}s ({:.0}Hz), control_dt={mpc_dt}s", 1.0 / mpc_dt);
-        }
+    if let Some(mpc_dt) = config.mpc_dt
+        && (mpc_dt - 0.02).abs() > 1e-6
+    {
+        builder = builder.with_sim_config(clankers_core::config::SimConfig {
+            control_dt: mpc_dt,
+            ..clankers_core::config::SimConfig::default()
+        });
+        println!(
+            "  MPC dt={mpc_dt}s ({:.0}Hz), control_dt={mpc_dt}s",
+            1.0 / mpc_dt
+        );
     }
 
     let mut scene = builder.build();
@@ -155,16 +162,10 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         }
 
         // Collision groups: robot links only collide with ground, not each other.
-        let robot_group = InteractionGroups::new(
-            Group::GROUP_1,
-            Group::GROUP_2,
-            InteractionTestMode::And,
-        );
-        let ground_group = InteractionGroups::new(
-            Group::GROUP_2,
-            Group::GROUP_1,
-            InteractionTestMode::And,
-        );
+        let robot_group =
+            InteractionGroups::new(Group::GROUP_1, Group::GROUP_2, InteractionTestMode::And);
+        let ground_group =
+            InteractionGroups::new(Group::GROUP_2, Group::GROUP_1, InteractionTestMode::And);
 
         let ground_body = RigidBodyBuilder::fixed()
             .translation(bevy::math::Vec3::new(0.0, 0.0, -0.05))
@@ -175,26 +176,113 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
             .restitution(0.0)
             .collision_groups(ground_group)
             .build();
-        ctx.collider_set
-            .insert_with_parent(ground_collider, ground_handle, &mut ctx.rigid_body_set);
+        ctx.collider_set.insert_with_parent(
+            ground_collider,
+            ground_handle,
+            &mut ctx.rigid_body_set,
+        );
 
         let link_colliders: &[(&str, ColliderBuilder)] = &[
-            ("fl_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
-            ("fr_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
-            ("rl_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
-            ("rr_foot", ColliderBuilder::ball(0.02).friction(sim_friction).restitution(0.0).collision_groups(robot_group)),
-            ("fl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("fr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("rl_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("rr_hip_link", ColliderBuilder::cuboid(0.02, 0.02, 0.02).friction(0.3).collision_groups(robot_group)),
-            ("fl_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fr_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rl_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rr_upper_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fl_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("fr_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rl_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
-            ("rr_lower_leg", ColliderBuilder::capsule_z(0.075, 0.015).friction(0.3).collision_groups(robot_group)),
+            (
+                "fl_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(sim_friction)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(sim_friction)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(sim_friction)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_foot",
+                ColliderBuilder::ball(0.02)
+                    .friction(sim_friction)
+                    .restitution(0.0)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_hip_link",
+                ColliderBuilder::cuboid(0.02, 0.02, 0.02)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_upper_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fl_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "fr_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rl_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
+            (
+                "rr_lower_leg",
+                ColliderBuilder::capsule_z(0.075, 0.015)
+                    .friction(0.3)
+                    .collision_groups(robot_group),
+            ),
         ];
         for (name, builder) in link_colliders {
             if let Some(&handle) = ctx.body_handles.get(*name) {
@@ -220,26 +308,35 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
 
         // Warmup: bend knees with position motors before MPC starts
         let joint_names = [
-            "fl_hip_ab", "fl_hip_pitch", "fl_knee_pitch",
-            "fr_hip_ab", "fr_hip_pitch", "fr_knee_pitch",
-            "rl_hip_ab", "rl_hip_pitch", "rl_knee_pitch",
-            "rr_hip_ab", "rr_hip_pitch", "rr_knee_pitch",
+            "fl_hip_ab",
+            "fl_hip_pitch",
+            "fl_knee_pitch",
+            "fr_hip_ab",
+            "fr_hip_pitch",
+            "fr_knee_pitch",
+            "rl_hip_ab",
+            "rl_hip_pitch",
+            "rl_knee_pitch",
+            "rr_hip_ab",
+            "rr_hip_pitch",
+            "rr_knee_pitch",
         ];
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(&jh) = ctx.joint_handles.get(&entity) {
-                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
-                        let target = if name.contains("knee") {
-                            init_knee_pitch
-                        } else if name.contains("hip_pitch") {
-                            init_hip_pitch
-                        } else {
-                            init_hip_ab
-                        };
-                        joint.data.set_motor(JointAxis::AngX, target, 0.0, 500.0, 50.0);
-                        joint.data.set_motor_max_force(JointAxis::AngX, 100.0);
-                    }
-                }
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(&jh) = ctx.joint_handles.get(&entity)
+                && let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true)
+            {
+                let target = if name.contains("knee") {
+                    init_knee_pitch
+                } else if name.contains("hip_pitch") {
+                    init_hip_pitch
+                } else {
+                    init_hip_ab
+                };
+                joint
+                    .data
+                    .set_motor(JointAxis::AngX, target, 0.0, 500.0, 50.0);
+                joint.data.set_motor_max_force(JointAxis::AngX, 100.0);
             }
         }
 
@@ -248,17 +345,16 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         }
 
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(&jh) = ctx.joint_handles.get(&entity) {
-                    if let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) {
-                        joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
-                        joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
-                    }
-                }
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(&jh) = ctx.joint_handles.get(&entity)
+                && let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true)
+            {
+                joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
+                joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
             }
         }
 
-        for (_, &handle) in &ctx.body_handles {
+        for &handle in ctx.body_handles.values() {
             if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
                 body.set_linvel(bevy::math::Vec3::ZERO, true);
                 body.set_angvel(bevy::math::Vec3::ZERO, true);
@@ -266,19 +362,19 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         }
 
         for name in &joint_names {
-            if let Some(entity) = spawned.joint_entity(name) {
-                if let Some(info) = ctx.joint_info.get(&entity) {
-                    let parent_body = ctx.rigid_body_set.get(info.parent_body);
-                    let child_body = ctx.rigid_body_set.get(info.child_body);
-                    if let (Some(pb), Some(cb)) = (parent_body, child_body) {
-                        let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
-                        let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
-                        let sin_proj = sin_half.dot(info.axis);
-                        let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
+            if let Some(entity) = spawned.joint_entity(name)
+                && let Some(info) = ctx.joint_info.get(&entity)
+            {
+                let parent_body = ctx.rigid_body_set.get(info.parent_body);
+                let child_body = ctx.rigid_body_set.get(info.child_body);
+                if let (Some(pb), Some(cb)) = (parent_body, child_body) {
+                    let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
+                    let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
+                    let sin_proj = sin_half.dot(info.axis);
+                    let angle = 2.0 * f32::atan2(sin_proj, rel_rot.w);
 
-                        if let Some(mut js) = world.get_mut::<JointState>(entity) {
-                            js.position = angle;
-                        }
+                    if let Some(mut js) = world.get_mut::<JointState>(entity) {
+                        js.position = angle;
                     }
                 }
             }

@@ -139,14 +139,14 @@ impl OnnxPolicy {
 
         // Find observation input tensor name.
         let input_name = find_tensor_name(
-            session.inputs().iter().map(|i| i.name()),
+            session.inputs().iter().map(ort::value::Outlet::name),
             &["obs", "observation"],
         )
         .ok_or(OnnxPolicyError::MissingObsInput)?;
 
         // Find action output tensor name.
         let output_name = find_tensor_name(
-            session.outputs().iter().map(|o| o.name()),
+            session.outputs().iter().map(ort::value::Outlet::name),
             &["action", "actions"],
         )
         .ok_or(OnnxPolicyError::MissingActionOutput)?;
@@ -172,17 +172,17 @@ impl OnnxPolicy {
     }
 
     /// Returns the observation dimension expected by the model.
-    pub fn obs_dim(&self) -> usize {
+    pub const fn obs_dim(&self) -> usize {
         self.obs_dim
     }
 
     /// Returns the action dimension produced by the model.
-    pub fn action_dim(&self) -> usize {
+    pub const fn action_dim(&self) -> usize {
         self.action_dim
     }
 
     /// Returns the action transform configuration.
-    pub fn action_transform(&self) -> &ActionTransform {
+    pub const fn action_transform(&self) -> &ActionTransform {
         &self.action_transform
     }
 
@@ -194,7 +194,7 @@ impl OnnxPolicy {
                 for (i, val) in raw.iter_mut().enumerate() {
                     let s = scale.get(i).copied().unwrap_or(1.0);
                     let o = offset.get(i).copied().unwrap_or(0.0);
-                    *val = *val * s + o;
+                    *val = (*val).mul_add(s, o);
                 }
             }
             ActionTransform::Clip { low, high } => {
@@ -226,20 +226,18 @@ impl Policy for OnnxPolicy {
             TensorRef::<f32>::from_array_view(([1_usize, self.obs_dim], &*input_data))
                 .expect("failed to create input tensor");
 
-        let mut session = self.session.lock().expect("session lock poisoned");
-        let outputs = session
+        let mut action_data: Vec<f32> = self
+            .session
+            .lock()
+            .expect("session lock poisoned")
             .run(ort::inputs![&self.input_name => input_tensor])
-            .expect("ONNX inference failed");
-
-        // Extract raw output as (shape, &[f32]).
-        let (_shape, output_data) = outputs[&*self.output_name]
+            .expect("ONNX inference failed")[&*self.output_name]
             .try_extract_tensor::<f32>()
-            .expect("failed to extract action tensor");
-
-        let mut action_data: Vec<f32> = output_data.iter().copied().collect();
+            .expect("failed to extract action tensor")
+            .1
+            .to_vec();
         action_data.truncate(self.action_dim);
 
-        // Apply post-processing transform.
         self.apply_transform(&mut action_data);
 
         Action::from(action_data)
@@ -277,19 +275,16 @@ fn find_tensor_name<'a>(
 /// Extract the observation dimension from the named input tensor.
 ///
 /// Expects shape `[batch, obs_dim]` and returns `obs_dim`.
-fn extract_dim_from_input(
-    session: &Session,
-    name: &str,
-) -> Result<usize, OnnxPolicyError> {
+fn extract_dim_from_input(session: &Session, name: &str) -> Result<usize, OnnxPolicyError> {
     for input in session.inputs() {
-        if input.name() == name {
-            if let ValueType::Tensor { shape, .. } = input.dtype() {
-                // shape is a SmallVec<i64>; for [batch, obs_dim] take index 1
-                if shape.len() >= 2 {
-                    let dim = shape[1];
-                    if dim > 0 {
-                        return Ok(dim as usize);
-                    }
+        if input.name() == name
+            && let ValueType::Tensor { shape, .. } = input.dtype()
+        {
+            // shape is a SmallVec<i64>; for [batch, obs_dim] take index 1
+            if shape.len() >= 2 {
+                let dim = shape[1];
+                if dim > 0 {
+                    return usize::try_from(dim).map_err(|_| OnnxPolicyError::UnknownObsDim);
                 }
             }
         }
@@ -300,19 +295,15 @@ fn extract_dim_from_input(
 /// Extract the action dimension from the named output tensor.
 ///
 /// Expects shape `[batch, action_dim]` and returns `action_dim`.
-fn extract_dim_from_output(
-    session: &Session,
-    name: &str,
-) -> Result<usize, OnnxPolicyError> {
+fn extract_dim_from_output(session: &Session, name: &str) -> Result<usize, OnnxPolicyError> {
     for output in session.outputs() {
-        if output.name() == name {
-            if let ValueType::Tensor { shape, .. } = output.dtype() {
-                if shape.len() >= 2 {
-                    let dim = shape[1];
-                    if dim > 0 {
-                        return Ok(dim as usize);
-                    }
-                }
+        if output.name() == name
+            && let ValueType::Tensor { shape, .. } = output.dtype()
+            && shape.len() >= 2
+        {
+            let dim = shape[1];
+            if dim > 0 {
+                return usize::try_from(dim).map_err(|_| OnnxPolicyError::UnknownActionDim);
             }
         }
     }
@@ -343,8 +334,7 @@ fn parse_action_transform(
 ) -> ActionTransform {
     let transform_str = metadata
         .get("action_transform")
-        .map(String::as_str)
-        .unwrap_or("none");
+        .map_or("none", String::as_str);
 
     match transform_str {
         "tanh" => {
@@ -372,18 +362,18 @@ fn parse_clip_bounds(
     metadata: &HashMap<String, String>,
     action_dim: usize,
 ) -> (Vec<f32>, Vec<f32>) {
-    if let Some(space_json) = metadata.get("action_space") {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(space_json) {
-            let low = v
-                .get("low")
-                .and_then(|a| serde_json::from_value::<Vec<f32>>(a.clone()).ok())
-                .unwrap_or_else(|| vec![-1.0; action_dim]);
-            let high = v
-                .get("high")
-                .and_then(|a| serde_json::from_value::<Vec<f32>>(a.clone()).ok())
-                .unwrap_or_else(|| vec![1.0; action_dim]);
-            return (low, high);
-        }
+    if let Some(space_json) = metadata.get("action_space")
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(space_json)
+    {
+        let low = v
+            .get("low")
+            .and_then(|a| serde_json::from_value::<Vec<f32>>(a.clone()).ok())
+            .unwrap_or_else(|| vec![-1.0; action_dim]);
+        let high = v
+            .get("high")
+            .and_then(|a| serde_json::from_value::<Vec<f32>>(a.clone()).ok())
+            .unwrap_or_else(|| vec![1.0; action_dim]);
+        return (low, high);
     }
     (vec![-1.0; action_dim], vec![1.0; action_dim])
 }
@@ -416,8 +406,7 @@ mod tests {
 
     #[test]
     fn load_tanh_model_has_tanh_transform() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_tanh.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_tanh.onnx")).unwrap();
         assert!(matches!(
             policy.action_transform(),
             ActionTransform::Tanh { .. }
@@ -442,8 +431,7 @@ mod tests {
 
     #[test]
     fn get_action_returns_correct_dim() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
         let obs = Observation::new(vec![1.0, 0.0, 0.0, 0.0]);
         let action = policy.get_action(&obs);
         assert_eq!(action.len(), 1);
@@ -452,22 +440,17 @@ mod tests {
     #[test]
     fn get_action_zero_obs_returns_zero_action() {
         // With identity weights and zero bias, zero input yields zero output.
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
         let obs = Observation::new(vec![0.0, 0.0, 0.0, 0.0]);
         let action = policy.get_action(&obs);
         for &v in action.as_slice() {
-            assert!(
-                v.abs() < 1e-6,
-                "Expected near-zero action, got {v}",
-            );
+            assert!(v.abs() < 1e-6, "Expected near-zero action, got {v}",);
         }
     }
 
     #[test]
     fn get_action_deterministic_across_calls() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
         let obs = Observation::new(vec![1.0, 2.0, 3.0, 4.0]);
         let a1 = policy.get_action(&obs);
         let a2 = policy.get_action(&obs);
@@ -478,8 +461,7 @@ mod tests {
 
     #[test]
     fn tanh_transform_scales_output() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_tanh.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_tanh.onnx")).unwrap();
         let obs = Observation::new(vec![1.0, 0.0, 0.0, 0.0]);
         let action_tanh = policy.get_action(&obs);
 
@@ -488,10 +470,7 @@ mod tests {
         // is [1.0, 0.0]. After transform: [1.0*2.0+0.0, 0.0*2.0+0.0] = [2.0, 0.0].
         let expected = [2.0f32, 0.0];
         for (t, e) in action_tanh.as_slice().iter().zip(expected.iter()) {
-            assert!(
-                (t - e).abs() < 1e-5,
-                "Expected {e}, got {t}",
-            );
+            assert!((t - e).abs() < 1e-5, "Expected {e}, got {t}",);
         }
     }
 
@@ -499,15 +478,13 @@ mod tests {
 
     #[test]
     fn policy_name() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
         assert_eq!(policy.name(), "OnnxPolicy");
     }
 
     #[test]
     fn policy_is_deterministic() {
-        let policy =
-            OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
+        let policy = OnnxPolicy::from_file(fixture_path("test_policy_none.onnx")).unwrap();
         assert!(policy.is_deterministic());
     }
 

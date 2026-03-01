@@ -73,8 +73,10 @@ fn main() {
     // ---------------------------------------------------------------
     // 3. Run episodes, observe randomized parameters
     // ---------------------------------------------------------------
-    println!("\n{:<5} {:>10} {:>10} {:>10} {:>10} {:>12}",
-             "Ep", "MaxTorque", "MaxVel", "Coulomb", "Viscous", "FinalPos");
+    println!(
+        "\n{:<5} {:>10} {:>10} {:>10} {:>10} {:>12}",
+        "Ep", "MaxTorque", "MaxVel", "Coulomb", "Viscous", "FinalPos"
+    );
 
     let mut torques = Vec::new();
     let mut velocities = Vec::new();
@@ -113,12 +115,7 @@ fn main() {
             }
         }
 
-        let final_pos = scene
-            .app
-            .world()
-            .get::<JointState>(pivot)
-            .unwrap()
-            .position;
+        let final_pos = scene.app.world().get::<JointState>(pivot).unwrap().position;
 
         println!(
             "{:>3}   {:>10.3} {:>10.3} {:>10.4} {:>10.4} {:>12.4}",
@@ -137,11 +134,17 @@ fn main() {
     println!("\n--- Variance check ---");
 
     let mean_torque: f32 = torques.iter().sum::<f32>() / torques.len() as f32;
-    let var_torque: f32 = torques.iter().map(|t| (t - mean_torque).powi(2)).sum::<f32>()
+    let var_torque: f32 = torques
+        .iter()
+        .map(|t| (t - mean_torque).powi(2))
+        .sum::<f32>()
         / torques.len() as f32;
 
     let mean_vel: f32 = velocities.iter().sum::<f32>() / velocities.len() as f32;
-    let var_vel: f32 = velocities.iter().map(|v| (v - mean_vel).powi(2)).sum::<f32>()
+    let var_vel: f32 = velocities
+        .iter()
+        .map(|v| (v - mean_vel).powi(2))
+        .sum::<f32>()
         / velocities.len() as f32;
 
     println!("Max torque: mean={mean_torque:.2}, variance={var_torque:.2}");
@@ -170,17 +173,17 @@ fn main() {
             .unwrap()
             .build();
         scene.app.add_plugins(ClankersDomainRandPlugin);
-        scene.app.insert_resource(
-            DomainRandConfig::default()
-                .with_seed(seed)
-                .with_actuator(ActuatorRandomizer {
+        scene
+            .app
+            .insert_resource(DomainRandConfig::default().with_seed(seed).with_actuator(
+                ActuatorRandomizer {
                     motor: MotorRandomizer {
                         max_torque: Some(RandomizationRange::uniform(1.0, 100.0).unwrap()),
                         ..Default::default()
                     },
                     ..Default::default()
-                }),
-        );
+                },
+            ));
         let pivot = scene.robots["pendulum"].joint_entity("pivot").unwrap();
         scene.app.world_mut().resource_mut::<Episode>().reset(None);
         scene.app.update();
@@ -190,12 +193,7 @@ fn main() {
         } else {
             0.0
         };
-        let pos = scene
-            .app
-            .world()
-            .get::<JointState>(pivot)
-            .unwrap()
-            .position;
+        let pos = scene.app.world().get::<JointState>(pivot).unwrap().position;
         (max_t, pos)
     }
 

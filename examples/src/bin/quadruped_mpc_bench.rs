@@ -7,13 +7,17 @@
 //!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.3
 //!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.5 --gait trot --steps 500
 
-use clap::Parser;
 use clankers_actuator::components::JointState;
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
+use clankers_examples::mpc_control::{
+    MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts,
+};
 use clankers_examples::quadruped_setup::{QuadrupedSetupConfig, setup_quadruped};
-use clankers_mpc::{AdaptiveGaitConfig, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
+use clankers_mpc::{
+    AdaptiveGaitConfig, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
+};
 use clankers_physics::rapier::RapierContext;
+use clap::Parser;
 use nalgebra::Vector3;
 use rapier3d::prelude::JointAxis;
 
@@ -123,9 +127,9 @@ fn main() {
     let total_steps = args.steps as usize;
 
     println!("=== Quadruped MPC Benchmark ===");
-    println!("  Gait: {:?}", gait_type);
+    println!("  Gait: {gait_type:?}");
     println!("  Velocity: {:.2} m/s", args.velocity);
-    println!("  Steps: {} stabilize + {} locomotion", stabilize_steps, total_steps);
+    println!("  Steps: {stabilize_steps} stabilize + {total_steps} locomotion");
     println!();
 
     // --- Setup ---
@@ -182,29 +186,64 @@ fn main() {
 
     // Print active overrides
     {
-        let has_overrides = args.q_vx.is_some() || args.q_pz.is_some() || args.r_weight.is_some()
-            || args.horizon.is_some() || args.mu.is_some() || args.f_max.is_some()
+        let has_overrides = args.q_vx.is_some()
+            || args.q_pz.is_some()
+            || args.r_weight.is_some()
+            || args.horizon.is_some()
+            || args.mu.is_some()
+            || args.f_max.is_some()
             || args.cp_gain.is_some()
-            || args.q_roll.is_some() || args.q_omega.is_some()
-            || args.cycle_time.is_some() || args.duty_factor.is_some() || args.step_height.is_some()
+            || args.q_roll.is_some()
+            || args.q_omega.is_some()
+            || args.cycle_time.is_some()
+            || args.duty_factor.is_some()
+            || args.step_height.is_some()
             || args.mpc_dt.is_some()
             || args.mu_sim.is_some();
         if has_overrides {
             println!("Overrides:");
-            if let Some(v) = args.q_vx { println!("  q_vx={v}"); }
-            if let Some(v) = args.q_pz { println!("  q_pz={v}"); }
-            if let Some(v) = args.r_weight { println!("  r_weight={v}"); }
-            if let Some(h) = args.horizon { println!("  horizon={h}"); }
-            if let Some(v) = args.mu { println!("  mu={v}"); }
-            if let Some(v) = args.f_max { println!("  f_max={v}"); }
-            if let Some(v) = args.cp_gain { println!("  cp_gain={v}"); }
-            if let Some(v) = args.q_roll { println!("  q_roll={v}"); }
-            if let Some(v) = args.q_omega { println!("  q_omega={v}"); }
-            if let Some(v) = args.cycle_time { println!("  cycle_time={v}"); }
-            if let Some(v) = args.duty_factor { println!("  duty_factor={v}"); }
-            if let Some(v) = args.step_height { println!("  step_height={v}"); }
-            if let Some(v) = args.mpc_dt { println!("  mpc_dt={v}"); }
-            if let Some(v) = args.mu_sim { println!("  mu_sim={v}"); }
+            if let Some(v) = args.q_vx {
+                println!("  q_vx={v}");
+            }
+            if let Some(v) = args.q_pz {
+                println!("  q_pz={v}");
+            }
+            if let Some(v) = args.r_weight {
+                println!("  r_weight={v}");
+            }
+            if let Some(h) = args.horizon {
+                println!("  horizon={h}");
+            }
+            if let Some(v) = args.mu {
+                println!("  mu={v}");
+            }
+            if let Some(v) = args.f_max {
+                println!("  f_max={v}");
+            }
+            if let Some(v) = args.cp_gain {
+                println!("  cp_gain={v}");
+            }
+            if let Some(v) = args.q_roll {
+                println!("  q_roll={v}");
+            }
+            if let Some(v) = args.q_omega {
+                println!("  q_omega={v}");
+            }
+            if let Some(v) = args.cycle_time {
+                println!("  cycle_time={v}");
+            }
+            if let Some(v) = args.duty_factor {
+                println!("  duty_factor={v}");
+            }
+            if let Some(v) = args.step_height {
+                println!("  step_height={v}");
+            }
+            if let Some(v) = args.mpc_dt {
+                println!("  mpc_dt={v}");
+            }
+            if let Some(v) = args.mu_sim {
+                println!("  mu_sim={v}");
+            }
             println!();
         }
     }
@@ -215,7 +254,11 @@ fn main() {
         solver: MpcSolver::new(mpc_config.clone(), 4),
         config: mpc_config,
         swing_config,
-        adaptive_gait: if args.adaptive_gait { Some(AdaptiveGaitConfig::default()) } else { None },
+        adaptive_gait: if args.adaptive_gait {
+            Some(AdaptiveGaitConfig::default())
+        } else {
+            None
+        },
         legs: setup.legs,
         swing_starts: vec![Vector3::zeros(); n_feet],
         swing_targets: vec![Vector3::zeros(); n_feet],
@@ -235,27 +278,31 @@ fn main() {
     let mut solve_count: u64 = 0;
     let all_steps = stabilize_steps + total_steps;
 
-    println!("\nRunning {} total steps ({:.1}s)...", all_steps, all_steps as f64 * dt);
+    println!(
+        "\nRunning {} total steps ({:.1}s)...",
+        all_steps,
+        all_steps as f64 * dt
+    );
 
     for step in 0..all_steps {
         // Switch gait after stabilization
         if step == stabilize_steps {
-            let mut gait = GaitScheduler::quadruped(gait_type);
-            // Apply gait overrides if any
-            if args.cycle_time.is_some() || args.duty_factor.is_some() {
+            let gait = if args.cycle_time.is_some() || args.duty_factor.is_some() {
                 let base = GaitScheduler::quadruped(gait_type);
-                let ct = args.cycle_time.unwrap_or(base.cycle_time());
-                let df = args.duty_factor.unwrap_or(base.duty_factor());
+                let ct = args.cycle_time.unwrap_or_else(|| base.cycle_time());
+                let df = args.duty_factor.unwrap_or_else(|| base.duty_factor());
                 let offsets = match gait_type {
                     GaitType::Trot => vec![0.0, 0.5, 0.5, 0.0],
                     GaitType::Walk => vec![0.0, 0.5, 0.25, 0.75],
                     GaitType::Bound => vec![0.0, 0.0, 0.5, 0.5],
                     GaitType::Stand => vec![0.0; 4],
                 };
-                gait = GaitScheduler::custom(offsets, df, ct);
-            }
+                GaitScheduler::custom(offsets, df, ct)
+            } else {
+                GaitScheduler::quadruped(gait_type)
+            };
             mpc_state.gait = gait;
-            println!("  >>> Switched to {:?} at step {step}", gait_type);
+            println!("  >>> Switched to {gait_type:?} at step {step}");
         }
 
         let (body_state, body_quat, actual_contacts) = {
@@ -311,8 +358,12 @@ fn main() {
             let mut ctx = world.remove_resource::<RapierContext>().unwrap();
 
             for mc in &result.motor_commands {
-                let Some(&jh) = ctx.joint_handles.get(&mc.entity) else { continue };
-                let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) else { continue };
+                let Some(&jh) = ctx.joint_handles.get(&mc.entity) else {
+                    continue;
+                };
+                let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) else {
+                    continue;
+                };
 
                 joint.data.set_motor(
                     JointAxis::AngX,
@@ -321,7 +372,9 @@ fn main() {
                     mc.stiffness,
                     mc.damping,
                 );
-                joint.data.set_motor_max_force(JointAxis::AngX, mc.max_force);
+                joint
+                    .data
+                    .set_motor_max_force(JointAxis::AngX, mc.max_force);
             }
 
             // Compute substeps from MPC dt / physics dt (0.001s)
@@ -333,9 +386,15 @@ fn main() {
             // Read back joint state
             for leg in &mpc_state.legs {
                 for &entity in &leg.joint_entities {
-                    let Some(info) = ctx.joint_info.get(&entity) else { continue };
-                    let Some(pb) = ctx.rigid_body_set.get(info.parent_body) else { continue };
-                    let Some(cb) = ctx.rigid_body_set.get(info.child_body) else { continue };
+                    let Some(info) = ctx.joint_info.get(&entity) else {
+                        continue;
+                    };
+                    let Some(pb) = ctx.rigid_body_set.get(info.parent_body) else {
+                        continue;
+                    };
+                    let Some(cb) = ctx.rigid_body_set.get(info.child_body) else {
+                        continue;
+                    };
 
                     let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
                     let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
@@ -369,10 +428,18 @@ fn main() {
             println!(
                 "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  vel=[{:+.3}, {:+.3}, {:+.3}]  mpc={:>4}us  {}",
                 step,
-                body_state.position.x, body_state.position.y, body_state.position.z,
-                body_state.linear_velocity.x, body_state.linear_velocity.y, body_state.linear_velocity.z,
+                body_state.position.x,
+                body_state.position.y,
+                body_state.position.z,
+                body_state.linear_velocity.x,
+                body_state.linear_velocity.y,
+                body_state.linear_velocity.z,
                 result.solution.solve_time_us,
-                if result.solution.converged { "OK" } else { "FAIL" },
+                if result.solution.converged {
+                    "OK"
+                } else {
+                    "FAIL"
+                },
             );
         }
     }
@@ -385,25 +452,40 @@ fn main() {
 
     let sim_time = total_steps as f64 * dt;
     let avg_speed = final_state.position.x / (all_steps as f64 * dt);
-    let avg_solve = if solve_count > 0 { total_solve_us / solve_count } else { 0 };
+    let avg_solve = if solve_count > 0 {
+        total_solve_us / solve_count
+    } else {
+        0
+    };
 
     println!("\n{}", "=".repeat(60));
     println!("BENCHMARK RESULTS");
     println!("{}", "=".repeat(60));
-    println!("  Gait:          {:?}", gait_type);
+    println!("  Gait:          {gait_type:?}");
     println!("  Target vel:    {:.2} m/s", args.velocity);
-    println!("  Sim time:      {:.1}s ({} loco steps)", sim_time, total_steps);
+    println!("  Sim time:      {sim_time:.1}s ({total_steps} loco steps)");
     println!("  Final X:       {:+.3} m", final_state.position.x);
     println!("  Final Z:       {:+.3} m", final_state.position.z);
-    println!("  Avg speed:     {:.3} m/s", avg_speed);
-    println!("  Min Z:         {:.3} m", min_z);
-    println!("  Max roll:      {:.3} rad ({:.1} deg)", max_roll, max_roll.to_degrees());
-    println!("  Max pitch:     {:.3} rad ({:.1} deg)", max_pitch, max_pitch.to_degrees());
-    println!("  Avg MPC solve: {} us", avg_solve);
+    println!("  Avg speed:     {avg_speed:.3} m/s");
+    println!("  Min Z:         {min_z:.3} m");
+    println!(
+        "  Max roll:      {:.3} rad ({:.1} deg)",
+        max_roll,
+        max_roll.to_degrees()
+    );
+    println!(
+        "  Max pitch:     {:.3} rad ({:.1} deg)",
+        max_pitch,
+        max_pitch.to_degrees()
+    );
+    println!("  Avg MPC solve: {avg_solve} us");
     println!("{}", "=".repeat(60));
 
     // Quick sanity check
     if final_state.position.z < 0.05 {
-        println!("\nWARNING: Robot may have fallen (z={:.3})", final_state.position.z);
+        println!(
+            "\nWARNING: Robot may have fallen (z={:.3})",
+            final_state.position.z
+        );
     }
 }

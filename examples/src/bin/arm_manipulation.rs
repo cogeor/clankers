@@ -21,15 +21,13 @@ use clankers_core::ClankersSet;
 use clankers_core::types::SegmentationClass;
 use clankers_env::prelude::*;
 use clankers_examples::SIX_DOF_ARM_URDF;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 use clankers_teleop::prelude::*;
-use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
 use clankers_viz::ClankersVizPlugin;
-use rapier3d::prelude::{
-    ColliderBuilder, RigidBodyBuilder, RigidBodyHandle,
-};
+use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
+use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle};
 
 // ---------------------------------------------------------------------------
 // Visual markers
@@ -123,13 +121,13 @@ fn sync_objects_system(
     mut objects: Query<(&ObjectVisual, &mut Transform)>,
 ) {
     for (obj, mut transform) in &mut objects {
-        if let Some(&handle) = handles.bodies.get(obj.0) {
-            if let Some(body) = ctx.rigid_body_set.get(handle) {
-                let pos = body.translation();
-                let rot = body.rotation();
-                transform.translation = Vec3::new(pos.x, pos.y, pos.z);
-                transform.rotation = *rot;
-            }
+        if let Some(&handle) = handles.bodies.get(obj.0)
+            && let Some(body) = ctx.rigid_body_set.get(handle)
+        {
+            let pos = body.translation();
+            let rot = body.rotation();
+            transform.translation = Vec3::new(pos.x, pos.y, pos.z);
+            transform.rotation = *rot;
         }
     }
 }
@@ -153,11 +151,7 @@ fn main() {
 
     // 3. Switch all actuators to position mode (PID controller)
     for entity in spawned.joints.values() {
-        let mut actuator = scene
-            .app
-            .world_mut()
-            .get_mut::<Actuator>(*entity)
-            .unwrap();
+        let mut actuator = scene.app.world_mut().get_mut::<Actuator>(*entity).unwrap();
         *actuator = Actuator::new(
             actuator.motor.clone(),
             actuator.transmission.clone(),
@@ -276,16 +270,12 @@ fn main() {
     }
     // Gripper: both fingers on channels 6 and 7
     if let Some(fl) = finger_left {
-        teleop_config = teleop_config.with_mapping(
-            "joint_6".to_string(),
-            JointMapping::new(fl).with_scale(0.5),
-        );
+        teleop_config = teleop_config
+            .with_mapping("joint_6".to_string(), JointMapping::new(fl).with_scale(0.5));
     }
     if let Some(fr) = finger_right {
-        teleop_config = teleop_config.with_mapping(
-            "joint_7".to_string(),
-            JointMapping::new(fr).with_scale(0.5),
-        );
+        teleop_config = teleop_config
+            .with_mapping("joint_7".to_string(), JointMapping::new(fr).with_scale(0.5));
     }
     scene.app.insert_resource(teleop_config);
 
@@ -339,10 +329,9 @@ fn main() {
 
     // 12. Systems
     scene.app.add_systems(Startup, spawn_scene_meshes);
-    scene.app.add_systems(
-        Update,
-        sync_objects_system.after(ClankersSet::Simulate),
-    );
+    scene
+        .app
+        .add_systems(Update, sync_objects_system.after(ClankersSet::Simulate));
 
     // 13. Start episode and run
     scene.app.world_mut().resource_mut::<Episode>().reset(None);

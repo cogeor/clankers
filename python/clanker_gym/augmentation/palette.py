@@ -10,32 +10,30 @@ https://github.com/CSAILVision/sceneparsing/blob/master/objectInfo150.csv
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
-
 import numpy as np
 from numpy.typing import NDArray
 
 # Our simulation segmentation palette: class_name -> RGB uint8
-CLANKERS_PALETTE: Dict[str, Tuple[int, int, int]] = {
-    "ground":   (255, 0, 0),
-    "wall":     (0, 255, 0),
-    "robot":    (0, 0, 255),
+CLANKERS_PALETTE: dict[str, tuple[int, int, int]] = {
+    "ground": (255, 0, 0),
+    "wall": (0, 255, 0),
+    "robot": (0, 0, 255),
     "obstacle": (255, 255, 0),
-    "table":    (128, 128, 128),
-    "object":   (128, 0, 128),
+    "table": (128, 128, 128),
+    "object": (128, 0, 128),
 }
 
 # ADE20K palette: verified against mmseg PALETTE used by ControlNet-seg
 # (lllyasviel/control_v11p_sd15_seg).  The mmseg palette is 0-indexed;
 # ADE20K CSV class N corresponds to mmseg palette index N-1.
 # Reference: https://github.com/lllyasviel/ControlNet-v1-1-nightly/blob/main/annotator/uniformer/mmseg/datasets/ade.py
-ADE20K_MAPPING: Dict[str, Tuple[int, int, int]] = {
-    "ground":   (80, 50, 50),      # ADE20K "floor" (class 4, palette idx 3)
-    "wall":     (120, 120, 120),   # ADE20K "wall"  (class 1, palette idx 0)
-    "robot":    (140, 140, 140),   # ADE20K "road"  (class 7, palette idx 6) — neutral gray surface
-    "obstacle": (0, 255, 20),      # ADE20K "box"   (class 42, palette idx 41)
-    "table":    (255, 6, 82),      # ADE20K "table" (class 16, palette idx 15)
-    "object":   (255, 0, 163),     # ADE20K "ball"  (class 120, palette idx 119)
+ADE20K_MAPPING: dict[str, tuple[int, int, int]] = {
+    "ground": (80, 50, 50),  # ADE20K "floor" (class 4, palette idx 3)
+    "wall": (120, 120, 120),  # ADE20K "wall"  (class 1, palette idx 0)
+    "robot": (140, 140, 140),  # ADE20K "road"  (class 7, palette idx 6) — neutral gray surface
+    "obstacle": (0, 255, 20),  # ADE20K "box"   (class 42, palette idx 41)
+    "table": (255, 6, 82),  # ADE20K "table" (class 16, palette idx 15)
+    "object": (255, 0, 163),  # ADE20K "ball"  (class 120, palette idx 119)
 }
 
 
@@ -61,10 +59,10 @@ class PaletteRemapper:
 
     def __init__(
         self,
-        source_palette: Dict[str, Tuple[int, int, int]] | None = None,
-        target_palette: Dict[str, Tuple[int, int, int]] | None = None,
+        source_palette: dict[str, tuple[int, int, int]] | None = None,
+        target_palette: dict[str, tuple[int, int, int]] | None = None,
         tolerance: int = 10,
-        background_color: Tuple[int, int, int] = (0, 0, 0),
+        background_color: tuple[int, int, int] = (0, 0, 0),
     ) -> None:
         self.source = source_palette or CLANKERS_PALETTE
         self.target = target_palette or ADE20K_MAPPING

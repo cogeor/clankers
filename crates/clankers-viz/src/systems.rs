@@ -9,10 +9,10 @@ use clankers_core::types::{RobotGroup, RobotId};
 use clankers_policy::runner::PolicyRunner;
 use clankers_teleop::{TeleopCommander, TeleopConfig};
 
+use crate::SelectedRobotId;
 use crate::config::VizConfig;
 use crate::input::KeyboardTeleopMap;
 use crate::mode::VizMode;
-use crate::SelectedRobotId;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -107,10 +107,10 @@ mod tests {
     // sync_teleop_to_robot tests
     // -----------------------------------------------------------------------
 
+    use crate::SelectedRobotId;
+    use crate::input::KeyboardTeleopMap;
     use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
     use clankers_core::types::RobotGroup;
-    use crate::input::KeyboardTeleopMap;
-    use crate::SelectedRobotId;
 
     fn spawn_joint(world: &mut World) -> Entity {
         world
@@ -157,7 +157,10 @@ mod tests {
         app.update();
 
         // Should have 2 bindings and 2 mappings.
-        assert_eq!(app.world().resource::<KeyboardTeleopMap>().bindings.len(), 2);
+        assert_eq!(
+            app.world().resource::<KeyboardTeleopMap>().bindings.len(),
+            2
+        );
         assert_eq!(app.world().resource::<TeleopConfig>().mappings.len(), 2);
     }
 
@@ -177,7 +180,10 @@ mod tests {
         app.world_mut().resource_mut::<SelectedRobotId>().0 = None;
         app.update();
 
-        assert_eq!(app.world().resource::<KeyboardTeleopMap>().bindings.len(), 3);
+        assert_eq!(
+            app.world().resource::<KeyboardTeleopMap>().bindings.len(),
+            3
+        );
         assert_eq!(app.world().resource::<TeleopConfig>().mappings.len(), 3);
     }
 
@@ -195,7 +201,9 @@ mod tests {
         // Select A, run, set a commander value.
         app.world_mut().resource_mut::<SelectedRobotId>().0 = Some(id_a);
         app.update();
-        app.world_mut().resource_mut::<TeleopCommander>().set("joint_0", 0.5);
+        app.world_mut()
+            .resource_mut::<TeleopCommander>()
+            .set("joint_0", 0.5);
 
         // Switch to B.
         app.world_mut().resource_mut::<SelectedRobotId>().0 = Some(id_b);
@@ -231,11 +239,15 @@ mod tests {
         app.world_mut().resource_mut::<SelectedRobotId>().0 = Some(id_a);
         app.update();
         // Set a commander value.
-        app.world_mut().resource_mut::<TeleopCommander>().set("joint_0", 0.7);
+        app.world_mut()
+            .resource_mut::<TeleopCommander>()
+            .set("joint_0", 0.7);
 
         // Run again with same selection -- commander should NOT be cleared.
         app.update();
-        assert!((app.world().resource::<TeleopCommander>().get("joint_0") - 0.7).abs() < f32::EPSILON);
+        assert!(
+            (app.world().resource::<TeleopCommander>().get("joint_0") - 0.7).abs() < f32::EPSILON
+        );
     }
 }
 

@@ -87,8 +87,12 @@ pub fn write_message<T: Serialize>(writer: &mut impl Write, msg: &T) -> Result<(
 ///
 /// Returns an `io::Error` if writing or flushing fails.
 pub fn write_binary_frame<W: Write>(writer: &mut W, data: &[u8]) -> std::io::Result<()> {
-    let len = u32::try_from(data.len())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "data too large for u32 length prefix"))?;
+    let len = u32::try_from(data.len()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "data too large for u32 length prefix",
+        )
+    })?;
     writer.write_all(&len.to_le_bytes())?;
     writer.write_all(data)?;
     writer.flush()

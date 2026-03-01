@@ -79,12 +79,12 @@ impl DisturbanceEstimator {
             // Innovation: measured - predicted in velocity subspace
             for i in 0..3 {
                 let e_omega = x_measured[6 + i] - pred[6 + i];
-                self.omega_bias[i] = ((1.0 - alpha) * self.omega_bias[i] + alpha * e_omega)
-                    .clamp(-max_b, max_b);
+                self.omega_bias[i] =
+                    ((1.0 - alpha) * self.omega_bias[i] + alpha * e_omega).clamp(-max_b, max_b);
 
                 let e_vel = x_measured[9 + i] - pred[9 + i];
-                self.velocity_bias[i] = ((1.0 - alpha) * self.velocity_bias[i] + alpha * e_vel)
-                    .clamp(-max_b, max_b);
+                self.velocity_bias[i] =
+                    ((1.0 - alpha) * self.velocity_bias[i] + alpha * e_vel).clamp(-max_b, max_b);
             }
         }
     }
@@ -132,6 +132,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn initial_bias_is_zero() {
         let est = DisturbanceEstimator::new(DisturbanceEstimatorConfig::default());
         assert_eq!(est.omega_bias, Vector3::zeros());
@@ -196,6 +197,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn reset_clears_state() {
         let mut est = DisturbanceEstimator::new(DisturbanceEstimatorConfig {
             alpha: 1.0,

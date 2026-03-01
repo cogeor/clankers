@@ -75,12 +75,7 @@ impl DlsSolver {
     /// Solve IK for the given chain and target.
     ///
     /// `q_init` is the starting joint configuration (warm-start from current state).
-    pub fn solve(
-        &self,
-        chain: &KinematicChain,
-        target: &IkTarget,
-        q_init: &[f32],
-    ) -> IkResult {
+    pub fn solve(&self, chain: &KinematicChain, target: &IkTarget, q_init: &[f32]) -> IkResult {
         assert_eq!(q_init.len(), chain.dof());
 
         let mut q: Vec<f32> = q_init.to_vec();
@@ -115,7 +110,8 @@ impl DlsSolver {
 
             // DLS: dq = J^T (J J^T + lambda^2 I)^{-1} * error
             let jjt = &jacobian * jacobian.transpose();
-            let damped = jjt + DMatrix::identity(m, m) * (self.config.damping * self.config.damping);
+            let damped =
+                jjt + DMatrix::identity(m, m) * (self.config.damping * self.config.damping);
             let Some(damped_inv) = damped.try_inverse() else {
                 // Matrix is singular even with damping — give up
                 return IkResult {
@@ -155,10 +151,7 @@ impl DlsSolver {
 /// Compute the error vector between current EE pose and target.
 ///
 /// Returns `(pos_err, ori_err, error_vec)` for the solver loop.
-fn compute_error(
-    ee_pose: &Isometry3<f32>,
-    target: &IkTarget,
-) -> (f32, f32, DVector<f32>) {
+fn compute_error(ee_pose: &Isometry3<f32>, target: &IkTarget) -> (f32, f32, DVector<f32>) {
     match target {
         IkTarget::Position(target_pos) => {
             let pos_err = target_pos - ee_pose.translation.vector;
@@ -176,8 +169,12 @@ fn compute_error(
             let ori_err_norm = ori_err_vec.norm();
 
             let error = DVector::from_column_slice(&[
-                pos_err.x, pos_err.y, pos_err.z,
-                ori_err_vec.x, ori_err_vec.y, ori_err_vec.z,
+                pos_err.x,
+                pos_err.y,
+                pos_err.z,
+                ori_err_vec.x,
+                ori_err_vec.y,
+                ori_err_vec.z,
             ]);
             (pos_err_norm, ori_err_norm, error)
         }
@@ -194,11 +191,7 @@ fn orientation_error(q: &UnitQuaternion<f32>) -> Vector3<f32> {
 ///
 /// For position-only targets, returns a 3xN matrix.
 /// For full-pose targets, returns a 6xN matrix (linear + angular rows).
-fn compute_jacobian(
-    chain: &KinematicChain,
-    q: &[f32],
-    target: &IkTarget,
-) -> DMatrix<f32> {
+fn compute_jacobian(chain: &KinematicChain, q: &[f32], target: &IkTarget) -> DMatrix<f32> {
     let n = chain.dof();
     let (origins, axes, ee_pos) = chain.joint_frames(q);
 
@@ -332,19 +325,29 @@ mod tests {
         let solver = DlsSolver::with_defaults();
         let result = solver.solve(&chain, &target, &[0.0, 0.0]);
 
-        assert!(result.converged, "IK did not converge: pos_err={}", result.position_error);
+        assert!(
+            result.converged,
+            "IK did not converge: pos_err={}",
+            result.position_error
+        );
         assert!(result.position_error < 1e-3);
 
         // Verify FK at solved angles matches target
         let ee_solved = chain.forward_kinematics(&result.joint_positions);
         assert_relative_eq!(
-            ee_solved.translation.x, ee_target.translation.x, epsilon = 1e-3
+            ee_solved.translation.x,
+            ee_target.translation.x,
+            epsilon = 1e-3
         );
         assert_relative_eq!(
-            ee_solved.translation.y, ee_target.translation.y, epsilon = 1e-3
+            ee_solved.translation.y,
+            ee_target.translation.y,
+            epsilon = 1e-3
         );
         assert_relative_eq!(
-            ee_solved.translation.z, ee_target.translation.z, epsilon = 1e-3
+            ee_solved.translation.z,
+            ee_target.translation.z,
+            epsilon = 1e-3
         );
     }
 
@@ -358,7 +361,11 @@ mod tests {
         let solver = DlsSolver::with_defaults();
         let result = solver.solve(&chain, &target, &[0.0; 6]);
 
-        assert!(result.converged, "IK did not converge: pos_err={}", result.position_error);
+        assert!(
+            result.converged,
+            "IK did not converge: pos_err={}",
+            result.position_error
+        );
 
         let ee = chain.forward_kinematics(&result.joint_positions);
         assert_relative_eq!(ee.translation.x, 0.3, epsilon = 1e-3);
@@ -381,8 +388,11 @@ mod tests {
         });
         let result = solver.solve(&chain, &target, &[0.0; 6]);
 
-        assert!(result.converged, "IK did not converge: pos_err={}, ori_err={}",
-            result.position_error, result.orientation_error);
+        assert!(
+            result.converged,
+            "IK did not converge: pos_err={}, ori_err={}",
+            result.position_error, result.orientation_error
+        );
         assert!(result.position_error < 1e-3);
         assert!(result.orientation_error < 1e-2);
     }
@@ -438,7 +448,11 @@ mod tests {
             assert!(
                 q >= joint.lower_limit - 1e-6 && q <= joint.upper_limit + 1e-6,
                 "Joint {} ({}) out of limits: {} not in [{}, {}]",
-                i, joint.name, q, joint.lower_limit, joint.upper_limit
+                i,
+                joint.name,
+                q,
+                joint.lower_limit,
+                joint.upper_limit
             );
         }
     }

@@ -3,8 +3,8 @@
 use bevy::prelude::*;
 
 use crate::recorder::{
-    PendingAction, PendingReward, RecordingConfig, record_action_system, record_joint_states_system,
-    record_reward_system, setup_channels, setup_recorder,
+    PendingAction, PendingReward, RecordingConfig, record_action_system,
+    record_joint_states_system, record_reward_system, setup_channels, setup_recorder,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,7 @@ impl Plugin for RecorderPlugin {
         {
             use crate::recorder::camera::{CameraChannelIds, record_image_system};
             app.init_resource::<CameraChannelIds>();
-            app.add_systems(
-                PostUpdate,
-                record_image_system.after(setup_channels),
-            );
+            app.add_systems(PostUpdate, record_image_system.after(setup_channels));
         }
     }
 }

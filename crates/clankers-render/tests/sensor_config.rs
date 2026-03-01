@@ -1,7 +1,7 @@
 //! Integration tests for render sensor configuration types.
 //!
-//! Exercises CameraConfig, FrameBuffer, CameraFrameBuffers, ImageSensor,
-//! DepthFrameBuffer, and PixelFormat without requiring a GPU.
+//! Exercises `CameraConfig`, `FrameBuffer`, `CameraFrameBuffers`, `ImageSensor`,
+//! `DepthFrameBuffer`, and `PixelFormat` without requiring a GPU.
 
 use clankers_core::traits::{ObservationSensor, Sensor};
 use clankers_render::buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
@@ -88,7 +88,10 @@ fn camera_frame_buffers_insert_get() {
     assert_eq!(front.height(), 8);
     assert_eq!(front.format(), PixelFormat::Rgba8);
 
-    assert!(bufs.get("rear").is_none(), "missing label should return None");
+    assert!(
+        bufs.get("rear").is_none(),
+        "missing label should return None"
+    );
 }
 
 // ---------------------------------------------------------------------------

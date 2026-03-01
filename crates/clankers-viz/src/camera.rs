@@ -30,9 +30,7 @@ pub fn spawn_camera(mut commands: Commands) {
 pub fn egui_camera_gate(mut contexts: EguiContexts, mut cameras: Query<&mut PanOrbitCamera>) {
     let egui_wants_pointer = contexts
         .ctx_mut()
-        .map_or(false, |ctx| {
-            ctx.is_pointer_over_area() || ctx.wants_pointer_input()
-        });
+        .is_ok_and(|ctx| ctx.is_pointer_over_area() || ctx.wants_pointer_input());
     for mut cam in &mut cameras {
         cam.enabled = !egui_wants_pointer;
     }

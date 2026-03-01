@@ -13,16 +13,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use clap::Parser;
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_policy::prelude::*;
 use clankers_sim::SceneBuilder;
 use clankers_viz::ClankersVizPlugin;
+use clap::Parser;
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -185,8 +185,7 @@ fn sync_pole_visual(
     states: Query<&JointState>,
     mut pole: Query<&mut Transform, With<PoleVisual>>,
 ) {
-    let (Ok(cart_state), Ok(pole_state)) =
-        (states.get(joints.cart), states.get(joints.pole))
+    let (Ok(cart_state), Ok(pole_state)) = (states.get(joints.cart), states.get(joints.pole))
     else {
         return;
     };
@@ -223,10 +222,10 @@ fn apply_policy_action(
     }
 
     // Pole torque (action index 1), if present
-    if action.len() > 1 {
-        if let Ok(mut cmd) = commands.get_mut(joints.pole) {
-            cmd.value = action.get(1).copied().unwrap_or(0.0);
-        }
+    if action.len() > 1
+        && let Ok(mut cmd) = commands.get_mut(joints.pole)
+    {
+        cmd.value = action.get(1).copied().unwrap_or(0.0);
     }
 }
 
@@ -249,8 +248,7 @@ fn main() {
     );
 
     // 2. Parse URDF
-    let model =
-        clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
+    let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
 
     // 3. Build scene
     let mut scene = SceneBuilder::new()
@@ -285,18 +283,13 @@ fn main() {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(
-            Box::new(JointStateSensor::new(2)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(2)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
 
     // 7. Joint entity references (data entities, NOT visual entities)
-    scene
-        .app
-        .insert_resource(CartPoleJoints { cart, pole });
+    scene.app.insert_resource(CartPoleJoints { cart, pole });
 
     // 8. PolicyRunner + ClankersPolicyPlugin
     let runner = PolicyRunner::new(Box::new(onnx_policy), action_dim);
@@ -323,8 +316,7 @@ fn main() {
     //     Must run after physics so we read up-to-date JointState.
     scene.app.add_systems(
         Update,
-        (sync_cart_visual, sync_pivot_visual, sync_pole_visual)
-            .after(ClankersSet::Simulate),
+        (sync_cart_visual, sync_pivot_visual, sync_pole_visual).after(ClankersSet::Simulate),
     );
 
     // 13. Action applicator: PolicyRunner -> JointCommand

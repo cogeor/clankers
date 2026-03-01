@@ -90,11 +90,11 @@ impl Sensor for ImageSensor {
 
     fn read(&self, world: &mut World) -> Self::Output {
         // Look up the named camera in CameraFrameBuffers first.
-        if let Some(bufs) = world.get_resource::<CameraFrameBuffers>() {
-            if let Some(buf) = bufs.get(&self.label) {
-                let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
-                return Observation::new(data);
-            }
+        if let Some(bufs) = world.get_resource::<CameraFrameBuffers>()
+            && let Some(buf) = bufs.get(&self.label)
+        {
+            let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
+            return Observation::new(data);
         }
 
         // Fall back to a zero observation of the declared dimension.
@@ -168,7 +168,7 @@ impl DepthSensor {
     pub fn linearise(&self, raw: f32) -> f32 {
         let near = self.near;
         let far = self.far;
-        (2.0 * near * far) / (far + near - raw * (far - near))
+        (2.0 * near * far) / raw.mul_add(-(far - near), far + near)
     }
 }
 
@@ -601,11 +601,7 @@ mod tests {
     #[test]
     fn segmentation_sensor_u8_to_f32_linearisation() {
         // Verify that specific u8 values map correctly to f32.
-        let cases: &[(u8, f32)] = &[
-            (0, 0.0),
-            (255, 1.0),
-            (128, 128.0 / 255.0),
-        ];
+        let cases: &[(u8, f32)] = &[(0, 0.0), (255, 1.0), (128, 128.0 / 255.0)];
         for &(byte, expected) in cases {
             let got = f32::from(byte) / 255.0;
             assert!(

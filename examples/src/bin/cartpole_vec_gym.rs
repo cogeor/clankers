@@ -17,8 +17,8 @@ use clankers_env::vec_env::VecEnvConfig;
 use clankers_env::vec_runner::VecEnvInstance;
 use clankers_examples::CARTPOLE_URDF;
 use clankers_gym::prelude::*;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 
 struct CartPoleApplicator;
@@ -67,10 +67,7 @@ fn make_cartpole_env() -> GymEnv {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(
-            Box::new(JointStateSensor::new(num_joints)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -85,26 +82,28 @@ fn make_cartpole_env() -> GymEnv {
         high: vec![1.0; num_joints],
     };
 
-    GymEnv::new(scene.app, obs_space, act_space, Box::new(CartPoleApplicator))
-        .with_reset_fn(|world: &mut World| {
-            if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-                ctx.reset_to_initial();
-                world.insert_resource(ctx);
-            }
-            let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
-            for (mut state, mut cmd) in query.iter_mut(world) {
-                state.position = 0.0;
-                state.velocity = 0.0;
-                cmd.value = 0.0;
-            }
-        })
+    GymEnv::new(
+        scene.app,
+        obs_space,
+        act_space,
+        Box::new(CartPoleApplicator),
+    )
+    .with_reset_fn(|world: &mut World| {
+        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+            ctx.reset_to_initial();
+            world.insert_resource(ctx);
+        }
+        let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
+        for (mut state, mut cmd) in query.iter_mut(world) {
+            state.position = 0.0;
+            state.velocity = 0.0;
+            cmd.value = 0.0;
+        }
+    })
 }
 
 fn main() {
-    let num_envs: usize = env::args()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
+    let num_envs: usize = env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
 
     let address = "127.0.0.1:9878";
 

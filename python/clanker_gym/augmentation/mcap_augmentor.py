@@ -17,7 +17,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from clanker_gym.augmentation.pipeline import Sim2RealPipeline
@@ -43,8 +43,7 @@ _LOG_INTERVAL = 10
 def _require_mcap() -> None:
     if not _MCAP_AVAILABLE:
         raise ImportError(
-            "mcap is required for McapAugmentor. "
-            "Install with: pip install mcap>=1.0.0"
+            "mcap is required for McapAugmentor. Install with: pip install mcap>=1.0.0"
         )
 
 
@@ -79,7 +78,7 @@ class McapAugmentor:
 
     def __init__(
         self,
-        pipeline: "Sim2RealPipeline",
+        pipeline: Sim2RealPipeline,
         input_channel_prefix: str = "/camera/",
         output_suffix: str = "_realistic",
         copy_non_image_channels: bool = True,
@@ -98,11 +97,11 @@ class McapAugmentor:
         self,
         input_path: str | Path,
         output_path: str | Path,
-        max_images: Optional[int] = None,
+        max_images: int | None = None,
         num_inference_steps: int = 20,
         guidance_scale: float = 7.5,
         controlnet_conditioning_scale: float = 1.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> dict[str, Any]:
         """Process an MCAP file: read segmentation images, augment, write output.
 
@@ -150,9 +149,7 @@ class McapAugmentor:
             writer.start()
 
             # Register schemas for output channels.
-            json_schema_id = writer.register_schema(
-                name="json", encoding="jsonschema", data=b""
-            )
+            json_schema_id = writer.register_schema(name="json", encoding="jsonschema", data=b"")
             binary_schema_id = writer.register_schema(
                 name="binary", encoding="application/octet-stream", data=b""
             )
@@ -300,9 +297,7 @@ class McapAugmentor:
                 expected = height * width * channels
                 raw = bytes(data)
                 if len(raw) == expected:
-                    return np.frombuffer(raw, dtype=np.uint8).reshape(
-                        height, width, channels
-                    )
+                    return np.frombuffer(raw, dtype=np.uint8).reshape(height, width, channels)
 
         # Fall back to JSON ImageFrame format.
         try:
@@ -327,7 +322,7 @@ class McapAugmentor:
     @staticmethod
     def _ensure_channel(
         cache: dict[int, int],
-        writer: "McapWriter",
+        writer: McapWriter,
         schema_id: int,
         source_channel_id: int,
         topic: str,
@@ -346,7 +341,7 @@ class McapAugmentor:
     @staticmethod
     def _ensure_image_channel(
         cache: dict[int, int],
-        writer: "McapWriter",
+        writer: McapWriter,
         schema_id: int,
         source_channel_id: int,
         topic: str,

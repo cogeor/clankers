@@ -35,7 +35,7 @@ pub mod types;
 pub mod prelude {
     pub use crate::{
         plugin::RecorderPlugin,
-        recorder::{PendingAction, PendingReward, RecordingConfig, Recorder},
+        recorder::{PendingAction, PendingReward, Recorder, RecordingConfig},
         types::{ActionFrame, ImageFrame, JointFrame, RewardFrame},
     };
 }
@@ -70,7 +70,7 @@ mod tests {
         app.update();
     }
 
-    /// Verify a round-trip write+read of a JointFrame via serde_json.
+    /// Verify a round-trip write+read of a `JointFrame` via `serde_json`.
     #[test]
     fn joint_frame_write_read_roundtrip() {
         let original = JointFrame {

@@ -19,9 +19,7 @@ pub use gpu_impl::*;
 mod gpu_impl {
     use bevy::camera::RenderTarget;
     use bevy::prelude::*;
-    use bevy::render::render_resource::{
-        Extent3d, TextureDimension, TextureFormat, TextureUsages,
-    };
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
     use crate::buffer::{CameraFrameBuffers, FrameBuffer};
     use crate::config::{CameraConfig, PixelFormat};
@@ -83,11 +81,10 @@ mod gpu_impl {
             TextureFormat::Rgba8UnormSrgb,
             Default::default(),
         );
-        render_target.texture_descriptor.usage =
-            TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT
-                | TextureUsages::COPY_SRC;
+        render_target.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_DST
+            | TextureUsages::RENDER_ATTACHMENT
+            | TextureUsages::COPY_SRC;
 
         let image_handle = images.add(render_target);
 

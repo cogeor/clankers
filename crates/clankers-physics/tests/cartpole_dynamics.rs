@@ -1,6 +1,6 @@
 //! Integration test: verify raw rapier cart-pole dynamics.
 //!
-//! Creates a minimal cart-pole matching OpenAI Gym CartPole-v1 parameters
+//! Creates a minimal cart-pole matching `OpenAI` Gym CartPole-v1 parameters
 //! directly in rapier and checks that:
 //! 1. Applying force to the cart causes it to accelerate
 //! 2. The pole tilts when the cart accelerates (inertial effect)
@@ -16,21 +16,43 @@ use rapier3d::prelude::*;
 /// Gravity matching CartPole-v1 (9.8, not 9.81)
 const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
 
-fn build_cartpole() -> (
-    RigidBodySet,
-    ImpulseJointSet,
-    ColliderSet,
-    MultibodyJointSet,
-    PhysicsPipeline,
-    IslandManager,
-    DefaultBroadPhase,
-    NarrowPhase,
-    CCDSolver,
-    RigidBodyHandle,  // cart
-    RigidBodyHandle,  // pole
-    ImpulseJointHandle, // cart joint
-    ImpulseJointHandle, // pole joint
-) {
+/// All rapier physics state for a cart-pole simulation.
+struct CartpoleWorld {
+    bodies: RigidBodySet,
+    joints: ImpulseJointSet,
+    colliders: ColliderSet,
+    multibody_joints: MultibodyJointSet,
+    pipeline: PhysicsPipeline,
+    islands: IslandManager,
+    broad_phase: DefaultBroadPhase,
+    narrow_phase: NarrowPhase,
+    ccd: CCDSolver,
+    cart: RigidBodyHandle,
+    pole: RigidBodyHandle,
+    cart_joint: ImpulseJointHandle,
+    pole_joint: ImpulseJointHandle,
+}
+
+impl CartpoleWorld {
+    fn step(&mut self, gravity: Vec3, params: &IntegrationParameters) {
+        self.pipeline.step(
+            gravity,
+            params,
+            &mut self.islands,
+            &mut self.broad_phase,
+            &mut self.narrow_phase,
+            &mut self.bodies,
+            &mut self.colliders,
+            &mut self.joints,
+            &mut self.multibody_joints,
+            &mut self.ccd,
+            &(),
+            &(),
+        );
+    }
+}
+
+fn build_cartpole() -> CartpoleWorld {
     let mut rigid_body_set = RigidBodySet::new();
     let collider_set = ColliderSet::new();
     let mut impulse_joint_set = ImpulseJointSet::new();
@@ -85,50 +107,21 @@ fn build_cartpole() -> (
     pole_joint.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
     let pole_jh = impulse_joint_set.insert(cart, pole, pole_joint, true);
 
-    (
-        rigid_body_set,
-        impulse_joint_set,
-        collider_set,
-        multibody_joint_set,
-        PhysicsPipeline::new(),
-        IslandManager::new(),
-        DefaultBroadPhase::new(),
-        NarrowPhase::new(),
-        CCDSolver::new(),
+    CartpoleWorld {
+        bodies: rigid_body_set,
+        joints: impulse_joint_set,
+        colliders: collider_set,
+        multibody_joints: multibody_joint_set,
+        pipeline: PhysicsPipeline::new(),
+        islands: IslandManager::new(),
+        broad_phase: DefaultBroadPhase::new(),
+        narrow_phase: NarrowPhase::new(),
+        ccd: CCDSolver::new(),
         cart,
         pole,
-        cart_jh,
-        pole_jh,
-    )
-}
-
-fn step(
-    pipeline: &mut PhysicsPipeline,
-    gravity: Vec3,
-    params: &IntegrationParameters,
-    islands: &mut IslandManager,
-    broad_phase: &mut DefaultBroadPhase,
-    narrow_phase: &mut NarrowPhase,
-    bodies: &mut RigidBodySet,
-    colliders: &mut ColliderSet,
-    impulse_joints: &mut ImpulseJointSet,
-    multibody_joints: &mut MultibodyJointSet,
-    ccd: &mut CCDSolver,
-) {
-    pipeline.step(
-        gravity,
-        params,
-        islands,
-        broad_phase,
-        narrow_phase,
-        bodies,
-        colliders,
-        impulse_joints,
-        multibody_joints,
-        ccd,
-        &(),
-        &(),
-    );
+        cart_joint: cart_jh,
+        pole_joint: pole_jh,
+    }
 }
 
 fn pole_angle(bodies: &RigidBodySet, cart: RigidBodyHandle, pole: RigidBodyHandle) -> f32 {
@@ -143,114 +136,108 @@ fn pole_angle(bodies: &RigidBodySet, cart: RigidBodyHandle, pole: RigidBodyHandl
 
 #[test]
 fn cart_force_moves_cart() {
-    let (
-        mut bodies, mut joints, mut colliders, mut mj,
-        mut pipeline, mut islands, mut bp, mut np, mut ccd,
-        cart, _pole, cart_jh, _pole_jh,
-    ) = build_cartpole();
+    let mut world = build_cartpole();
 
-    let mut params = IntegrationParameters::default();
-    params.dt = 0.001;
+    let params = IntegrationParameters {
+        dt: 0.001,
+        ..Default::default()
+    };
 
     // Apply 10N force to cart via motor trick (CartPole-v1 force magnitude)
-    if let Some(joint) = joints.get_mut(cart_jh, true) {
+    if let Some(joint) = world.joints.get_mut(world.cart_joint, true) {
         joint.data.set_motor(JointAxis::LinX, 0.0, 1e10, 0.0, 1.0);
         joint.data.set_motor_max_force(JointAxis::LinX, 10.0);
     }
 
     // Step 20 substeps (= 0.02s, one CartPole-v1 control step)
     for _ in 0..20 {
-        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
-             &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
+        world.step(GRAVITY, &params);
     }
 
-    let cart_pos = bodies[cart].position().translation.x;
+    let cart_pos = world.bodies[world.cart].position().translation.x;
     assert!(cart_pos > 0.001, "cart should have moved: pos={cart_pos}");
 }
 
 #[test]
 fn pole_tilts_from_cart_acceleration() {
-    let (
-        mut bodies, mut joints, mut colliders, mut mj,
-        mut pipeline, mut islands, mut bp, mut np, mut ccd,
-        cart, pole, cart_jh, pole_jh,
-    ) = build_cartpole();
+    let mut world = build_cartpole();
 
-    let mut params = IntegrationParameters::default();
-    params.dt = 0.001;
+    let params = IntegrationParameters {
+        dt: 0.001,
+        ..Default::default()
+    };
 
     // Ensure pole motor is fully disabled (free DOF)
-    if let Some(joint) = joints.get_mut(pole_jh, true) {
+    if let Some(joint) = world.joints.get_mut(world.pole_joint, true) {
         joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
         joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
     }
 
-    let angle_before = pole_angle(&bodies, cart, pole);
+    let angle_before = pole_angle(&world.bodies, world.cart, world.pole);
 
     // Apply 10N force to cart (CartPole-v1 force magnitude)
-    if let Some(joint) = joints.get_mut(cart_jh, true) {
+    if let Some(joint) = world.joints.get_mut(world.cart_joint, true) {
         joint.data.set_motor(JointAxis::LinX, 0.0, 1e10, 0.0, 1.0);
         joint.data.set_motor_max_force(JointAxis::LinX, 10.0);
     }
 
     // Step 100 substeps (= 0.1s = 5 CartPole-v1 control steps)
     for _ in 0..100 {
-        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
-             &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
+        world.step(GRAVITY, &params);
     }
 
-    let angle_after = pole_angle(&bodies, cart, pole);
+    let angle_after = pole_angle(&world.bodies, world.cart, world.pole);
     let delta = (angle_after - angle_before).abs();
     eprintln!("pole angle: before={angle_before}, after={angle_after}, delta={delta}");
-    assert!(delta > 0.001, "pole should tilt from cart acceleration: delta={delta}");
+    assert!(
+        delta > 0.001,
+        "pole should tilt from cart acceleration: delta={delta}"
+    );
 }
 
 #[test]
 fn pole_falls_under_gravity_when_perturbed() {
-    let (
-        mut bodies, mut joints, mut colliders, mut mj,
-        mut pipeline, mut islands, mut bp, mut np, mut ccd,
-        cart, pole, _cart_jh, pole_jh,
-    ) = build_cartpole();
+    let mut world = build_cartpole();
 
-    let mut params = IntegrationParameters::default();
-    params.dt = 0.001;
+    let params = IntegrationParameters {
+        dt: 0.001,
+        ..Default::default()
+    };
 
     // Disable pole motor
-    if let Some(joint) = joints.get_mut(pole_jh, true) {
+    if let Some(joint) = world.joints.get_mut(world.pole_joint, true) {
         joint.data.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
         joint.data.set_motor_max_force(JointAxis::AngX, 0.0);
     }
 
     // Give pole a larger initial angular velocity (perturbation)
-    bodies[pole].set_angvel(Vec3::new(0.0, 0.5, 0.0), true);
+    world.bodies[world.pole].set_angvel(Vec3::new(0.0, 0.5, 0.0), true);
 
     // Step 1000 substeps (= 1.0s)
     for _ in 0..1000 {
-        step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
-             &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
+        world.step(GRAVITY, &params);
     }
 
-    let angle = pole_angle(&bodies, cart, pole).abs();
+    let angle = pole_angle(&world.bodies, world.cart, world.pole).abs();
     eprintln!("pole angle after 1.0s with perturbation: {angle}");
-    assert!(angle > 0.05, "pole should have fallen under gravity: angle={angle}");
+    assert!(
+        angle > 0.05,
+        "pole should have fallen under gravity: angle={angle}"
+    );
 }
 
 #[test]
 fn pole_mass_is_nonzero() {
-    let (
-        mut bodies, mut joints, mut colliders, mut mj,
-        mut pipeline, mut islands, mut bp, mut np, mut ccd,
-        _cart, pole, _cart_jh, _pole_jh,
-    ) = build_cartpole();
+    let mut world = build_cartpole();
 
     // Step once so rapier recomputes mass properties from additional_mass_properties
-    let mut params = IntegrationParameters::default();
-    params.dt = 0.001;
-    step(&mut pipeline, GRAVITY, &params, &mut islands, &mut bp, &mut np,
-         &mut bodies, &mut colliders, &mut joints, &mut mj, &mut ccd);
+    let params = IntegrationParameters {
+        dt: 0.001,
+        ..Default::default()
+    };
+    world.step(GRAVITY, &params);
 
-    let pole_body = &bodies[pole];
+    let pole_body = &world.bodies[world.pole];
     let eff_inv_mass = pole_body.mass_properties().effective_inv_mass;
     eprintln!("pole effective_inv_mass: {eff_inv_mass:?}");
     // effective_inv_mass is a Vector3; any non-zero component means the body has mass

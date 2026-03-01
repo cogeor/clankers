@@ -41,9 +41,7 @@ _ImageObs = NDArray[np.uint8]
 _FlatObs = NDArray[np.float32]
 
 
-def _image_space_from_dict(
-    obs_data: dict[str, Any], channel_last: bool
-) -> gym_spaces.Box | None:
+def _image_space_from_dict(obs_data: dict[str, Any], channel_last: bool) -> gym_spaces.Box | None:
     """Return a uint8 gymnasium Box for an Image obs space dict, or None.
 
     Handles the Rust serde enum format ``{"Image": {"height": H, "width": W,

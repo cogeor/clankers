@@ -32,8 +32,8 @@ pub use disturbance::{DisturbanceEstimator, DisturbanceEstimatorConfig};
 pub use gait::{AdaptiveGaitConfig, GaitScheduler, GaitSelector, GaitType};
 #[cfg(feature = "bevy")]
 pub use plugin::{
-    ClankersMpcPlugin, LegConfig, MpcPipelineConfig, MpcPipelineState, build_leg_configs,
-    body_state_from_transform,
+    ClankersMpcPlugin, LegConfig, MpcPipelineConfig, MpcPipelineState, body_state_from_transform,
+    build_leg_configs,
 };
 pub use solver::MpcSolver;
 pub use swing::{SwingConfig, raibert_foot_target, swing_foot_position, swing_foot_velocity};

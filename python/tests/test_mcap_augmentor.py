@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -24,10 +23,10 @@ pytestmark = pytest.mark.skipif(not _HAS_MCAP, reason="mcap not installed")
 # Only import when mcap is available -- the module itself guards the import.
 if _HAS_MCAP:
     from mcap.reader import make_reader
-    from mcap.writer import Writer as McapWriter
 
     # Import CompressionType so we can use NONE (zstandard may not be installed).
     from mcap.writer import CompressionType as _CompressionType
+    from mcap.writer import Writer as McapWriter
 
     from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
 
@@ -109,9 +108,7 @@ def _write_test_mcap_raw(
         binary_schema = writer.register_schema(
             name="binary", encoding="application/octet-stream", data=b""
         )
-        json_schema = writer.register_schema(
-            name="json", encoding="jsonschema", data=b""
-        )
+        json_schema = writer.register_schema(name="json", encoding="jsonschema", data=b"")
 
         cam_channel = writer.register_channel(
             schema_id=binary_schema,
@@ -161,9 +158,7 @@ def _write_test_mcap_json(
         writer = McapWriter(f, compression=_CompressionType.NONE)
         writer.start()
 
-        schema_id = writer.register_schema(
-            name="json", encoding="jsonschema", data=b""
-        )
+        schema_id = writer.register_schema(name="json", encoding="jsonschema", data=b"")
 
         cam_channel = writer.register_channel(
             schema_id=schema_id,
@@ -255,7 +250,9 @@ class TestMcapAugmentorRawBytes:
         joint_data = [json.dumps({"joint_positions": [0.1, 0.2]}).encode("utf-8")]
         _write_test_mcap_raw(
             input_mcap,
-            width=4, height=4, num_frames=1,
+            width=4,
+            height=4,
+            num_frames=1,
             extra_channels={"/joint_states": joint_data},
         )
 
@@ -277,7 +274,9 @@ class TestMcapAugmentorRawBytes:
         joint_data = [json.dumps({"joint_positions": [0.1, 0.2]}).encode("utf-8")]
         _write_test_mcap_raw(
             input_mcap,
-            width=4, height=4, num_frames=1,
+            width=4,
+            height=4,
+            num_frames=1,
             extra_channels={"/joint_states": joint_data},
         )
 
@@ -347,13 +346,15 @@ class TestMcapAugmentorJsonFallback:
         frames = []
         for _ in range(2):
             data = list((255, 0, 0)) * (4 * 4)
-            frames.append({
-                "timestamp_ns": 0,
-                "width": 4,
-                "height": 4,
-                "label": "seg",
-                "data": data,
-            })
+            frames.append(
+                {
+                    "timestamp_ns": 0,
+                    "width": 4,
+                    "height": 4,
+                    "label": "seg",
+                    "data": data,
+                }
+            )
 
         _write_test_mcap_json(input_mcap, frames)
 

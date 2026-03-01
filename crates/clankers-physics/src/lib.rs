@@ -43,7 +43,8 @@ mod tests {
         fn _accepts_backend(_: &dyn PhysicsBackend) {}
 
         // Components construct
-        let _body = PhysicsBody::Fixed;
-        let _gp = GroundPlane::default();
+        let body = PhysicsBody::Fixed;
+        let gp = GroundPlane;
+        let _ = (body, gp);
     }
 }

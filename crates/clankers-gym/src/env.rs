@@ -33,12 +33,15 @@ use clankers_env::episode::Episode;
 ///
 /// // (In practice, build a real app with plugins and an action applicator)
 /// ```
+/// Callback invoked on each environment reset.
+type ResetFn = dyn Fn(&mut World);
+
 pub struct GymEnv {
     app: App,
     obs_space: ObservationSpace,
     act_space: ActionSpace,
     applicator: Box<dyn ActionApplicator>,
-    reset_fn: Option<Box<dyn Fn(&mut World)>>,
+    reset_fn: Option<Box<ResetFn>>,
 }
 
 impl GymEnv {
@@ -164,11 +167,11 @@ impl GymEnv {
 
 impl clankers_env::vec_runner::VecEnvInstance for GymEnv {
     fn reset(&mut self, seed: Option<u64>) -> ResetResult {
-        GymEnv::reset(self, seed)
+        Self::reset(self, seed)
     }
 
     fn step(&mut self, action: &Action) -> StepResult {
-        GymEnv::step(self, action)
+        Self::step(self, action)
     }
 
     fn obs_dim(&self) -> usize {

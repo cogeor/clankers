@@ -82,9 +82,7 @@ fn main() {
             .unwrap()
             .value = 10.0;
 
-        let elbow = scene.robots["two_link_arm"]
-            .joint_entity("elbow")
-            .unwrap();
+        let elbow = scene.robots["two_link_arm"].joint_entity("elbow").unwrap();
         scene
             .app
             .world_mut()
@@ -93,8 +91,14 @@ fn main() {
             .value = 5.0 * (t * 2.0).cos();
 
         // 6-DOF arm: small constant commands on all joints
-        for joint_name in ["j1_base_yaw", "j2_shoulder_pitch", "j3_elbow_pitch",
-                           "j4_forearm_roll", "j5_wrist_pitch", "j6_wrist_roll"] {
+        for joint_name in [
+            "j1_base_yaw",
+            "j2_shoulder_pitch",
+            "j3_elbow_pitch",
+            "j4_forearm_roll",
+            "j5_wrist_pitch",
+            "j6_wrist_roll",
+        ] {
             if let Some(entity) = scene.robots["six_dof_arm"].joint_entity(joint_name) {
                 scene
                     .app
@@ -150,10 +154,7 @@ fn main() {
     // 6-DOF arm (RobotId 2): 6 joints -> 12 state values
     let six_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(2), 6);
     let six_obs = six_sensor.read(scene.app.world_mut());
-    println!(
-        "6-DOF arm state sensor: {} values",
-        six_obs.len(),
-    );
+    println!("6-DOF arm state sensor: {} values", six_obs.len(),);
 
     // Robot-scoped command sensors
     let pend_cmd_sensor = RobotJointCommandSensor::new(clankers_core::types::RobotId(0), 1);
@@ -178,7 +179,10 @@ fn main() {
     // ---------------------------------------------------------------
     let stats = scene.app.world().resource::<EpisodeStats>();
     println!("\n=== Summary ===");
-    println!("Episodes: {}  Total steps: {}", stats.episodes_completed, stats.total_steps);
+    println!(
+        "Episodes: {}  Total steps: {}",
+        stats.episodes_completed, stats.total_steps
+    );
 
     println!("\nMulti-robot scene example PASSED");
 }

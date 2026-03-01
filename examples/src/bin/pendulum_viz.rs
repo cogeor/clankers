@@ -29,12 +29,12 @@ use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
 use clankers_noise::prelude::*;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 use clankers_teleop::prelude::*;
-use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
 use clankers_viz::ClankersVizPlugin;
+use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -195,8 +195,7 @@ fn sync_pole_visual(
     states: Query<&JointState>,
     mut pole: Query<&mut Transform, With<PoleVisual>>,
 ) {
-    let (Ok(cart_state), Ok(pole_state)) =
-        (states.get(joints.cart), states.get(joints.pole))
+    let (Ok(cart_state), Ok(pole_state)) = (states.get(joints.cart), states.get(joints.pole))
     else {
         return;
     };
@@ -218,8 +217,7 @@ fn apply_sensor_noise(
     mut noise: ResMut<SensorNoise>,
     mut obs_buf: ResMut<ObservationBuffer>,
 ) {
-    let (Ok(cart_state), Ok(pole_state)) =
-        (states.get(joints.cart), states.get(joints.pole))
+    let (Ok(cart_state), Ok(pole_state)) = (states.get(joints.cart), states.get(joints.pole))
     else {
         return;
     };
@@ -255,8 +253,7 @@ fn apply_sensor_noise(
 
 fn main() {
     // 1. Parse URDF (keep model for physics registration)
-    let model =
-        clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
+    let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
 
     // 2. Build scene from parsed model
     let mut scene = SceneBuilder::new()
@@ -299,9 +296,7 @@ fn main() {
     }
 
     // 6. Joint entity references (data entities, NOT visual entities)
-    scene
-        .app
-        .insert_resource(CartPoleJoints { cart, pole });
+    scene.app.insert_resource(CartPoleJoints { cart, pole });
 
     // 7. Sensor noise: encoder on pos/vel, force on torque readings
     let mut rng = ChaCha8Rng::seed_from_u64(42);
@@ -332,7 +327,9 @@ fn main() {
     let teleop_config = TeleopConfig::new()
         .with_mapping(
             "joint_0",
-            JointMapping::new(cart).with_scale(10.0).with_dead_zone(0.05),
+            JointMapping::new(cart)
+                .with_scale(10.0)
+                .with_dead_zone(0.05),
         )
         .with_mapping(
             "joint_1",
@@ -379,8 +376,7 @@ fn main() {
     //     Must run after physics so we read up-to-date JointState.
     scene.app.add_systems(
         Update,
-        (sync_cart_visual, sync_pivot_visual, sync_pole_visual)
-            .after(ClankersSet::Simulate),
+        (sync_cart_visual, sync_pivot_visual, sync_pole_visual).after(ClankersSet::Simulate),
     );
 
     // 13. Sensor noise: noisy readings in obs buffer

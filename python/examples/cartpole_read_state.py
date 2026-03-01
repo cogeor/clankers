@@ -11,6 +11,7 @@ Then run this script:
 from __future__ import annotations
 
 import sys
+
 import numpy as np
 
 sys.path.insert(0, "python")
@@ -27,8 +28,8 @@ def main() -> None:
     print(f"  act_space: {env.action_space}")
 
     # Reset to get initial state
-    obs, info = env.reset()
-    print(f"\nInitial state (after reset):")
+    obs, _info = env.reset()
+    print("\nInitial state (after reset):")
     print(f"  cart_pos={obs[0]:.4f}, cart_vel={obs[1]:.4f}")
     print(f"  pole_angle={obs[2]:.4f}, pole_vel={obs[3]:.4f}")
 
@@ -36,7 +37,7 @@ def main() -> None:
     print("\nStepping with zero action (no force on cart)...")
     for i in range(50):
         action = np.array([0.0, 0.0], dtype=np.float32)
-        obs, terminated, truncated, info = env.step(action)
+        obs, terminated, truncated, _info = env.step(action)
         if i % 10 == 0 or terminated or truncated:
             print(
                 f"  step={i:3d}: cart_pos={obs[0]:+.4f}, cart_vel={obs[1]:+.4f}, "
@@ -48,13 +49,13 @@ def main() -> None:
             break
 
     # Reset and step with constant positive force
-    obs, info = env.reset()
+    obs, _info = env.reset()
     print(f"\nAfter second reset: cart_pos={obs[0]:.4f}, pole_angle={obs[2]:.4f}")
 
     print("\nStepping with positive cart force (push right)...")
     for i in range(50):
         action = np.array([1.0, 0.0], dtype=np.float32)  # max force right
-        obs, terminated, truncated, info = env.step(action)
+        obs, terminated, truncated, _info = env.step(action)
         if i % 10 == 0 or terminated or truncated:
             print(
                 f"  step={i:3d}: cart_pos={obs[0]:+.4f}, cart_vel={obs[1]:+.4f}, "

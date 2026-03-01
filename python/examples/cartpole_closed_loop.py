@@ -42,12 +42,7 @@ def pd_controller(obs: np.ndarray) -> float:
     kp_pos = 0.5
     kd_pos = 1.0
 
-    force = (
-        kp_angle * pole_angle
-        + kd_angle * pole_vel
-        + kp_pos * cart_pos
-        + kd_pos * cart_vel
-    )
+    force = kp_angle * pole_angle + kd_angle * pole_vel + kp_pos * cart_pos + kd_pos * cart_vel
 
     return float(np.clip(force, -1.0, 1.0))
 
@@ -56,7 +51,7 @@ def main() -> None:
     env = ClankerEnv(host="127.0.0.1", port=9877)
 
     print("Connecting to cart-pole gym server...")
-    resp = env.connect()
+    env.connect()
     print(f"  obs_space: {env.observation_space}")
     print(f"  act_space: {env.action_space}")
 
@@ -67,7 +62,7 @@ def main() -> None:
     episode_rewards = []
 
     for ep in range(num_episodes):
-        obs, info = env.reset()
+        obs, _info = env.reset()
         total_reward = 0.0
         step_count = 0
 
@@ -80,7 +75,7 @@ def main() -> None:
             action = np.array([force, 0.0], dtype=np.float32)  # [cart_force, pole_torque=0]
 
             # Step
-            obs, terminated, truncated, info = env.step(action)
+            obs, terminated, truncated, _info = env.step(action)
             step_count += 1
 
             # Compute reward in Python
@@ -110,11 +105,11 @@ def main() -> None:
     env.close()
 
     avg_reward = np.mean(episode_rewards)
-    print(f"\n=== Results ===")
+    print("\n=== Results ===")
     print(f"  Episodes: {num_episodes}")
     print(f"  Rewards: {[int(r) for r in episode_rewards]}")
     print(f"  Average: {avg_reward:.1f}")
-    print(f"  Max steps (500) = perfect balance")
+    print("  Max steps (500) = perfect balance")
 
     if avg_reward > 200:
         print("  PD controller is balancing the pole!")

@@ -145,7 +145,10 @@ mod tests {
         app.update();
 
         let commander = app.world().resource::<TeleopCommander>();
-        assert!(commander.get("joint_0") > 0.0, "keyboard input should always be captured");
+        assert!(
+            commander.get("joint_0") > 0.0,
+            "keyboard input should always be captured"
+        );
     }
 
     #[test]
@@ -226,6 +229,9 @@ mod tests {
 
         let commander = app.world().resource::<TeleopCommander>();
         let value = commander.get("joint_0");
-        assert!((value - 1.0).abs() < f32::EPSILON, "expected clamped to 1.0, got {value}");
+        assert!(
+            (value - 1.0).abs() < f32::EPSILON,
+            "expected clamped to 1.0, got {value}"
+        );
     }
 }

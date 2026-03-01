@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Sequence, Union
+from collections.abc import Sequence
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -26,7 +27,7 @@ gymnasium = pytest.importorskip("gymnasium")
 # ---------------------------------------------------------------------------
 _NEED_SB3_SHIM = False
 try:
-    from stable_baselines3.common.vec_env.base_vec_env import VecEnv as _SB3VecEnv
+    from stable_baselines3.common.vec_env.base_vec_env import VecEnv as _SB3VecEnv  # noqa: F401
 except (ImportError, ModuleNotFoundError):
     _NEED_SB3_SHIM = True
 
@@ -34,12 +35,11 @@ if _NEED_SB3_SHIM:
     # Build a minimal shim that mirrors the real VecEnv ABC just enough for
     # our adapter to subclass and for tests to exercise.
     from collections.abc import Iterable
-    from copy import deepcopy
 
     from gymnasium import spaces
 
-    VecEnvIndices = Union[None, int, Iterable[int]]
-    VecEnvObs = Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...]]
+    VecEnvIndices = None | int | Iterable[int]
+    VecEnvObs = np.ndarray | dict[str, np.ndarray] | tuple[np.ndarray, ...]
     VecEnvStepReturn = tuple[VecEnvObs, np.ndarray, np.ndarray, list[dict]]
 
     class _ShimVecEnv(ABC):
@@ -55,7 +55,7 @@ if _NEED_SB3_SHIM:
             self.observation_space = observation_space
             self.action_space = action_space
             self.reset_infos: list[dict[str, Any]] = [{} for _ in range(num_envs)]
-            self._seeds: list[Optional[int]] = [None for _ in range(num_envs)]
+            self._seeds: list[int | None] = [None for _ in range(num_envs)]
             self._options: list[dict[str, Any]] = [{} for _ in range(num_envs)]
 
             try:
@@ -91,7 +91,13 @@ if _NEED_SB3_SHIM:
             raise NotImplementedError
 
         @abstractmethod
-        def env_method(self, method_name: str, *method_args: Any, indices: VecEnvIndices = None, **method_kwargs: Any) -> list[Any]:
+        def env_method(
+            self,
+            method_name: str,
+            *method_args: Any,
+            indices: VecEnvIndices = None,
+            **method_kwargs: Any,
+        ) -> list[Any]:
             raise NotImplementedError
 
         @abstractmethod
@@ -102,7 +108,7 @@ if _NEED_SB3_SHIM:
             self.step_async(actions)
             return self.step_wait()
 
-        def seed(self, seed: Optional[int] = None) -> Sequence[Union[None, int]]:
+        def seed(self, seed: int | None = None) -> Sequence[None | int]:
             if seed is None:
                 seed = int(np.random.randint(0, np.iinfo(np.uint32).max, dtype=np.uint32))
             self._seeds = [seed + idx for idx in range(self.num_envs)]
@@ -138,7 +144,7 @@ if _NEED_SB3_SHIM:
 # ---------------------------------------------------------------------------
 # Now we can safely import the adapter.
 # ---------------------------------------------------------------------------
-from clanker_gym.rewards import ConstantReward, DistanceReward  # noqa: E402
+from clanker_gym.rewards import ConstantReward  # noqa: E402
 from clanker_gym.sb3_vec_env import (  # noqa: E402
     ClankerSB3VecEnv,
     make_cartpole_sb3_vec_env,
@@ -162,14 +168,10 @@ def _make_env(
     """
     mock_vec_env = MagicMock()
     mock_vec_env.num_envs = num_envs
-    mock_vec_env.observation_space = Box(
-        low=[-np.inf] * obs_dim, high=[np.inf] * obs_dim
-    )
+    mock_vec_env.observation_space = Box(low=[-np.inf] * obs_dim, high=[np.inf] * obs_dim)
     mock_vec_env.action_space = Box(low=[-1.0], high=[1.0])
 
-    obs_space = gymnasium.spaces.Box(
-        low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
-    )
+    obs_space = gymnasium.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
     act_space = gymnasium.spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
 
     # Build instance without calling __init__ (avoids server connect).
@@ -219,9 +221,7 @@ class TestReset:
 
     def test_reset_stores_last_obs(self):
         env = _make_env()
-        reset_obs = np.arange(NUM_ENVS * OBS_DIM, dtype=np.float32).reshape(
-            NUM_ENVS, OBS_DIM
-        )
+        reset_obs = np.arange(NUM_ENVS * OBS_DIM, dtype=np.float32).reshape(NUM_ENVS, OBS_DIM)
         env._vec_env.reset.return_value = (reset_obs, [{} for _ in range(NUM_ENVS)])
 
         obs = env.reset()
@@ -320,9 +320,7 @@ class TestAutoReset:
         # Env 0 was done: obs should be the reset obs, not terminal.
         np.testing.assert_array_equal(obs[0], [0.0, 0.0, 0.0, 0.0])
         # Terminal obs should be stored in info.
-        np.testing.assert_array_equal(
-            infos[0]["terminal_observation"], [9.0, 9.0, 9.0, 9.0]
-        )
+        np.testing.assert_array_equal(infos[0]["terminal_observation"], [9.0, 9.0, 9.0, 9.0])
         # Env 1 and 2 are unchanged.
         np.testing.assert_array_equal(obs[1], [1.0, 1.0, 1.0, 1.0])
         np.testing.assert_array_equal(obs[2], [2.0, 2.0, 2.0, 2.0])
@@ -347,9 +345,7 @@ class TestAutoReset:
 
         assert dones[1]
         np.testing.assert_array_equal(obs[1], [5.0, 5.0, 5.0, 5.0])
-        np.testing.assert_array_equal(
-            infos[1]["terminal_observation"], [1.0, 1.0, 1.0, 1.0]
-        )
+        np.testing.assert_array_equal(infos[1]["terminal_observation"], [1.0, 1.0, 1.0, 1.0])
 
     def test_auto_reset_calls_batch_reset_with_done_ids(self):
         env = _make_env()
@@ -419,9 +415,7 @@ class TestRewardFn:
         mock_reward.compute.return_value = 42.0
         env = _make_env(reward_fn=mock_reward)
 
-        prev_obs = np.arange(NUM_ENVS * OBS_DIM, dtype=np.float32).reshape(
-            NUM_ENVS, OBS_DIM
-        )
+        prev_obs = np.arange(NUM_ENVS * OBS_DIM, dtype=np.float32).reshape(NUM_ENVS, OBS_DIM)
         env._last_obs = prev_obs.copy()
 
         next_obs = np.ones((NUM_ENVS, OBS_DIM), dtype=np.float32)
@@ -580,9 +574,7 @@ class TestMakeCartpoleSB3VecEnv:
         """Verify the factory passes correct args; skip actual connect."""
         mock_instance = MagicMock()
         mock_instance.num_envs = 4
-        mock_instance.observation_space = Box(
-            low=[-4.8, -10, -0.42, -10], high=[4.8, 10, 0.42, 10]
-        )
+        mock_instance.observation_space = Box(low=[-4.8, -10, -0.42, -10], high=[4.8, 10, 0.42, 10])
         mock_instance.action_space = Box(low=[-1.0], high=[1.0])
         mock_cls.return_value = mock_instance
 

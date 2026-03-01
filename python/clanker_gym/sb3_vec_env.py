@@ -10,7 +10,8 @@ Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence, Union
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,8 +21,7 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for ClankerSB3VecEnv. "
-        "Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for ClankerSB3VecEnv. Install with: pip install clanker-gym[sb3]"
     ) from exc
 
 try:
@@ -51,7 +51,7 @@ def _to_gymnasium_space(
 
 
 # Sentinel used when no VecEnvIndices are provided.
-VecEnvIndices = Union[None, int, "Iterable[int]"]
+VecEnvIndices = None | int | Iterable[int]
 
 
 class ClankerSB3VecEnv(VecEnv):
@@ -160,11 +160,10 @@ class ClankerSB3VecEnv(VecEnv):
         # -- Python-side termination override --------------------------------
         if self._termination_fn is not None:
             for i in range(self.num_envs):
-                if not terminated[i]:
-                    if self._termination_fn.is_terminated(
-                        obs[i], int(self._step_counts[i])
-                    ):
-                        terminated[i] = True
+                if not terminated[i] and self._termination_fn.is_terminated(
+                    obs[i], int(self._step_counts[i])
+                ):
+                    terminated[i] = True
 
         # -- SB3 dones = terminated | truncated ------------------------------
         dones = np.logical_or(terminated, truncated)
@@ -202,15 +201,11 @@ class ClankerSB3VecEnv(VecEnv):
         if attr_name == "render_mode":
             indices_list = self._get_indices(indices)
             return [self._render_mode for _ in indices_list]
-        raise AttributeError(
-            f"ClankerSB3VecEnv does not expose attribute '{attr_name}'"
-        )
+        raise AttributeError(f"ClankerSB3VecEnv does not expose attribute '{attr_name}'")
 
     def set_attr(self, attr_name: str, value: Any, indices: VecEnvIndices = None) -> None:
         """Set attribute (not supported, raises ``AttributeError``)."""
-        raise AttributeError(
-            f"ClankerSB3VecEnv does not support setting attribute '{attr_name}'"
-        )
+        raise AttributeError(f"ClankerSB3VecEnv does not support setting attribute '{attr_name}'")
 
     def env_method(
         self,
@@ -220,9 +215,7 @@ class ClankerSB3VecEnv(VecEnv):
         **method_kwargs: Any,
     ) -> list[Any]:
         """Call environment method (not supported, raises ``AttributeError``)."""
-        raise AttributeError(
-            f"ClankerSB3VecEnv does not support calling method '{method_name}'"
-        )
+        raise AttributeError(f"ClankerSB3VecEnv does not support calling method '{method_name}'")
 
     def env_is_wrapped(
         self,
@@ -233,7 +226,7 @@ class ClankerSB3VecEnv(VecEnv):
         indices_list = self._get_indices(indices)
         return [False for _ in indices_list]
 
-    def seed(self, seed: Optional[int] = None) -> Sequence[Union[None, int]]:
+    def seed(self, seed: int | None = None) -> Sequence[None | int]:
         """No-op: seeds are handled server-side during reset."""
         return [None for _ in range(self.num_envs)]
 

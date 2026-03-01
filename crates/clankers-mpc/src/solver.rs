@@ -104,7 +104,7 @@ impl MpcSolver {
     }
 
     /// Access the solver configuration.
-    pub fn config(&self) -> &MpcConfig {
+    pub const fn config(&self) -> &MpcConfig {
         &self.config
     }
 
@@ -120,6 +120,7 @@ impl MpcSolver {
     /// * `foot_positions` - World-frame foot positions (one per foot)
     /// * `contacts` - Contact flags: `contacts[step][foot]`, size horizon × n_feet
     /// * `reference` - Desired state trajectory over the horizon
+    #[allow(clippy::needless_range_loop)]
     pub fn solve(
         &mut self,
         x0: &DVector<f64>,
@@ -168,41 +169,36 @@ impl MpcSolver {
         }
 
         // 4. Build constraint CSC directly (avoids dense intermediate matrix)
-        let (a_csc, b_con, n_eq, n_ineq) = build_constraints_csc(
-            &self.config,
-            contacts,
-            h,
-            self.n_feet,
-            n_u_total,
-        );
+        let hard = build_constraints_csc(&self.config, contacts, h, self.n_feet, n_u_total);
 
         // 5. Convert P to Clarabel CSC format and optionally add slacks
-        let use_slacks = self.config.slack_weight > 0.0 && n_ineq > 0;
+        let use_slacks = self.config.slack_weight > 0.0 && hard.n_ineq > 0;
 
-        let (p_csc_final, q_final, a_csc_final, b_final, cones) = if use_slacks {
+        let qp = if use_slacks {
             build_soft_qp(
                 &self.p_mat,
                 &self.q_vec,
-                &a_csc,
-                &b_con,
-                n_eq,
-                n_ineq,
+                &hard,
                 n_u_total,
                 self.config.slack_weight,
             )
         } else {
-            let p_csc = dmatrix_to_csc_upper_tri(&self.p_mat);
-            let cones = vec![ZeroConeT(n_eq), NonnegativeConeT(n_ineq)];
-            (p_csc, self.q_vec.as_slice().to_vec(), a_csc, b_con, cones)
+            QpProblem {
+                p: dmatrix_to_csc_upper_tri(&self.p_mat),
+                q: self.q_vec.as_slice().to_vec(),
+                a: hard.a,
+                b: hard.b,
+                cones: vec![ZeroConeT(hard.n_eq), NonnegativeConeT(hard.n_ineq)],
+            }
         };
 
         // 6. Solve (reuse cached settings)
         let solver_result = DefaultSolver::new(
-            &p_csc_final,
-            &q_final,
-            &a_csc_final,
-            &b_final,
-            &cones,
+            &qp.p,
+            &qp.q,
+            &qp.a,
+            &qp.b,
+            &qp.cones,
             self.clarabel_settings.clone(),
         );
 
@@ -228,11 +224,8 @@ impl MpcSolver {
                     }
 
                     for (foot, force) in forces.iter_mut().enumerate() {
-                        *force = Vector3::new(
-                            sol.x[3 * foot],
-                            sol.x[3 * foot + 1],
-                            sol.x[3 * foot + 2],
-                        );
+                        *force =
+                            Vector3::new(sol.x[3 * foot], sol.x[3 * foot + 1], sol.x[3 * foot + 2]);
                     }
 
                     // Reconstruct state trajectory: X = A_qp x0 + B_qp U
@@ -384,13 +377,21 @@ impl MpcSolver {
 /// ~98% zeros so building CSC directly is significantly faster.
 ///
 /// Equalities (ZeroCone) first, then inequalities (NonnegativeCone).
+struct HardConstraints {
+    a: CscMatrix<f64>,
+    b: Vec<f64>,
+    n_eq: usize,
+    n_ineq: usize,
+}
+
+#[allow(clippy::too_many_lines)]
 fn build_constraints_csc(
     config: &MpcConfig,
     contacts: &[Vec<bool>],
     h: usize,
     n_feet: usize,
     n_u_total: usize,
-) -> (CscMatrix<f64>, Vec<f64>, usize, usize) {
+) -> HardConstraints {
     let n_u_step = 3 * n_feet;
 
     // Count constraints
@@ -438,11 +439,11 @@ fn build_constraints_csc(
     for step_contacts in contacts.iter().take(h) {
         let mut step_map = Vec::with_capacity(n_feet);
         for &in_contact in step_contacts {
-            if !in_contact {
+            if in_contact {
+                step_map.push(None);
+            } else {
                 step_map.push(Some(eq_row));
                 eq_row += 3;
-            } else {
-                step_map.push(None);
             }
         }
         swing_row_map.push(step_map);
@@ -466,11 +467,9 @@ fn build_constraints_csc(
 
     // Fill b_con for friction upper bounds (fz <= f_max)
     for step_map in &friction_row_map {
-        for maybe_row in step_map {
-            if let Some(base_row) = maybe_row {
-                // Row base_row+5 is the fz <= f_max constraint
-                b_con[base_row + 5] = f_max;
-            }
+        for base_row in step_map.iter().flatten() {
+            // Row base_row+5 is the fz <= f_max constraint
+            b_con[base_row + 5] = f_max;
         }
     }
 
@@ -488,13 +487,7 @@ fn build_constraints_csc(
 
         let in_contact = contacts[step][foot];
 
-        if !in_contact {
-            // Swing equality: this column has a single 1.0 in its row
-            if let Some(base_row) = swing_row_map[step][foot] {
-                rowval.push(base_row + axis);
-                nzval.push(1.0);
-            }
-        } else {
+        if in_contact {
             // Friction inequality: contribute to this foot's 6 constraint rows
             if let Some(base_row) = friction_row_map[step][foot] {
                 match axis {
@@ -532,13 +525,24 @@ fn build_constraints_csc(
                     _ => unreachable!(),
                 }
             }
+        } else {
+            // Swing equality: this column has a single 1.0 in its row
+            if let Some(base_row) = swing_row_map[step][foot] {
+                rowval.push(base_row + axis);
+                nzval.push(1.0);
+            }
         }
 
         colptr[col + 1] = rowval.len();
     }
 
     let a_csc = CscMatrix::new(n_constraints, n_u_total, colptr, rowval, nzval);
-    (a_csc, b_con, n_eq, n_ineq)
+    HardConstraints {
+        a: a_csc,
+        b: b_con,
+        n_eq,
+        n_ineq,
+    }
 }
 
 /// Build extended QP with slack variables for soft friction constraints.
@@ -553,23 +557,25 @@ fn build_constraints_csc(
 /// ```
 ///
 /// Cost adds L2 penalty: w_slack * ||sigma||^2.
-#[allow(clippy::too_many_arguments)]
+struct QpProblem {
+    p: CscMatrix<f64>,
+    q: Vec<f64>,
+    a: CscMatrix<f64>,
+    b: Vec<f64>,
+    cones: Vec<clarabel::solver::SupportedConeT<f64>>,
+}
+
 fn build_soft_qp(
     p_base: &DMatrix<f64>,
     q_base: &DVector<f64>,
-    a_hard: &CscMatrix<f64>,
-    b_hard: &[f64],
-    n_eq: usize,
-    n_ineq: usize,
+    hard: &HardConstraints,
     n_u: usize,
     slack_weight: f64,
-) -> (
-    CscMatrix<f64>,
-    Vec<f64>,
-    CscMatrix<f64>,
-    Vec<f64>,
-    Vec<clarabel::solver::SupportedConeT<f64>>,
-) {
+) -> QpProblem {
+    let n_eq = hard.n_eq;
+    let n_ineq = hard.n_ineq;
+    let a_hard = &hard.a;
+    let b_hard = hard.b.as_slice();
     let n_slack = n_ineq;
     let n_vars = n_u + n_slack;
     let n_con_hard = n_eq + n_ineq;
@@ -655,7 +661,13 @@ fn build_soft_qp(
         NonnegativeConeT(n_ineq + n_slack), // friction slacked + sigma≥0
     ];
 
-    (p_csc, q_ext, a_csc, b_ext, cones)
+    QpProblem {
+        p: p_csc,
+        q: q_ext,
+        a: a_csc,
+        b: b_ext,
+        cones,
+    }
 }
 
 /// Build prediction matrices (allocating version, for tests only).
@@ -675,8 +687,8 @@ fn build_prediction_matrices(
     }
 
     let mut ab_products: Vec<DMatrix<f64>> = Vec::with_capacity(horizon);
-    for i in 0..horizon {
-        ab_products.push(&a_powers[i] * b_d);
+    for item in a_powers.iter().take(horizon) {
+        ab_products.push(item * b_d);
     }
 
     let mut a_qp = DMatrix::zeros(n_x * horizon, n_x);
@@ -861,8 +873,14 @@ mod tests {
         let solution = solver.solve(&x0, &feet, &contacts, &reference);
         assert!(solution.converged);
 
-        assert!(solution.forces[1].norm() < 1e-3, "FR swing force should be ~0");
-        assert!(solution.forces[2].norm() < 1e-3, "RL swing force should be ~0");
+        assert!(
+            solution.forces[1].norm() < 1e-3,
+            "FR swing force should be ~0"
+        );
+        assert!(
+            solution.forces[2].norm() < 1e-3,
+            "RL swing force should be ~0"
+        );
 
         let stance_fz = solution.forces[0].z + solution.forces[3].z;
         assert_relative_eq!(stance_fz, config.mass * config.gravity, epsilon = 15.0);
@@ -1014,6 +1032,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn soft_constraints_disabled_when_weight_zero() {
         let mut config = test_config();
         config.slack_weight = 0.0;
@@ -1063,7 +1082,13 @@ mod tests {
         let mut solver_no = MpcSolver::new(cfg_no_slip.clone(), 4);
         let x0 = state.to_state_vector(cfg_no_slip.gravity);
         let ref_no = ReferenceTrajectory::constant_velocity(
-            &state, &vel, 0.29, 0.0, 20, cfg_no_slip.dt, cfg_no_slip.gravity,
+            &state,
+            &vel,
+            0.29,
+            0.0,
+            20,
+            cfg_no_slip.dt,
+            cfg_no_slip.gravity,
         );
         let sol_no = solver_no.solve(&x0, &feet, &contacts, &ref_no);
 
@@ -1072,7 +1097,13 @@ mod tests {
         cfg_slip.slip_penalty = 1e-3; // moderate penalty
         let mut solver_slip = MpcSolver::new(cfg_slip.clone(), 4);
         let ref_slip = ReferenceTrajectory::constant_velocity(
-            &state, &vel, 0.29, 0.0, 20, cfg_slip.dt, cfg_slip.gravity,
+            &state,
+            &vel,
+            0.29,
+            0.0,
+            20,
+            cfg_slip.dt,
+            cfg_slip.gravity,
         );
         let sol_slip = solver_slip.solve(&x0, &feet, &contacts, &ref_slip);
 

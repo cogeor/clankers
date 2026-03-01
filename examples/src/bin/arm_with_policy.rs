@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
-use clankers_core::types::{Action, ActionSpace};
 use clankers_core::ClankersSet;
+use clankers_core::types::{Action, ActionSpace};
 use clankers_env::prelude::*;
 use clankers_examples::TWO_LINK_ARM_URDF;
 use clankers_policy::prelude::*;
@@ -53,14 +53,8 @@ fn run_with_policy(policy: Box<dyn clankers_core::traits::Policy>, name: &str) {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(
-            Box::new(JointStateSensor::new(num_joints)),
-            &mut buffer,
-        );
-        registry.register(
-            Box::new(JointCommandSensor::new(num_joints)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
+        registry.register(Box::new(JointCommandSensor::new(num_joints)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -70,10 +64,9 @@ fn run_with_policy(policy: Box<dyn clankers_core::traits::Policy>, name: &str) {
     scene
         .app
         .insert_resource(PolicyRunner::new(policy, num_joints));
-    scene.app.add_systems(
-        Update,
-        apply_action_system.in_set(ClankersSet::Act),
-    );
+    scene
+        .app
+        .add_systems(Update, apply_action_system.in_set(ClankersSet::Act));
 
     // Run episode
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
@@ -95,8 +88,12 @@ fn run_with_policy(policy: Box<dyn clankers_core::traits::Policy>, name: &str) {
             println!(
                 "  step {:2}: shoulder(cmd={:+6.2} pos={:+5.3} trq={:+6.2})  elbow(cmd={:+6.2} pos={:+5.3} trq={:+6.2})",
                 step,
-                s_cmd.value, s_state.position, s_torque.value,
-                e_cmd.value, e_state.position, e_torque.value,
+                s_cmd.value,
+                s_state.position,
+                s_torque.value,
+                e_cmd.value,
+                e_state.position,
+                e_torque.value,
             );
         }
 
@@ -130,10 +127,7 @@ fn main() {
         low: vec![-1.0, -1.0],
         high: vec![1.0, 1.0],
     };
-    run_with_policy(
-        Box::new(RandomPolicy::new(space, 42)),
-        "RandomPolicy",
-    );
+    run_with_policy(Box::new(RandomPolicy::new(space, 42)), "RandomPolicy");
 
     // 4. Scripted policy (cycling sequence)
     let actions = vec![

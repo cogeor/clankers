@@ -13,8 +13,8 @@ use crate::components::PhysicsJoint;
 ///
 /// This system runs in `ClankersSet::Simulate` and bridges the actuator
 /// pipeline output to the physics backend.
-#[allow(unused_variables)]
-pub fn apply_joint_torques(query: Query<(&PhysicsJoint, &JointTorque)>) {
+#[allow(unused_variables, clippy::needless_pass_by_value)]
+pub const fn apply_joint_torques(query: Query<(&PhysicsJoint, &JointTorque)>) {
     // Stub: will be implemented by the concrete backend in Loop 02.
 }
 
@@ -22,7 +22,7 @@ pub fn apply_joint_torques(query: Query<(&PhysicsJoint, &JointTorque)>) {
 ///
 /// This system runs in `ClankersSet::Simulate` after the physics step,
 /// feeding position/velocity back to the actuator pipeline.
-#[allow(unused_variables)]
-pub fn read_joint_states(query: Query<(&PhysicsJoint, &mut JointState)>) {
+#[allow(unused_variables, clippy::needless_pass_by_value)]
+pub const fn read_joint_states(query: Query<(&PhysicsJoint, &mut JointState)>) {
     // Stub: will be implemented by the concrete backend in Loop 02.
 }

@@ -25,10 +25,7 @@ pub struct LegCommand {
 ///
 /// Returns damping torques: `tau_damp = -kd_joint * qdot`
 pub fn stance_damping_torques(joint_velocities: &[f64], kd_joint: f64) -> Vec<f64> {
-    joint_velocities
-        .iter()
-        .map(|&qd| -kd_joint * qd)
-        .collect()
+    joint_velocities.iter().map(|&qd| -kd_joint * qd).collect()
 }
 
 /// Compute joint torques for a stance leg using Jacobian transpose.
@@ -39,18 +36,14 @@ pub fn stance_damping_torques(joint_velocities: &[f64], kd_joint: f64) -> Vec<f6
 /// `force` is the 3D ground reaction force at the foot.
 ///
 /// Returns n joint torques.
-pub fn jacobian_transpose_torques(
-    jacobian: &DMatrix<f64>,
-    force: &Vector3<f64>,
-) -> Vec<f64> {
+pub fn jacobian_transpose_torques(jacobian: &DMatrix<f64>, force: &Vector3<f64>) -> Vec<f64> {
     let n_joints = jacobian.ncols();
     let mut torques = vec![0.0; n_joints];
 
     // τ = J^T F
     for j in 0..n_joints {
-        torques[j] = jacobian[(0, j)] * force.x
-            + jacobian[(1, j)] * force.y
-            + jacobian[(2, j)] * force.z;
+        torques[j] =
+            jacobian[(0, j)] * force.x + jacobian[(1, j)] * force.y + jacobian[(2, j)] * force.z;
     }
     torques
 }
@@ -129,14 +122,8 @@ mod tests {
         // Joint 1 at (0,0,-0.15), axis Y, lower leg length 0.15
         // At q=0, foot at (0,0,-0.3)
 
-        let origins = vec![
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, -0.15),
-        ];
-        let axes = vec![
-            Vector3::new(0.0, 1.0, 0.0),
-            Vector3::new(0.0, 1.0, 0.0),
-        ];
+        let origins = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, -0.15)];
+        let axes = vec![Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 1.0, 0.0)];
         let ee_pos = Vector3::new(0.0, 0.0, -0.3);
         let is_prismatic = vec![false, false];
 
@@ -181,14 +168,8 @@ mod tests {
     #[test]
     fn jacobian_with_bent_leg() {
         // Leg bent at knee: hip at origin, knee at (0.1, 0, -0.11), foot at (0.15, 0, -0.24)
-        let origins = vec![
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.1, 0.0, -0.11),
-        ];
-        let axes = vec![
-            Vector3::new(0.0, 1.0, 0.0),
-            Vector3::new(0.0, 1.0, 0.0),
-        ];
+        let origins = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.1, 0.0, -0.11)];
+        let axes = vec![Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 1.0, 0.0)];
         let ee_pos = Vector3::new(0.15, 0.0, -0.24);
         let is_prismatic = vec![false, false];
 
@@ -211,7 +192,8 @@ mod tests {
         let identity = nalgebra::UnitQuaternion::identity();
         let translation = Vector3::new(10.0, 20.0, 30.0);
 
-        let (origins_w, axes_w) = super::transform_frames_to_world(&origins, &axes, &identity, &translation);
+        let (origins_w, axes_w) =
+            super::transform_frames_to_world(&origins, &axes, &identity, &translation);
 
         // Origins should be translated but not rotated
         assert_relative_eq!(origins_w[0].x, 11.0, epsilon = 1e-10);
@@ -237,7 +219,8 @@ mod tests {
         let origins = vec![Vector3::new(1.0, 0.0, 0.0)];
         let axes = vec![Vector3::new(0.0, 1.0, 0.0)];
 
-        let (origins_w, axes_w) = super::transform_frames_to_world(&origins, &axes, &rot, &translation);
+        let (origins_w, axes_w) =
+            super::transform_frames_to_world(&origins, &axes, &rot, &translation);
 
         // (1,0,0) rotated 90 about Z -> (0,1,0)
         assert_relative_eq!(origins_w[0].x, 0.0, epsilon = 1e-10);
@@ -256,14 +239,8 @@ mod tests {
         // produces physically correct torques.
         //
         // Setup: straight 2-joint leg along -Z, body rotated 90 deg about Z.
-        let origins_body = vec![
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, -0.15),
-        ];
-        let axes_body = vec![
-            Vector3::new(0.0, 1.0, 0.0),
-            Vector3::new(0.0, 1.0, 0.0),
-        ];
+        let origins_body = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, -0.15)];
+        let axes_body = vec![Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 1.0, 0.0)];
         let ee_body = Vector3::new(0.0, 0.0, -0.3);
         let is_prismatic = vec![false, false];
 

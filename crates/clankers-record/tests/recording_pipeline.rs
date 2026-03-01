@@ -25,40 +25,49 @@ fn temp_mcap_path(label: &str) -> PathBuf {
 
 /// Open a Recorder and register the standard three channels.
 /// Returns `(recorder, joints_ch, action_ch, reward_ch)`.
-fn open_with_channels(
-    path: &PathBuf,
-) -> (Recorder, u16, u16, u16) {
+fn open_with_channels(path: &PathBuf) -> (Recorder, u16, u16, u16) {
     let mut recorder = Recorder::open(path).expect("open recorder");
     let schema_id = recorder.register_schema().expect("register schema");
-    let joints_ch = recorder.add_channel(schema_id, "/joint_states").expect("add /joint_states");
-    let action_ch = recorder.add_channel(schema_id, "/actions").expect("add /actions");
-    let reward_ch = recorder.add_channel(schema_id, "/reward").expect("add /reward");
+    let joints_ch = recorder
+        .add_channel(schema_id, "/joint_states")
+        .expect("add /joint_states");
+    let action_ch = recorder
+        .add_channel(schema_id, "/actions")
+        .expect("add /actions");
+    let reward_ch = recorder
+        .add_channel(schema_id, "/reward")
+        .expect("add /reward");
     (recorder, joints_ch, action_ch, reward_ch)
 }
 
-/// Build a JointFrame with 2 joints and a given index for deterministic data.
+/// Build a `JointFrame` with 2 joints and a given index for deterministic data.
+#[allow(clippy::cast_precision_loss)] // test indices are tiny
 fn make_joint_frame(i: u32) -> JointFrame {
+    let fi = i as f32;
     JointFrame {
-        timestamp_ns: (i as u64 + 1) * 1_000_000,
+        timestamp_ns: (u64::from(i) + 1) * 1_000_000,
         names: vec!["shoulder".to_string(), "elbow".to_string()],
-        positions: vec![0.1 * i as f32, -0.1 * i as f32],
-        velocities: vec![0.01 * i as f32, 0.02 * i as f32],
-        torques: vec![1.0 * i as f32, -0.5 * i as f32],
+        positions: vec![0.1 * fi, -0.1 * fi],
+        velocities: vec![0.01 * fi, 0.02 * fi],
+        torques: vec![1.0 * fi, -0.5 * fi],
     }
 }
 
-/// Build an ActionFrame with 3 action dims.
+/// Build an `ActionFrame` with 3 action dims.
+#[allow(clippy::cast_precision_loss)]
 fn make_action_frame(i: u32) -> ActionFrame {
+    let fi = i as f32;
     ActionFrame {
-        timestamp_ns: (i as u64 + 1) * 1_000_000,
-        data: vec![0.5 * i as f32, -0.5 * i as f32, 0.0],
+        timestamp_ns: (u64::from(i) + 1) * 1_000_000,
+        data: vec![0.5 * fi, -0.5 * fi, 0.0],
     }
 }
 
-/// Build a RewardFrame.
+/// Build a `RewardFrame`.
+#[allow(clippy::cast_precision_loss)]
 fn make_reward_frame(i: u32) -> RewardFrame {
     RewardFrame {
-        timestamp_ns: (i as u64 + 1) * 1_000_000,
+        timestamp_ns: (u64::from(i) + 1) * 1_000_000,
         reward: i as f32 * 0.1,
     }
 }
@@ -127,9 +136,21 @@ fn write_and_verify_mcap() {
     }
 
     // Verify counts.
-    assert_eq!(counts.get("/joint_states"), Some(&10), "expected 10 /joint_states messages");
-    assert_eq!(counts.get("/actions"), Some(&10), "expected 10 /actions messages");
-    assert_eq!(counts.get("/reward"), Some(&10), "expected 10 /reward messages");
+    assert_eq!(
+        counts.get("/joint_states"),
+        Some(&10),
+        "expected 10 /joint_states messages"
+    );
+    assert_eq!(
+        counts.get("/actions"),
+        Some(&10),
+        "expected 10 /actions messages"
+    );
+    assert_eq!(
+        counts.get("/reward"),
+        Some(&10),
+        "expected 10 /reward messages"
+    );
 
     // Verify payload content for a few frames.
     assert_eq!(joint_frames.len(), 10);
@@ -153,8 +174,8 @@ fn write_and_verify_mcap() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// Dropping a Recorder without calling finish() should still produce a valid
-/// (readable) MCAP file, because the Drop impl calls finish().
+/// Dropping a `Recorder` without calling `finish()` should still produce a valid
+/// (readable) MCAP file, because the `Drop` impl calls `finish()`.
 #[test]
 fn recorder_drop_finalizes() {
     let path = temp_mcap_path("drop_finalize");
@@ -172,7 +193,7 @@ fn recorder_drop_finalizes() {
     let data = std::fs::read(&path).expect("read mcap file");
     let stream = mcap::MessageStream::new(&data).expect("parse mcap after drop");
 
-    let count = stream.filter(|r| r.is_ok()).count();
+    let count = stream.flatten().count();
     assert_eq!(count, 1, "expected 1 message after drop-finalize");
 
     let _ = std::fs::remove_file(&path);
@@ -193,7 +214,7 @@ fn empty_recording() {
     let data = std::fs::read(&path).expect("read mcap file");
     let stream = mcap::MessageStream::new(&data).expect("parse empty mcap");
 
-    let count = stream.filter(|r| r.is_ok()).count();
+    let count = stream.flatten().count();
     assert_eq!(count, 0, "expected 0 messages in empty recording");
 
     let _ = std::fs::remove_file(&path);

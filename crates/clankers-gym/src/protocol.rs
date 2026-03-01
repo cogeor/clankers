@@ -273,7 +273,7 @@ impl Response {
 /// When binary observation transfer is active (`binary_obs` capability),
 /// the server sends raw pixel bytes after the JSON step response frame.
 /// The JSON `observation` field contains an empty sentinel in that case.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type")]
 pub enum ObsEncoding {
     /// Standard JSON-encoded observation (default).
@@ -1319,7 +1319,14 @@ mod tests {
         let resp2: Response = serde_json::from_str(&json).unwrap();
         if let Response::Step { obs_encoding, .. } = resp2 {
             let enc = obs_encoding.unwrap();
-            assert!(matches!(enc, ObsEncoding::RawU8 { width: 84, height: 84, channels: 3 }));
+            assert!(matches!(
+                enc,
+                ObsEncoding::RawU8 {
+                    width: 84,
+                    height: 84,
+                    channels: 3
+                }
+            ));
         } else {
             panic!("expected Step");
         }

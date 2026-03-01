@@ -13,7 +13,9 @@
 
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
+use clankers_examples::mpc_control::{
+    MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts,
+};
 use clankers_examples::quadruped_setup::{QuadrupedSetupConfig, setup_quadruped};
 use clankers_mpc::{GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig};
 use clankers_physics::rapier::RapierContext;
@@ -39,9 +41,15 @@ fn main() {
     let ground_height = 0.0;
     let stabilize_steps = 100;
 
-    println!("\nMPC config: horizon={}, dt={}, mass={:.1}kg", mpc_config.horizon, mpc_config.dt, mpc_config.mass);
+    println!(
+        "\nMPC config: horizon={}, dt={}, mass={:.1}kg",
+        mpc_config.horizon, mpc_config.dt, mpc_config.mass
+    );
     println!("Phase 1: Stand (stabilize) for {stabilize_steps} steps");
-    println!("Phase 2: Walk at [{:.1}, {:.1}, {:.1}] m/s", desired_velocity.x, desired_velocity.y, desired_velocity.z);
+    println!(
+        "Phase 2: Walk at [{:.1}, {:.1}, {:.1}] m/s",
+        desired_velocity.x, desired_velocity.y, desired_velocity.z
+    );
 
     // Build MPC loop state
     let mut mpc_state = MpcLoopState {
@@ -81,7 +89,8 @@ fn main() {
         let (body_state, body_quat, actual_contacts) = {
             let mut ctx = scene.app.world_mut().resource_mut::<RapierContext>();
             ctx.rebase_origin("body", 50.0);
-            let (bs, bq) = body_state_from_rapier(ctx.as_ref(), "body").expect("body not found in Rapier");
+            let (bs, bq) =
+                body_state_from_rapier(ctx.as_ref(), "body").expect("body not found in Rapier");
             let contacts = detect_foot_contacts(ctx.as_ref(), &mpc_state);
             (bs, bq, contacts)
         };
@@ -109,7 +118,7 @@ fn main() {
         let current_vel = if step < stabilize_steps {
             Vector3::zeros()
         } else {
-            let ramp_frac = ((step - stabilize_steps) as f64 / ramp_steps as f64).min(1.0);
+            let ramp_frac = (f64::from(step - stabilize_steps) / f64::from(ramp_steps)).min(1.0);
             desired_velocity * ramp_frac
         };
 
@@ -133,8 +142,12 @@ fn main() {
             let mut ctx = world.remove_resource::<RapierContext>().unwrap();
 
             for mc in &result.motor_commands {
-                let Some(&jh) = ctx.joint_handles.get(&mc.entity) else { continue };
-                let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) else { continue };
+                let Some(&jh) = ctx.joint_handles.get(&mc.entity) else {
+                    continue;
+                };
+                let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true) else {
+                    continue;
+                };
 
                 joint.data.set_motor(
                     JointAxis::AngX,
@@ -143,7 +156,9 @@ fn main() {
                     mc.stiffness,
                     mc.damping,
                 );
-                joint.data.set_motor_max_force(JointAxis::AngX, mc.max_force);
+                joint
+                    .data
+                    .set_motor_max_force(JointAxis::AngX, mc.max_force);
             }
 
             let substeps = ctx.substeps;
@@ -154,9 +169,15 @@ fn main() {
             // Read back joint state
             for leg in &mpc_state.legs {
                 for &entity in &leg.joint_entities {
-                    let Some(info) = ctx.joint_info.get(&entity) else { continue };
-                    let Some(pb) = ctx.rigid_body_set.get(info.parent_body) else { continue };
-                    let Some(cb) = ctx.rigid_body_set.get(info.child_body) else { continue };
+                    let Some(info) = ctx.joint_info.get(&entity) else {
+                        continue;
+                    };
+                    let Some(pb) = ctx.rigid_body_set.get(info.parent_body) else {
+                        continue;
+                    };
+                    let Some(cb) = ctx.rigid_body_set.get(info.child_body) else {
+                        continue;
+                    };
 
                     let rel_rot = pb.position().rotation.inverse() * cb.position().rotation;
                     let sin_half = bevy::math::Vec3::new(rel_rot.x, rel_rot.y, rel_rot.z);
@@ -183,11 +204,20 @@ fn main() {
             println!(
                 "  step {:4}: pos=[{:+.3}, {:+.3}, {:+.3}]  vel=[{:+.3}, {:+.3}, {:+.3}]  stance={}/{}  mpc={:>4}us  {}",
                 step,
-                body_pos.x, body_pos.y, body_pos.z,
-                body_state.linear_velocity.x, body_state.linear_velocity.y, body_state.linear_velocity.z,
-                n_stance, n_feet,
+                body_pos.x,
+                body_pos.y,
+                body_pos.z,
+                body_state.linear_velocity.x,
+                body_state.linear_velocity.y,
+                body_state.linear_velocity.z,
+                n_stance,
+                n_feet,
                 result.solution.solve_time_us,
-                if result.solution.converged { "OK" } else { "FAIL" },
+                if result.solution.converged {
+                    "OK"
+                } else {
+                    "FAIL"
+                },
             );
             for (i, fw) in result.foot_world.iter().enumerate() {
                 let contact = result.contacts[i];
@@ -199,7 +229,9 @@ fn main() {
                 };
                 println!(
                     "    foot {i}: pos=[{:+.4}, {:+.4}, {:+.4}]  {force_str}  {}",
-                    fw.x, fw.y, fw.z,
+                    fw.x,
+                    fw.y,
+                    fw.z,
                     if contact { "STANCE" } else { "swing" },
                 );
             }
@@ -228,14 +260,25 @@ fn main() {
         final_state.linear_velocity.x, final_state.linear_velocity.y, final_state.linear_velocity.z,
     );
     println!("Steps simulated: {total_steps}");
-    println!("Simulation time: {:.1}s", f64::from(total_steps) * mpc_state.config.dt);
+    println!(
+        "Simulation time: {:.1}s",
+        f64::from(total_steps) * mpc_state.config.dt
+    );
 
     println!("\nFinal joint states:");
     let joint_names = [
-        "fl_hip_ab", "fl_hip_pitch", "fl_knee_pitch",
-        "fr_hip_ab", "fr_hip_pitch", "fr_knee_pitch",
-        "rl_hip_ab", "rl_hip_pitch", "rl_knee_pitch",
-        "rr_hip_ab", "rr_hip_pitch", "rr_knee_pitch",
+        "fl_hip_ab",
+        "fl_hip_pitch",
+        "fl_knee_pitch",
+        "fr_hip_ab",
+        "fr_hip_pitch",
+        "fr_knee_pitch",
+        "rl_hip_ab",
+        "rl_hip_pitch",
+        "rl_knee_pitch",
+        "rr_hip_ab",
+        "rr_hip_pitch",
+        "rr_knee_pitch",
     ];
     for name in &joint_names {
         if let Some(entity) = spawned.joint_entity(name)

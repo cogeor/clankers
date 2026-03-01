@@ -84,11 +84,7 @@ pub fn register_robot(
 
             // Create rapier joint for actuated joints
             if joint_data.joint_type.is_actuated() {
-                let axis = Vec3::new(
-                    joint_data.axis[0],
-                    joint_data.axis[1],
-                    joint_data.axis[2],
-                );
+                let axis = Vec3::new(joint_data.axis[0], joint_data.axis[1], joint_data.axis[2]);
 
                 let rapier_joint = build_rapier_joint(
                     joint_data.joint_type,
@@ -158,24 +154,23 @@ fn create_link_body(
         .translation(position)
         .can_sleep(false);
 
-    if let Some(link) = link {
-        if let Some(ref inertial) = link.inertial {
-            if inertial.mass > 0.0 {
-                builder = builder.additional_mass_properties(MassProperties::new(
-                    Vec3::new(
-                        inertial.origin.xyz[0],
-                        inertial.origin.xyz[1],
-                        inertial.origin.xyz[2],
-                    ),
-                    inertial.mass,
-                    Vec3::new(
-                        inertial.inertia[0], // ixx
-                        inertial.inertia[3], // iyy
-                        inertial.inertia[5], // izz
-                    ),
-                ));
-            }
-        }
+    if let Some(link) = link
+        && let Some(ref inertial) = link.inertial
+        && inertial.mass > 0.0
+    {
+        builder = builder.additional_mass_properties(MassProperties::new(
+            Vec3::new(
+                inertial.origin.xyz[0],
+                inertial.origin.xyz[1],
+                inertial.origin.xyz[2],
+            ),
+            inertial.mass,
+            Vec3::new(
+                inertial.inertia[0], // ixx
+                inertial.inertia[3], // iyy
+                inertial.inertia[5], // izz
+            ),
+        ));
     }
 
     builder.build()
@@ -196,10 +191,10 @@ fn build_rapier_joint(
                 .build()
                 .into();
 
-            if joint_type == JointType::Revolute {
-                if let (Some(lo), Some(hi)) = (lower, upper) {
-                    joint.set_limits(JointAxis::AngX, [lo, hi]);
-                }
+            if joint_type == JointType::Revolute
+                && let (Some(lo), Some(hi)) = (lower, upper)
+            {
+                joint.set_limits(JointAxis::AngX, [lo, hi]);
             }
 
             joint.set_motor_model(JointAxis::AngX, MotorModel::ForceBased);
@@ -220,11 +215,9 @@ fn build_rapier_joint(
             joint.set_motor(JointAxis::LinX, 0.0, 0.0, 0.0, 0.0);
             joint
         }
-        _ => {
-            FixedJointBuilder::new()
-                .local_anchor1(anchor)
-                .build()
-                .into()
-        }
+        _ => FixedJointBuilder::new()
+            .local_anchor1(anchor)
+            .build()
+            .into(),
     }
 }

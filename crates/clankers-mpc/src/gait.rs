@@ -57,11 +57,7 @@ impl GaitScheduler {
     }
 
     /// Create a custom gait scheduler.
-    pub fn custom(
-        offsets: Vec<f64>,
-        duty_factor: f64,
-        cycle_time: f64,
-    ) -> Self {
+    pub fn custom(offsets: Vec<f64>, duty_factor: f64, cycle_time: f64) -> Self {
         let n_feet = offsets.len();
         Self {
             n_feet,
@@ -143,9 +139,7 @@ impl GaitScheduler {
         for k in 0..horizon {
             if k == 0 {
                 // Use is_contact() which respects overrides
-                let step_contacts = (0..self.n_feet)
-                    .map(|foot| self.is_contact(foot))
-                    .collect();
+                let step_contacts = (0..self.n_feet).map(|foot| self.is_contact(foot)).collect();
                 contacts.push(step_contacts);
             } else {
                 let future_phase = (self.phase + (k as f64) * dt / self.cycle_time) % 1.0;
@@ -177,12 +171,12 @@ impl GaitScheduler {
     }
 
     /// Set the cycle time (seconds).
-    pub fn set_cycle_time(&mut self, cycle_time: f64) {
+    pub const fn set_cycle_time(&mut self, cycle_time: f64) {
         self.cycle_time = cycle_time;
     }
 
     /// Set the duty factor [0, 1].
-    pub fn set_duty_factor(&mut self, duty_factor: f64) {
+    pub const fn set_duty_factor(&mut self, duty_factor: f64) {
         self.duty_factor = duty_factor;
     }
 
@@ -195,13 +189,14 @@ impl GaitScheduler {
     ///   This prevents the MPC from commanding forces through a foot in the air.
     ///
     /// Overrides are consumed by `is_contact()` and cleared on the next `advance()`.
+    #[allow(clippy::needless_range_loop)]
     pub fn apply_contact_feedback(&mut self, actual_contacts: &[bool]) {
         for foot in 0..self.n_feet.min(actual_contacts.len()) {
             let scheduled = self.scheduled_contact(foot);
-            if actual_contacts[foot] != scheduled {
-                self.contact_overrides[foot] = Some(actual_contacts[foot]);
-            } else {
+            if actual_contacts[foot] == scheduled {
                 self.contact_overrides[foot] = None;
+            } else {
+                self.contact_overrides[foot] = Some(actual_contacts[foot]);
             }
         }
     }
@@ -318,7 +313,12 @@ impl GaitSelector {
     /// Create a new gait selector with default candidates.
     pub fn new(initial_gait: GaitType, eval_interval: usize) -> Self {
         Self {
-            candidates: vec![GaitType::Stand, GaitType::Walk, GaitType::Trot, GaitType::Bound],
+            candidates: vec![
+                GaitType::Stand,
+                GaitType::Walk,
+                GaitType::Trot,
+                GaitType::Bound,
+            ],
             active_gait: initial_gait,
             eval_interval,
             step_counter: 0,
@@ -328,7 +328,7 @@ impl GaitSelector {
     }
 
     /// Check if it's time to evaluate gaits.
-    pub fn should_evaluate(&mut self) -> bool {
+    pub const fn should_evaluate(&mut self) -> bool {
         self.step_counter += 1;
         if self.step_counter >= self.eval_interval {
             self.step_counter = 0;
@@ -344,15 +344,11 @@ impl GaitSelector {
     /// * `forces` - MPC solution forces per foot (first step)
     /// * `friction_coeff` - Coulomb friction coefficient
     /// * `qp_cost` - Total QP objective value (if available, else 0)
-    pub fn score_gait(
-        forces: &[nalgebra::Vector3<f64>],
-        friction_coeff: f64,
-        qp_cost: f64,
-    ) -> f64 {
+    pub fn score_gait(forces: &[nalgebra::Vector3<f64>], friction_coeff: f64, qp_cost: f64) -> f64 {
         let mut max_friction_util = 0.0_f64;
         for f in forces {
             if f.z > 1e-3 {
-                let tangential = (f.x * f.x + f.y * f.y).sqrt();
+                let tangential = f.x.hypot(f.y);
                 let util = tangential / (friction_coeff * f.z);
                 max_friction_util = max_friction_util.max(util);
             }
@@ -372,11 +368,7 @@ impl GaitSelector {
     /// Update the selector with the current gait's performance.
     ///
     /// Returns `Some(new_gait)` if a gait switch is recommended.
-    pub fn update(
-        &mut self,
-        current_cost: f64,
-        speed: f64,
-    ) -> Option<GaitType> {
+    pub fn update(&mut self, current_cost: f64, speed: f64) -> Option<GaitType> {
         self.last_cost = current_cost;
 
         // Simple speed-based heuristic for candidate filtering
@@ -388,13 +380,13 @@ impl GaitSelector {
             GaitType::Trot
         };
 
-        if recommended != self.active_gait {
+        if recommended == self.active_gait {
+            None
+        } else {
             // Apply hysteresis: only switch if benefit is significant
             // For speed-based switching, always switch at speed boundaries
             self.active_gait = recommended;
             Some(recommended)
-        } else {
-            None
         }
     }
 
@@ -474,6 +466,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn swing_phase_zero_in_stance() {
         let sched = GaitScheduler::quadruped(GaitType::Trot);
         // FL is in stance at phase 0
@@ -509,6 +502,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn adapt_timing_no_change_below_threshold() {
         let mut sched = GaitScheduler::quadruped(GaitType::Trot);
         let cfg = AdaptiveGaitConfig::default(); // threshold = 0.3

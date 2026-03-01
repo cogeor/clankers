@@ -271,30 +271,32 @@ fn dispatch(
         Request::Reset { seed } => (Response::from_reset(env.reset(*seed)), None),
         Request::Step { action } => {
             let result = env.step(action);
-            if session.binary_obs {
-                if let ObservationSpace::Image {
+            if session.binary_obs
+                && let ObservationSpace::Image {
                     width,
                     height,
                     channels,
                 } = env.observation_space()
-                {
-                    // Convert f32 observation data to u8 pixels (multiply by 255)
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let pixel_bytes: Vec<u8> = result
-                        .observation
-                        .as_slice()
-                        .iter()
-                        .map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8)
-                        .collect();
+            {
+                // Convert f32 observation data to u8 pixels (multiply by 255)
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let pixel_bytes: Vec<u8> = result
+                    .observation
+                    .as_slice()
+                    .iter()
+                    .map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8)
+                    .collect();
 
-                    let encoding = ObsEncoding::RawU8 {
-                        width: *width,
-                        height: *height,
-                        #[allow(clippy::cast_possible_truncation)]
-                        channels: *channels as u8,
-                    };
-                    return (Response::from_step_binary(result, encoding), Some(pixel_bytes));
-                }
+                let encoding = ObsEncoding::RawU8 {
+                    width: *width,
+                    height: *height,
+                    #[allow(clippy::cast_possible_truncation)]
+                    channels: *channels as u8,
+                };
+                return (
+                    Response::from_step_binary(result, encoding),
+                    Some(pixel_bytes),
+                );
             }
             (Response::from_step(result), None)
         }
@@ -307,7 +309,7 @@ fn dispatch(
         Request::Ping { timestamp } => {
             let server_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos() as u64);
+                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
             (
                 Response::Pong {
                     timestamp: *timestamp,
@@ -410,7 +412,7 @@ fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfi
         Request::Ping { timestamp } => {
             let server_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos() as u64);
+                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
             Response::Pong {
                 timestamp: *timestamp,
                 server_time,
@@ -585,7 +587,11 @@ mod tests {
 
         // Ping
         let resp = send_recv(&mut stream, &Request::Ping { timestamp: 12345 });
-        if let Response::Pong { timestamp, server_time } = resp {
+        if let Response::Pong {
+            timestamp,
+            server_time,
+        } = resp
+        {
             assert_eq!(timestamp, 12345);
             assert!(server_time > 0, "server_time should be a real timestamp");
         } else {

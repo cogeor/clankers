@@ -15,8 +15,8 @@ use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::SIX_DOF_ARM_URDF;
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 use nalgebra::Vector3;
 
@@ -76,14 +76,20 @@ fn ik_control_system(
     }
 
     // Print status every 10 steps
-    if ik.steps_at_target % 10 == 0 {
+    if ik.steps_at_target.is_multiple_of(10) {
         let ee = ik.chain.forward_kinematics(&q_current);
         let err = (target_pos - ee.translation.vector).norm();
         println!(
             "  target [{:.2}, {:.2}, {:.2}]  ee [{:.3}, {:.3}, {:.3}]  err={:.4}m  conv={} iters={}",
-            target_pos.x, target_pos.y, target_pos.z,
-            ee.translation.x, ee.translation.y, ee.translation.z,
-            err, result.converged, result.iterations,
+            target_pos.x,
+            target_pos.y,
+            target_pos.z,
+            ee.translation.x,
+            ee.translation.y,
+            ee.translation.z,
+            err,
+            result.converged,
+            result.iterations,
         );
     }
 }
@@ -162,12 +168,12 @@ fn main() {
 
     // 6. Define target positions (reachable points in workspace)
     let targets = vec![
-        Vector3::new(0.3, 0.0, 0.5),   // forward
-        Vector3::new(0.0, 0.3, 0.5),   // left
-        Vector3::new(-0.3, 0.0, 0.5),  // back
-        Vector3::new(0.0, -0.3, 0.5),  // right
-        Vector3::new(0.2, 0.2, 0.7),   // up-left
-        Vector3::new(0.0, 0.0, 0.91),  // straight up (home)
+        Vector3::new(0.3, 0.0, 0.5),  // forward
+        Vector3::new(0.0, 0.3, 0.5),  // left
+        Vector3::new(-0.3, 0.0, 0.5), // back
+        Vector3::new(0.0, -0.3, 0.5), // right
+        Vector3::new(0.2, 0.2, 0.7),  // up-left
+        Vector3::new(0.0, 0.0, 0.91), // straight up (home)
     ];
 
     println!("\nTargets: {} positions, 50 steps each\n", targets.len());
@@ -221,19 +227,26 @@ fn main() {
     println!("\n--- IK Solver Verification (no physics) ---");
     let ik = scene.app.world().resource::<IkState>();
     for (i, target) in ik.targets.iter().enumerate() {
-        let result = ik.solver.solve(
-            &ik.chain,
-            &IkTarget::Position(*target),
-            &[0.0; 6],
-        );
+        let result = ik
+            .solver
+            .solve(&ik.chain, &IkTarget::Position(*target), &[0.0; 6]);
         let ee = ik.chain.forward_kinematics(&result.joint_positions);
         let err = (target - ee.translation.vector).norm();
         println!(
             "  target {}: [{:.2}, {:.2}, {:.2}] -> ee [{:.3}, {:.3}, {:.3}]  err={:.5}m  {}",
-            i, target.x, target.y, target.z,
-            ee.translation.x, ee.translation.y, ee.translation.z,
+            i,
+            target.x,
+            target.y,
+            target.z,
+            ee.translation.x,
+            ee.translation.y,
+            ee.translation.z,
             err,
-            if result.converged { "CONVERGED" } else { "FAILED" },
+            if result.converged {
+                "CONVERGED"
+            } else {
+                "FAILED"
+            },
         );
     }
 

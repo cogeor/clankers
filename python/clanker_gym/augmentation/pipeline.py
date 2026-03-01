@@ -8,14 +8,13 @@ Requires: diffusers>=0.25.0, transformers, torch, accelerate
 
 from __future__ import annotations
 
-from typing import Optional
+import contextlib
 
 import numpy as np
 from numpy.typing import NDArray
 
 from clanker_gym.augmentation.palette import PaletteRemapper
 from clanker_gym.augmentation.prompts import PromptBuilder, SceneType
-
 
 # Default model identifiers
 DEFAULT_SD_MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"
@@ -60,7 +59,7 @@ class Sim2RealPipeline:
         sd_model: str = DEFAULT_SD_MODEL,
         controlnet_model: str = DEFAULT_CONTROLNET_MODEL,
         scene_type: SceneType = SceneType.MANIPULATION,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> None:
         self.device = device
         self.dtype_str = dtype
@@ -101,17 +100,13 @@ class Sim2RealPipeline:
         )
 
         # Use efficient scheduler
-        self._pipe.scheduler = UniPCMultistepScheduler.from_config(
-            self._pipe.scheduler.config
-        )
+        self._pipe.scheduler = UniPCMultistepScheduler.from_config(self._pipe.scheduler.config)
 
         self._pipe = self._pipe.to(self.device)
 
         # Enable memory-efficient attention if available
-        try:
+        with contextlib.suppress(ImportError, ModuleNotFoundError):
             self._pipe.enable_xformers_memory_efficient_attention()
-        except (ImportError, ModuleNotFoundError):
-            pass  # xformers not installed, use default attention
 
     def generate(
         self,
@@ -119,9 +114,9 @@ class Sim2RealPipeline:
         num_inference_steps: int = 20,
         guidance_scale: float = 7.5,
         controlnet_conditioning_scale: float = 1.0,
-        prompt_override: Optional[str] = None,
-        negative_prompt_override: Optional[str] = None,
-        seed: Optional[int] = None,
+        prompt_override: str | None = None,
+        negative_prompt_override: str | None = None,
+        seed: int | None = None,
     ) -> NDArray[np.uint8]:
         """Generate a photorealistic image from a segmentation map.
 
@@ -209,7 +204,7 @@ class Sim2RealPipeline:
         num_inference_steps: int = 20,
         guidance_scale: float = 7.5,
         controlnet_conditioning_scale: float = 1.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> list[NDArray[np.uint8]]:
         """Generate photorealistic images from a batch of segmentation maps.
 

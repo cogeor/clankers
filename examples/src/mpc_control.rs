@@ -127,12 +127,14 @@ pub fn body_state_from_rapier(
 /// Query ground-truth foot contacts from physics.
 ///
 /// Returns `None` if `foot_link_names` is not set on the state.
-pub fn detect_foot_contacts(
-    ctx: &RapierContext,
-    state: &MpcLoopState,
-) -> Option<Vec<bool>> {
+pub fn detect_foot_contacts(ctx: &RapierContext, state: &MpcLoopState) -> Option<Vec<bool>> {
     let names = state.foot_link_names.as_ref()?;
-    Some(names.iter().map(|name| ctx.has_active_contacts(name)).collect())
+    Some(
+        names
+            .iter()
+            .map(|name| ctx.has_active_contacts(name))
+            .collect(),
+    )
 }
 
 /// Compute one full MPC control step and return motor commands for all joints.
@@ -142,7 +144,7 @@ pub fn detect_foot_contacts(
 ///   2. MPC solve → ground reaction forces
 ///   3. Stance: J^T * f_mpc (pure feedforward + joint damping)
 ///   4. Swing: Cartesian PD → J^T → torques
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::similar_names)]
 pub fn compute_mpc_step(
     state: &mut MpcLoopState,
     body_state: &BodyState,
@@ -188,12 +190,13 @@ pub fn compute_mpc_step(
     let x0_raw = body_state.to_state_vector(state.config.gravity);
 
     // Apply disturbance compensation if estimator is active
-    let x0 = if let Some(ref mut est) = state.disturbance_estimator {
-        est.update(&x0_raw, None);
-        est.compensate_state(&x0_raw)
-    } else {
-        x0_raw.clone()
-    };
+    let x0 = state.disturbance_estimator.as_mut().map_or_else(
+        || x0_raw.clone(),
+        |est| {
+            est.update(&x0_raw, None);
+            est.compensate_state(&x0_raw)
+        },
+    );
 
     let reference = ReferenceTrajectory::constant_velocity(
         body_state,
@@ -206,14 +209,17 @@ pub fn compute_mpc_step(
     );
 
     // --- Solve MPC ---
-    let solution = state.solver.solve(&x0, &foot_world, &contacts_seq, &reference);
+    let solution = state
+        .solver
+        .solve(&x0, &foot_world, &contacts_seq, &reference);
 
     // Store prediction for next disturbance estimate update
-    if let Some(ref mut est) = state.disturbance_estimator {
-        if solution.converged && solution.state_trajectory.len() >= 13 {
-            let x_pred = solution.state_trajectory.rows(0, 13).into_owned();
-            est.set_prediction(x_pred);
-        }
+    if let Some(ref mut est) = state.disturbance_estimator
+        && solution.converged
+        && solution.state_trajectory.len() >= 13
+    {
+        let x_pred = solution.state_trajectory.rows(0, 13).into_owned();
+        est.set_prediction(x_pred);
     }
     let stance_duration = state.gait.duty_factor() * state.gait.cycle_time();
 
@@ -358,9 +364,15 @@ pub fn compute_mpc_step(
             let kp_cart = &state.swing_config.kp_cartesian;
             let kd_cart = &state.swing_config.kd_cartesian;
             let foot_force = Vector3::new(
-                kp_cart.x * (p_des.x - p_actual.x) + kd_cart.x * (v_des.x - v_actual.x),
-                kp_cart.y * (p_des.y - p_actual.y) + kd_cart.y * (v_des.y - v_actual.y),
-                kp_cart.z * (p_des.z - p_actual.z) + kd_cart.z * (v_des.z - v_actual.z),
+                kp_cart
+                    .x
+                    .mul_add(p_des.x - p_actual.x, kd_cart.x * (v_des.x - v_actual.x)),
+                kp_cart
+                    .y
+                    .mul_add(p_des.y - p_actual.y, kd_cart.y * (v_des.y - v_actual.y)),
+                kp_cart
+                    .z
+                    .mul_add(p_des.z - p_actual.z, kd_cart.z * (v_des.z - v_actual.z)),
             );
 
             let torques = jacobian_transpose_torques(&jacobian, &foot_force);

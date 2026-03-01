@@ -53,9 +53,7 @@ impl Default for MpcConfig {
             mass: 9.0,
             // Composite inertia: body (5kg) + 4 legs (1kg each at hip offsets).
             // Computed via parallel axis theorem from URDF link inertias.
-            inertia: Matrix3::new(
-                0.048, 0.0, 0.0, 0.0, 0.122, 0.0, 0.0, 0.0, 0.135,
-            ),
+            inertia: Matrix3::new(0.048, 0.0, 0.0, 0.0, 0.122, 0.0, 0.0, 0.0, 0.135),
             gravity: 9.81,
             friction_coeff: 0.6,
             f_max: 120.0,
@@ -67,10 +65,7 @@ impl Default for MpcConfig {
             // At 50Hz (dt=0.02): 0.284 m/s at 0.3 target, 5/5 stable 60s.
             // At 100Hz (dt=0.01): 0.955 m/s at 1.0 target, 5/5 stable 50s.
             q_weights: [
-                25.0, 25.0, 10.0,
-                5.0, 5.0, 10.0,
-                1.0, 1.0, 0.3,
-                150.0, 150.0, 5.0,
+                25.0, 25.0, 10.0, 5.0, 5.0, 10.0, 1.0, 1.0, 0.3, 150.0, 150.0, 5.0,
             ],
             r_weight: 1e-7,
             delta_f_weight: 1e-6,
@@ -246,7 +241,13 @@ mod tests {
         };
         let desired_vel = Vector3::new(0.5, 0.0, 0.0);
         let traj = ReferenceTrajectory::constant_velocity(
-            &current, &desired_vel, 0.35, 0.0, 10, 0.02, 9.81,
+            &current,
+            &desired_vel,
+            0.35,
+            0.0,
+            10,
+            0.02,
+            9.81,
         );
         assert_eq!(traj.states.len(), 130);
 

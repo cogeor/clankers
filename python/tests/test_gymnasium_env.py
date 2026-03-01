@@ -17,7 +17,7 @@ from clanker_gym.gymnasium_env import (  # noqa: E402
 )
 from clanker_gym.rewards import ConstantReward, DistanceReward  # noqa: E402
 from clanker_gym.spaces import Box, Discrete  # noqa: E402
-from clanker_gym.terminations import BoundsTermination, cartpole_termination  # noqa: E402
+from clanker_gym.terminations import BoundsTermination  # noqa: E402
 
 
 class TestToGymnasiumSpace:

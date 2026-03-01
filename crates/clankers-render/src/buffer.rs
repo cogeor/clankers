@@ -516,10 +516,7 @@ mod tests {
     #[test]
     fn camera_frame_buffers_get_mut() {
         let mut bufs = CameraFrameBuffers::default();
-        bufs.insert(
-            "cam".to_string(),
-            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
-        );
+        bufs.insert("cam".to_string(), FrameBuffer::new(1, 1, PixelFormat::Rgb8));
         let buf = bufs.get_mut("cam").unwrap();
         buf.write_frame(vec![10, 20, 30]);
         assert_eq!(bufs.get("cam").unwrap().data(), &[10, 20, 30]);
@@ -528,10 +525,7 @@ mod tests {
     #[test]
     fn camera_frame_buffers_remove() {
         let mut bufs = CameraFrameBuffers::default();
-        bufs.insert(
-            "cam".to_string(),
-            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
-        );
+        bufs.insert("cam".to_string(), FrameBuffer::new(1, 1, PixelFormat::Rgb8));
         let removed = bufs.remove("cam");
         assert!(removed.is_some());
         assert!(bufs.is_empty());
@@ -556,14 +550,8 @@ mod tests {
     #[test]
     fn camera_frame_buffers_iter() {
         let mut bufs = CameraFrameBuffers::default();
-        bufs.insert(
-            "x".to_string(),
-            FrameBuffer::new(1, 1, PixelFormat::Rgb8),
-        );
-        bufs.insert(
-            "y".to_string(),
-            FrameBuffer::new(2, 2, PixelFormat::Rgba8),
-        );
+        bufs.insert("x".to_string(), FrameBuffer::new(1, 1, PixelFormat::Rgb8));
+        bufs.insert("y".to_string(), FrameBuffer::new(2, 2, PixelFormat::Rgba8));
         let mut labels: Vec<&str> = bufs.iter().map(|(label, _)| label).collect();
         labels.sort_unstable();
         assert_eq!(labels, vec!["x", "y"]);

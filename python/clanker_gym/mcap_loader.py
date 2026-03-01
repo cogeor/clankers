@@ -47,8 +47,7 @@ except ImportError:
 def _require_mcap() -> None:
     if not _MCAP_AVAILABLE:
         raise ImportError(
-            "mcap is required for McapEpisodeLoader. "
-            "Install with: pip install mcap>=1.0.0"
+            "mcap is required for McapEpisodeLoader. Install with: pip install mcap>=1.0.0"
         )
 
 
@@ -294,9 +293,7 @@ class EpisodeDataset:
         _require_mcap()
         self.directory = directory
         self._paths: list[str] = sorted(
-            os.path.join(directory, f)
-            for f in os.listdir(directory)
-            if f.endswith(".mcap")
+            os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".mcap")
         )
 
     def __len__(self) -> int:

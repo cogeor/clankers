@@ -235,8 +235,10 @@ class TestConstantReward:
         assert isinstance(reward, RewardFunction)
 
     def test_in_composite(self):
-        reward = CompositeReward().add(ConstantReward(1.0), weight=1.0).add(
-            ActionPenaltyReward(scale=1.0), weight=1.0
+        reward = (
+            CompositeReward()
+            .add(ConstantReward(1.0), weight=1.0)
+            .add(ActionPenaltyReward(scale=1.0), weight=1.0)
         )
         obs = np.zeros(1, dtype=np.float32)
         action = np.array([2.0], dtype=np.float32)

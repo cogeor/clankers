@@ -27,8 +27,7 @@ impl PixelFormat {
     pub const fn bytes_per_pixel(self) -> u32 {
         match self {
             Self::Rgb8 => 3,
-            Self::Rgba8 => 4,
-            Self::DepthF32 => 4,
+            Self::Rgba8 | Self::DepthF32 => 4,
         }
     }
 
@@ -128,7 +127,7 @@ pub struct CameraConfig {
 impl CameraConfig {
     /// Create a camera config with typical defaults and an empty label.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             label: String::new(),
             fov_y: std::f32::consts::FRAC_PI_3,
@@ -148,21 +147,21 @@ impl CameraConfig {
 
     /// Set the vertical field of view in radians.
     #[must_use]
-    pub fn with_fov_y(mut self, fov_y: f32) -> Self {
+    pub const fn with_fov_y(mut self, fov_y: f32) -> Self {
         self.fov_y = fov_y;
         self
     }
 
     /// Set the near clipping plane.
     #[must_use]
-    pub fn with_near(mut self, near: f32) -> Self {
+    pub const fn with_near(mut self, near: f32) -> Self {
         self.near = near;
         self
     }
 
     /// Set the far clipping plane.
     #[must_use]
-    pub fn with_far(mut self, far: f32) -> Self {
+    pub const fn with_far(mut self, far: f32) -> Self {
         self.far = far;
         self
     }

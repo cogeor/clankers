@@ -24,7 +24,6 @@ import logging
 import sys
 import time
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -126,9 +125,9 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # Lazy imports -- only load heavy dependencies when actually running
+    from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
     from clanker_gym.augmentation.pipeline import Sim2RealPipeline
     from clanker_gym.augmentation.prompts import SceneType
-    from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
 
     # Map scene string to enum
     scene_map = {
@@ -139,8 +138,9 @@ def main(argv: list[str] | None = None) -> None:
     }
     scene_type = scene_map[args.scene]
 
-    logger.info("Initializing pipeline (device=%s, dtype=%s, scene=%s)",
-                args.device, args.dtype, args.scene)
+    logger.info(
+        "Initializing pipeline (device=%s, dtype=%s, scene=%s)", args.device, args.dtype, args.scene
+    )
 
     try:
         pipeline = Sim2RealPipeline(

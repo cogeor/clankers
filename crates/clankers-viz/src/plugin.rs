@@ -33,15 +33,10 @@ use crate::{input, replay, systems, ui};
 /// Expects that [`ClankersSimPlugin`](clankers_sim::ClankersSimPlugin) and
 /// [`ClankersTeleopPlugin`](clankers_teleop::ClankersTeleopPlugin) are already
 /// added to the app.
+#[derive(Default)]
 pub struct ClankersVizPlugin {
     /// When true, gate simulation stages on `FixedUpdate` instead of `Update`.
     pub fixed_update: bool,
-}
-
-impl Default for ClankersVizPlugin {
-    fn default() -> Self {
-        Self { fixed_update: false }
-    }
 }
 
 impl Plugin for ClankersVizPlugin {
@@ -93,10 +88,7 @@ impl Plugin for ClankersVizPlugin {
 
             app.add_systems(
                 FixedUpdate,
-                (
-                    systems::sync_teleop_to_robot,
-                    input::keyboard_teleop_system,
-                )
+                (systems::sync_teleop_to_robot, input::keyboard_teleop_system)
                     .chain()
                     .in_set(ClankersSet::Decide)
                     .before(clankers_teleop::systems::apply_teleop_commands),
@@ -121,10 +113,7 @@ impl Plugin for ClankersVizPlugin {
 
             app.add_systems(
                 Update,
-                (
-                    systems::sync_teleop_to_robot,
-                    input::keyboard_teleop_system,
-                )
+                (systems::sync_teleop_to_robot, input::keyboard_teleop_system)
                     .chain()
                     .in_set(ClankersSet::Decide)
                     .before(clankers_teleop::systems::apply_teleop_commands),

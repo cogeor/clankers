@@ -51,7 +51,7 @@ def evaluate_with_single_env(model, port: int = 9877, n_episodes: int = 20) -> d
         "std_length": np.std(episode_lengths),
         "min_length": int(np.min(episode_lengths)),
         "max_length": int(np.max(episode_lengths)),
-        "survived_500": sum(1 for l in episode_lengths if l >= 500),
+        "survived_500": sum(1 for length in episode_lengths if length >= 500),
         "n_episodes": n_episodes,
     }
 
@@ -119,7 +119,7 @@ def main() -> None:
     print("Cart-Pole PPO: Single vs Parallel Environment Training")
     print("=" * 60)
     print(f"\nTotal timesteps: {total_timesteps}")
-    print(f"PPO config: MlpPolicy(64x64), lr=3e-4, n_steps=2048, batch=64")
+    print("PPO config: MlpPolicy(64x64), lr=3e-4, n_steps=2048, batch=64")
 
     # --- Single-env training ---
     print(f"\n{'-' * 60}")
@@ -131,7 +131,9 @@ def main() -> None:
 
         print("  Evaluating...")
         eval_single = evaluate_with_single_env(model_single, port=9877)
-        print(f"  Mean length:  {eval_single['mean_length']:.0f} +/- {eval_single['std_length']:.0f}")
+        print(
+            f"  Mean length:  {eval_single['mean_length']:.0f} +/- {eval_single['std_length']:.0f}"
+        )
         print(f"  Survived 500: {eval_single['survived_500']}/{eval_single['n_episodes']}")
     except Exception as e:
         print(f"  SKIPPED (server not running?): {e}")
@@ -165,10 +167,18 @@ def main() -> None:
         print(f"  Speedup:      {speedup:.2f}x")
 
         if eval_single is not None and eval_vec is not None:
-            print(f"\n  Single-env quality:   {eval_single['mean_length']:.0f} mean steps, "
-                  f"{eval_single['survived_500']}/{eval_single['n_episodes']} survived")
-            print(f"  Parallel-env quality: {eval_vec['mean_length']:.0f} mean steps, "
-                  f"{eval_vec['survived_500']}/{eval_vec['n_episodes']} survived")
+            print(
+                f"\n  Single-env quality:"
+                f"   {eval_single['mean_length']:.0f} mean steps, "
+                f"{eval_single['survived_500']}"
+                f"/{eval_single['n_episodes']} survived"
+            )
+            print(
+                f"  Parallel-env quality:"
+                f" {eval_vec['mean_length']:.0f} mean steps, "
+                f"{eval_vec['survived_500']}"
+                f"/{eval_vec['n_episodes']} survived"
+            )
     else:
         print("  Could not compare (one or both servers not running)")
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from clanker_gym.augmentation.prompts import PromptBuilder, SceneType
 
 
@@ -37,9 +35,7 @@ class TestPromptBuilder:
 
     def test_custom_suffix_appended(self):
         """custom_suffix is appended to the generated positive prompt."""
-        builder = PromptBuilder(
-            SceneType.MANIPULATION, custom_suffix="foggy weather"
-        )
+        builder = PromptBuilder(SceneType.MANIPULATION, custom_suffix="foggy weather")
         prompt, _ = builder.build()
         assert "foggy weather" in prompt
 

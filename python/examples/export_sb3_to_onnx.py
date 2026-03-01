@@ -5,7 +5,8 @@ Rust-side inference via the clankers-policy OnnxPolicy.
 
 Usage:
     py -3.12 python/examples/export_sb3_to_onnx.py
-    py -3.12 python/examples/export_sb3_to_onnx.py --model path/to/model.zip --output path/to/output.onnx
+    py -3.12 python/examples/export_sb3_to_onnx.py \
+        --model path/to/model.zip --output path/to/output.onnx
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 import numpy as np
 import onnx
@@ -117,13 +117,15 @@ def add_clanker_metadata(
 
     metadata = {
         "clanker_policy_version": "1.0.0",
-        "action_space": json.dumps({
-            "type": "Box",
-            "shape": [act_dim],
-            "dtype": "float32",
-            "low": act_low,
-            "high": act_high,
-        }),
+        "action_space": json.dumps(
+            {
+                "type": "Box",
+                "shape": [act_dim],
+                "dtype": "float32",
+                "low": act_low,
+                "high": act_high,
+            }
+        ),
         "action_transform": "none",
         "action_scale": json.dumps([1.0] * act_dim),
         "action_offset": json.dumps([0.0] * act_dim),
@@ -193,9 +195,7 @@ def cross_check(model, onnx_path: str, obs_dim: int, n_samples: int = 10) -> Non
         sb3_action, _ = model.predict(obs, deterministic=True)
 
         # ONNX prediction
-        onnx_action = session.run(
-            ["action"], {"obs": obs.reshape(1, -1)}
-        )[0].flatten()
+        onnx_action = session.run(["action"], {"obs": obs.reshape(1, -1)})[0].flatten()
 
         diff = np.max(np.abs(sb3_action - onnx_action))
         max_diff = max(max_diff, diff)

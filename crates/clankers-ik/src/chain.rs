@@ -205,11 +205,7 @@ fn rotation_matrix_from_rpy(roll: f32, pitch: f32, yaw: f32) -> Matrix3<f32> {
 }
 
 /// Compute the transform for a single joint at a given position.
-fn joint_transform(
-    axis: &UnitVector3<f32>,
-    is_prismatic: bool,
-    position: f32,
-) -> Isometry3<f32> {
+fn joint_transform(axis: &UnitVector3<f32>, is_prismatic: bool, position: f32) -> Isometry3<f32> {
     if is_prismatic {
         Isometry3::from_parts(
             Translation3::from(axis.into_inner() * position),

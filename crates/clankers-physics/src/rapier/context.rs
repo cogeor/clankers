@@ -1,4 +1,4 @@
-//! Bevy resource wrapping all Rapier3D physics pipeline state.
+//! Bevy resource wrapping all `Rapier3D` physics pipeline state.
 
 use std::collections::HashMap;
 
@@ -55,15 +55,15 @@ pub struct RapierContext {
     pub substeps: usize,
 
     // -- Entity ↔ handle mappings --
-    /// Joint ECS entity → ImpulseJointHandle.
+    /// Joint ECS entity → `ImpulseJointHandle`.
     pub joint_handles: HashMap<Entity, ImpulseJointHandle>,
     /// Joint ECS entity → joint metadata.
     pub joint_info: HashMap<Entity, JointInfo>,
-    /// Link name → RigidBodyHandle.
+    /// Link name → `RigidBodyHandle`.
     pub body_handles: HashMap<String, RigidBodyHandle>,
 
     // -- Initial state for reset --
-    /// Initial body translations, stored after register_robot.
+    /// Initial body translations, stored after `register_robot`.
     pub initial_body_positions: HashMap<RigidBodyHandle, Vec3>,
     /// Initial body rotations, stored alongside translations.
     pub initial_body_rotations: HashMap<RigidBodyHandle, Quat>,
@@ -80,8 +80,10 @@ pub struct RapierContext {
 impl RapierContext {
     /// Create a new context with given gravity, timestep, and substep count.
     pub fn new(gravity: Vec3, dt: f32, substeps: usize) -> Self {
-        let mut integration_parameters = IntegrationParameters::default();
-        integration_parameters.dt = dt;
+        let integration_parameters = IntegrationParameters {
+            dt,
+            ..Default::default()
+        };
 
         Self {
             rigid_body_set: RigidBodySet::new(),
@@ -114,8 +116,7 @@ impl RapierContext {
                 let t = body.translation();
                 self.initial_body_positions
                     .insert(handle, Vec3::new(t.x, t.y, t.z));
-                self.initial_body_rotations
-                    .insert(handle, *body.rotation());
+                self.initial_body_rotations.insert(handle, *body.rotation());
             }
             let _ = name; // suppress unused warning
         }
@@ -156,7 +157,7 @@ impl RapierContext {
         };
 
         let t = ref_body.translation();
-        let dist_xy = (t.x * t.x + t.y * t.y).sqrt();
+        let dist_xy = t.x.hypot(t.y);
         if dist_xy < threshold {
             return false;
         }
@@ -169,7 +170,7 @@ impl RapierContext {
         self.world_origin[1] += f64::from(shift.y);
 
         // Shift all rigid bodies
-        for (_, handle) in &self.body_handles {
+        for handle in self.body_handles.values() {
             if let Some(body) = self.rigid_body_set.get_mut(*handle) {
                 let pos = body.translation();
                 body.set_translation(pos - shift, true);

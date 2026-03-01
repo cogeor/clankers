@@ -19,11 +19,12 @@
 use bevy::prelude::*;
 use bevy::time::Fixed;
 use bevy_egui::{EguiContexts, egui};
-use clap::Parser;
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::mpc_control::{MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts};
+use clankers_examples::mpc_control::{
+    MpcLoopState, body_state_from_rapier, compute_mpc_step, detect_foot_contacts,
+};
 use clankers_examples::quadruped_setup::{QuadrupedSetupConfig, setup_quadruped};
 use clankers_mpc::{
     AdaptiveGaitConfig, BodyState, GaitScheduler, GaitType, MpcConfig, MpcSolver, SwingConfig,
@@ -31,8 +32,9 @@ use clankers_mpc::{
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::ClankersTeleopPlugin;
 use clankers_teleop::TeleopConfig;
-use clankers_viz::{ClankersVizPlugin, VizMode};
 use clankers_viz::systems::VizSimGate;
+use clankers_viz::{ClankersVizPlugin, VizMode};
+use clap::Parser;
 use nalgebra::Vector3;
 
 #[derive(Parser)]
@@ -68,6 +70,7 @@ struct PointVisual(&'static str);
 // ---------------------------------------------------------------------------
 
 #[derive(Resource)]
+#[allow(clippy::struct_excessive_bools)]
 struct MpcUiState {
     mpc_enabled: bool,
     desired_velocity_x: f32,
@@ -132,7 +135,10 @@ struct QuadMpcState {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn body_state_from_rapier_viz(ctx: &RapierContext, link_name: &str) -> Option<(BodyState, Quat, nalgebra::UnitQuaternion<f64>)> {
+fn body_state_from_rapier_viz(
+    ctx: &RapierContext,
+    link_name: &str,
+) -> Option<(BodyState, Quat, nalgebra::UnitQuaternion<f64>)> {
     let handle = ctx.body_handles.get(link_name)?;
     let body = ctx.rigid_body_set.get(*handle)?;
     let bevy_quat = *body.rotation();
@@ -353,7 +359,9 @@ fn mpc_control_system(
     // Floating origin: keep Rapier coords near zero for f32 precision
     rapier.rebase_origin("body", 50.0);
 
-    let Some((body_state, _body_rot_bevy, body_quat_na)) = body_state_from_rapier_viz(&rapier, "body") else {
+    let Some((body_state, _body_rot_bevy, body_quat_na)) =
+        body_state_from_rapier_viz(&rapier, "body")
+    else {
         return;
     };
     let body_pos = body_state.position;
@@ -384,7 +392,7 @@ fn mpc_control_system(
     let current_vel = if mpc.step < mpc.stabilize_steps {
         Vector3::zeros()
     } else {
-        let ramp_frac = ((mpc.step - mpc.stabilize_steps) as f64 / ramp_steps as f64).min(1.0);
+        let ramp_frac = ((mpc.step - mpc.stabilize_steps) as f64 / f64::from(ramp_steps)).min(1.0);
         desired_velocity * ramp_frac
     };
 
@@ -405,13 +413,16 @@ fn mpc_control_system(
 
     // --- Convert MotorCommands → MotorOverrideParams ---
     for mc in &result.motor_commands {
-        motor_overrides.joints.insert(mc.entity, MotorOverrideParams {
-            target_pos: mc.target_pos,
-            target_vel: mc.target_vel,
-            stiffness: mc.stiffness,
-            damping: mc.damping,
-            max_force: mc.max_force,
-        });
+        motor_overrides.joints.insert(
+            mc.entity,
+            MotorOverrideParams {
+                target_pos: mc.target_pos,
+                target_vel: mc.target_vel,
+                stiffness: mc.stiffness,
+                damping: mc.damping,
+                max_force: mc.max_force,
+            },
+        );
 
         if let Ok(mut cmd) = commands.get_mut(mc.entity) {
             cmd.value = 0.0;
@@ -439,7 +450,11 @@ fn mpc_control_system(
             n_stance,
             n_feet,
             result.solution.solve_time_us,
-            if result.solution.converged { "OK" } else { "FAIL" },
+            if result.solution.converged {
+                "OK"
+            } else {
+                "FAIL"
+            },
             current_vel.x,
             current_vel.y,
         );
@@ -448,7 +463,9 @@ fn mpc_control_system(
                 let contact = result.contacts.get(i).copied().unwrap_or(false);
                 println!(
                     "    foot {i}: F=[{:+.2}, {:+.2}, {:+.2}]  {}",
-                    f.x, f.y, f.z,
+                    f.x,
+                    f.y,
+                    f.z,
                     if contact { "STANCE" } else { "swing" },
                 );
             }
@@ -463,7 +480,11 @@ fn mpc_control_system(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::needless_pass_by_value)]
-fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, mode: Res<VizMode>) {
+fn mpc_panel_system(
+    mut contexts: EguiContexts,
+    mut mpc_ui: ResMut<MpcUiState>,
+    mode: Res<VizMode>,
+) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
@@ -486,8 +507,12 @@ fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, 
             ui.horizontal(|ui| {
                 if ui
                     .add(
-                        egui::Button::new(egui::RichText::new(toggle_text).color(toggle_color).strong())
-                            .min_size(egui::vec2(190.0, 28.0)),
+                        egui::Button::new(
+                            egui::RichText::new(toggle_text)
+                                .color(toggle_color)
+                                .strong(),
+                        )
+                        .min_size(egui::vec2(190.0, 28.0)),
                     )
                     .clicked()
                 {
@@ -507,7 +532,12 @@ fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, 
 
             ui.label("Gait");
             ui.horizontal(|ui| {
-                for gait in [GaitType::Stand, GaitType::Trot, GaitType::Walk, GaitType::Bound] {
+                for gait in [
+                    GaitType::Stand,
+                    GaitType::Trot,
+                    GaitType::Walk,
+                    GaitType::Bound,
+                ] {
                     let label = match gait {
                         GaitType::Stand => "Stand",
                         GaitType::Trot => "Trot",
@@ -585,7 +615,10 @@ fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, 
 
             if !mpc_ui.mpc_enabled {
                 ui.separator();
-                ui.colored_label(egui::Color32::YELLOW, "MPC disabled — sliders control joints");
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "MPC disabled — sliders control joints",
+                );
             }
 
             ui.separator();
@@ -597,13 +630,21 @@ fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, 
                         .spacing([12.0, 2.0])
                         .show(ui, |ui| {
                             ui.label("SimGate:");
-                            ui.label(if mpc_ui.diag_should_step { "STEPPING" } else { "BLOCKED" });
+                            ui.label(if mpc_ui.diag_should_step {
+                                "STEPPING"
+                            } else {
+                                "BLOCKED"
+                            });
                             ui.end_row();
 
                             ui.label("Teleop:");
                             ui.label(format!(
                                 "{} ({} mappings)",
-                                if mpc_ui.diag_teleop_enabled { "ON" } else { "OFF" },
+                                if mpc_ui.diag_teleop_enabled {
+                                    "ON"
+                                } else {
+                                    "OFF"
+                                },
                                 mpc_ui.diag_teleop_mappings,
                             ));
                             ui.end_row();
@@ -660,7 +701,10 @@ fn mpc_panel_system(mut contexts: EguiContexts, mut mpc_ui: ResMut<MpcUiState>, 
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::needless_pass_by_value)]
-fn sync_body_visual(rapier: Res<RapierContext>, mut query: Query<&mut Transform, With<BodyVisual>>) {
+fn sync_body_visual(
+    rapier: Res<RapierContext>,
+    mut query: Query<&mut Transform, With<BodyVisual>>,
+) {
     if let Some(&handle) = rapier.body_handles.get("body")
         && let Some(body) = rapier.rigid_body_set.get(handle)
     {
@@ -806,11 +850,17 @@ fn main() {
     let desired_height = setup.desired_height as f32;
     let n_feet = setup.n_feet;
 
-    let all_joint_entities: Vec<Entity> = setup.legs.iter().flat_map(|leg| leg.joint_entities.clone()).collect();
+    let all_joint_entities: Vec<Entity> = setup
+        .legs
+        .iter()
+        .flat_map(|leg| leg.joint_entities.clone())
+        .collect();
 
     // --- MPC config ---
-    let mut config = MpcConfig::default();
-    config.dt = mpc_dt;
+    let config = MpcConfig {
+        dt: mpc_dt,
+        ..Default::default()
+    };
     let swing_config = SwingConfig::default();
 
     scene.app.insert_resource(QuadMpcState {
@@ -819,7 +869,11 @@ fn main() {
             solver: MpcSolver::new(config.clone(), 4),
             config,
             swing_config,
-            adaptive_gait: if args.adaptive_gait { Some(AdaptiveGaitConfig::default()) } else { None },
+            adaptive_gait: if args.adaptive_gait {
+                Some(AdaptiveGaitConfig::default())
+            } else {
+                None
+            },
             legs: setup.legs,
             swing_starts: vec![Vector3::zeros(); n_feet],
             swing_targets: vec![Vector3::zeros(); n_feet],
@@ -843,7 +897,9 @@ fn main() {
     // RobotGroup + sensors
     {
         let world = scene.app.world_mut();
-        world.resource_mut::<clankers_core::types::RobotGroup>().allocate("quadruped".to_string(), all_joint_entities);
+        world
+            .resource_mut::<clankers_core::types::RobotGroup>()
+            .allocate("quadruped".to_string(), all_joint_entities);
     }
 
     // Windowed rendering
@@ -858,12 +914,20 @@ fn main() {
 
     // Teleop + viz plugins (fixed_update decouples sim from render rate)
     scene.app.add_plugins(ClankersTeleopPlugin);
-    scene.app.add_plugins(ClankersVizPlugin { fixed_update: true });
+    scene
+        .app
+        .add_plugins(ClankersVizPlugin { fixed_update: true });
 
-    scene.app.world_mut().resource_mut::<clankers_viz::config::VizConfig>().show_panel = false;
+    scene
+        .app
+        .world_mut()
+        .resource_mut::<clankers_viz::config::VizConfig>()
+        .show_panel = false;
 
     // Set FixedUpdate timestep to match MPC control rate (50Hz default)
-    scene.app.insert_resource(Time::<Fixed>::from_seconds(mpc_dt));
+    scene
+        .app
+        .insert_resource(Time::<Fixed>::from_seconds(mpc_dt));
 
     // Visual meshes
     scene.app.add_systems(Startup, spawn_quadruped_meshes);

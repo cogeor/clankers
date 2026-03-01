@@ -27,8 +27,8 @@ use clankers_actuator::components::JointState;
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::{CARTPOLE_URDF, TWO_LINK_ARM_URDF};
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 use clankers_teleop::prelude::*;
 use clankers_viz::ClankersVizPlugin;
@@ -239,7 +239,11 @@ fn spawn_arm_meshes(
         .spawn((
             ForearmVisual,
             Visibility::default(),
-            Transform::from_xyz(ARM_X_OFFSET, ARM_BASE_HEIGHT * 2.0 + UPPER_ARM_LEN, 0.0),
+            Transform::from_xyz(
+                ARM_X_OFFSET,
+                ARM_BASE_HEIGHT.mul_add(2.0, UPPER_ARM_LEN),
+                0.0,
+            ),
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -254,7 +258,11 @@ fn spawn_arm_meshes(
         EEVisual,
         Mesh3d(meshes.add(Sphere::new(0.03))),
         MeshMaterial3d(ee_mat),
-        Transform::from_xyz(ARM_X_OFFSET, ARM_BASE_HEIGHT * 2.0 + UPPER_ARM_LEN + FOREARM_LEN, 0.0),
+        Transform::from_xyz(
+            ARM_X_OFFSET,
+            ARM_BASE_HEIGHT.mul_add(2.0, UPPER_ARM_LEN) + FOREARM_LEN,
+            0.0,
+        ),
     ));
 }
 
@@ -299,8 +307,7 @@ fn sync_pole_visual(
     states: Query<&JointState>,
     mut pole: Query<&mut Transform, With<PoleVisual>>,
 ) {
-    let (Ok(cart_state), Ok(pole_state)) =
-        (states.get(joints.cart), states.get(joints.pole))
+    let (Ok(cart_state), Ok(pole_state)) = (states.get(joints.cart), states.get(joints.pole))
     else {
         return;
     };
@@ -350,8 +357,8 @@ fn sync_forearm_visual(
     // The shoulder rotates around Z, so the upper arm tip is at:
     //   base + upper_arm_len * rotate(shoulder_angle) applied to (0, 1, 0)
     let base_y = ARM_BASE_HEIGHT * 2.0;
-    let upper_tip_x = ARM_X_OFFSET + UPPER_ARM_LEN * (-shoulder_angle).sin();
-    let upper_tip_y = base_y + UPPER_ARM_LEN * shoulder_angle.cos();
+    let upper_tip_x = UPPER_ARM_LEN.mul_add((-shoulder_angle).sin(), ARM_X_OFFSET);
+    let upper_tip_y = UPPER_ARM_LEN.mul_add(shoulder_angle.cos(), base_y);
 
     // Forearm rotation = shoulder + elbow
     let total_angle = shoulder_angle + elbow_angle;
@@ -363,8 +370,8 @@ fn sync_forearm_visual(
     }
 
     // End-effector at forearm tip
-    let ee_x = upper_tip_x + FOREARM_LEN * (-total_angle).sin();
-    let ee_y = upper_tip_y + FOREARM_LEN * total_angle.cos();
+    let ee_x = FOREARM_LEN.mul_add((-total_angle).sin(), upper_tip_x);
+    let ee_y = FOREARM_LEN.mul_add(total_angle.cos(), upper_tip_y);
 
     for mut t in &mut ee {
         t.translation.x = ee_x;
@@ -432,12 +439,8 @@ fn main() {
     }
 
     // 7. Joint entity references (data entities, NOT visual entities)
-    scene
-        .app
-        .insert_resource(CartPoleJoints { cart, pole });
-    scene
-        .app
-        .insert_resource(ArmJoints { shoulder, elbow });
+    scene.app.insert_resource(CartPoleJoints { cart, pole });
+    scene.app.insert_resource(ArmJoints { shoulder, elbow });
 
     // 8. Windowed rendering (scene camera added by ClankersVizPlugin)
     scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -457,7 +460,9 @@ fn main() {
     scene.app.add_plugins(ClankersVizPlugin::default());
 
     // 10. Robot visual meshes (separate from joint data entities)
-    scene.app.add_systems(Startup, (spawn_cartpole_meshes, spawn_arm_meshes));
+    scene
+        .app
+        .add_systems(Startup, (spawn_cartpole_meshes, spawn_arm_meshes));
 
     // 11. Visual sync: JointState (physics) -> mesh transforms
     //     Must run after physics so we read up-to-date JointState.

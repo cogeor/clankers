@@ -469,12 +469,11 @@ pub mod camera {
                     let schema_id = if let Some(id) = cam_channels.schema_id {
                         id
                     } else {
-                        let id = match writer.add_schema("binary", "application/octet-stream", &[]) {
+                        let id = match writer.add_schema("binary", "application/octet-stream", &[])
+                        {
                             Ok(id) => id,
                             Err(e) => {
-                                error!(
-                                    "clankers-record: failed to register binary schema: {e}"
-                                );
+                                error!("clankers-record: failed to register binary schema: {e}");
                                 continue;
                             }
                         };

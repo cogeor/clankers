@@ -17,8 +17,8 @@ use clankers_env::vec_env::VecEnvConfig;
 use clankers_env::vec_runner::VecEnvInstance;
 use clankers_examples::CARTPOLE_URDF;
 use clankers_gym::prelude::*;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 
 /// Writes action values to joint commands in spawn order.
@@ -70,10 +70,7 @@ fn make_cartpole_env() -> GymEnv {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(
-            Box::new(JointStateSensor::new(num_joints)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -88,19 +85,24 @@ fn make_cartpole_env() -> GymEnv {
         high: vec![1.0; num_joints],
     };
 
-    GymEnv::new(scene.app, obs_space, act_space, Box::new(CartPoleApplicator))
-        .with_reset_fn(|world: &mut World| {
-            if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-                ctx.reset_to_initial();
-                world.insert_resource(ctx);
-            }
-            let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
-            for (mut state, mut cmd) in query.iter_mut(world) {
-                state.position = 0.0;
-                state.velocity = 0.0;
-                cmd.value = 0.0;
-            }
-        })
+    GymEnv::new(
+        scene.app,
+        obs_space,
+        act_space,
+        Box::new(CartPoleApplicator),
+    )
+    .with_reset_fn(|world: &mut World| {
+        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+            ctx.reset_to_initial();
+            world.insert_resource(ctx);
+        }
+        let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
+        for (mut state, mut cmd) in query.iter_mut(world) {
+            state.position = 0.0;
+            state.velocity = 0.0;
+            cmd.value = 0.0;
+        }
+    })
 }
 
 fn main() {
@@ -150,7 +152,7 @@ fn main() {
         let step_elapsed = step_start.elapsed();
 
         let steps_per_sec = total_steps as f64 / step_elapsed.as_secs_f64();
-        let ms_per_step = step_elapsed.as_secs_f64() * 1000.0 / steps_per_env as f64;
+        let ms_per_step = step_elapsed.as_secs_f64() * 1000.0 / f64::from(steps_per_env);
 
         // Read final observations to verify physics worked
         let final_obs = vec_env.runner().get_obs(0);

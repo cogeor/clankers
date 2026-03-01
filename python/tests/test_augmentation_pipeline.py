@@ -9,11 +9,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from clanker_gym.augmentation.pipeline import Sim2RealPipeline
 from clanker_gym.augmentation.prompts import SceneType
-
 
 # ---------------------------------------------------------------------------
 # Initialisation
@@ -79,9 +77,14 @@ class TestPipelineGenerate:
         mock_image_mod.LANCZOS = 1
         mock_torch = MagicMock()
 
-        with patch.dict("sys.modules", {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch}):
-            with patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output):
-                result = pipe.generate(seg, num_inference_steps=5)
+        with (
+            patch.dict(
+                "sys.modules",
+                {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch},
+            ),
+            patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output),
+        ):
+            pipe.generate(seg, num_inference_steps=5)
 
         # _load_pipeline was called
         mock_load.assert_called_once()
@@ -108,16 +111,22 @@ class TestPipelineGenerate:
         mock_image_mod = MagicMock()
         mock_torch = MagicMock()
 
-        with patch.dict("sys.modules", {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch}):
-            with patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output):
-                pipe.generate(seg, prompt_override="custom prompt here")
+        with (
+            patch.dict(
+                "sys.modules",
+                {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch},
+            ),
+            patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output),
+        ):
+            pipe.generate(seg, prompt_override="custom prompt here")
 
         # Check the call kwargs include our prompt
         call_kwargs = mock_pipe.call_args
         assert call_kwargs is not None
         # prompt is passed as a keyword argument
-        assert call_kwargs.kwargs.get("prompt") == "custom prompt here" or \
-               (len(call_kwargs.args) > 0 and "custom prompt here" in str(call_kwargs))
+        assert call_kwargs.kwargs.get("prompt") == "custom prompt here" or (
+            len(call_kwargs.args) > 0 and "custom prompt here" in str(call_kwargs)
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -14,8 +14,8 @@ use clankers_core::prelude::*;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
 use clankers_gym::prelude::*;
-use clankers_physics::rapier::{bridge::register_robot, RapierBackend, RapierContext};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 
 /// Writes action values to joint commands in spawn order.
@@ -52,8 +52,7 @@ fn main() {
     // ---------------------------------------------------------------
     // 1. Parse URDF
     // ---------------------------------------------------------------
-    let model =
-        clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
+    let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
     println!("Robot: {}", model.name);
     println!("DOF:   {}", model.dof());
     println!("Joints: {:?}", model.actuated_joint_names());
@@ -95,10 +94,7 @@ fn main() {
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
         // Joint state: 2 joints × 2 (pos + vel) = 4 obs values
         // Layout: [cart_pos, cart_vel, pole_angle, pole_vel]
-        registry.register(
-            Box::new(JointStateSensor::new(num_joints)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
         println!("Observation dim: {}", buffer.dim());
         world.insert_resource(buffer);
         world.insert_resource(registry);

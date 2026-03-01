@@ -2,15 +2,15 @@
 
 use bevy::prelude::*;
 
-use clankers_core::config::SimConfig;
 use clankers_core::ClankersSet;
+use clankers_core::config::SimConfig;
 
 use crate::backend::PhysicsBackend;
 
 use super::context::RapierContext;
 use super::systems::rapier_step_system;
 
-/// Shared setup: insert RapierContext resource from SimConfig.
+/// Shared setup: insert `RapierContext` resource from `SimConfig`.
 fn insert_rapier_context(app: &mut App) {
     let sim_config = app.world().resource::<SimConfig>();
 
@@ -40,7 +40,7 @@ impl PhysicsBackend for RapierBackend {
         app.add_systems(Update, rapier_step_system.in_set(ClankersSet::Simulate));
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "rapier3d"
     }
 }
@@ -55,10 +55,13 @@ pub struct RapierBackendFixed;
 impl PhysicsBackend for RapierBackendFixed {
     fn build(&self, app: &mut App) {
         insert_rapier_context(app);
-        app.add_systems(FixedUpdate, rapier_step_system.in_set(ClankersSet::Simulate));
+        app.add_systems(
+            FixedUpdate,
+            rapier_step_system.in_set(ClankersSet::Simulate),
+        );
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "rapier3d-fixed"
     }
 }

@@ -35,7 +35,7 @@ const BEZIER_H: [f64; 12] = [
 
 // Peak value of bezier_eval(&BEZIER_H, 0.5). Pre-computed so we can normalize
 // the height profile to exactly step_height at the midpoint.
-const BEZIER_H_PEAK: f64 = 0.886230468750;
+const BEZIER_H_PEAK: f64 = 0.886_230_468_750;
 
 /// Evaluate a degree-11 Bezier curve at parameter `t` using De Casteljau's algorithm.
 fn bezier_eval(points: &[f64; 12], t: f64) -> f64 {
@@ -177,11 +177,9 @@ impl SwingConfig {
     /// Uses the velocity-dependent profile if set, otherwise returns the
     /// constant `cp_gain`.
     pub fn effective_cp_gain(&self, speed: f64) -> f64 {
-        if let Some(ref profile) = self.cp_gain_profile {
-            profile.lookup(speed)
-        } else {
-            self.cp_gain
-        }
+        self.cp_gain_profile
+            .as_ref()
+            .map_or(self.cp_gain, |profile| profile.lookup(speed))
     }
 }
 
@@ -379,8 +377,7 @@ mod tests {
         let hip = Vector3::new(0.15, 0.08, 0.35);
         let vel = Vector3::zeros();
         let des_vel = Vector3::zeros();
-        let target =
-            raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.32, 9.81, 0.3);
+        let target = raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.32, 9.81, 0.3);
 
         assert_relative_eq!(target.x, hip.x, epsilon = 1e-10);
         assert_relative_eq!(target.y, hip.y, epsilon = 1e-10);
@@ -416,15 +413,14 @@ mod tests {
         let vel = Vector3::new(1.0, 0.0, 0.0);
         let des_vel = Vector3::zeros();
 
-        let t_low = raibert_foot_target(
-            &hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.20, 9.81, 0.5,
-        );
-        let t_high = raibert_foot_target(
-            &hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.40, 9.81, 0.5,
-        );
+        let t_low = raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.20, 9.81, 0.5);
+        let t_high = raibert_foot_target(&hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.40, 9.81, 0.5);
 
         // Higher body → larger CP correction → foot placed further forward
-        assert!(t_high.x > t_low.x, "Higher body should produce larger correction");
+        assert!(
+            t_high.x > t_low.x,
+            "Higher body should produce larger correction"
+        );
     }
 
     #[test]
@@ -507,7 +503,7 @@ mod tests {
             &hip, &vel, &des_vel, 0.2, 0.2, 0.0, 0.5, 0.32, 9.81, max_reach,
         );
 
-        let offset = ((target.x - hip.x).powi(2) + (target.y - hip.y).powi(2)).sqrt();
+        let offset = (target.x - hip.x).hypot(target.y - hip.y);
         assert!(
             offset <= max_reach + 1e-10,
             "Offset {offset} exceeds max_reach {max_reach}"

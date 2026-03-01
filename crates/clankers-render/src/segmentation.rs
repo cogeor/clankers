@@ -158,9 +158,7 @@ mod gpu_impl {
     use bevy::camera::RenderTarget;
     use bevy::prelude::*;
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};
-    use bevy::render::render_resource::{
-        Extent3d, TextureDimension, TextureFormat, TextureUsages,
-    };
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
     use bevy::render::view::RenderLayers;
 
     use crate::segmentation::{SegmentationFrameBuffer, SegmentationPalette};
@@ -366,8 +364,7 @@ mod gpu_impl {
         }
 
         // Strip wgpu row padding and collect tightly-packed RGBA bytes.
-        let mut rgba_bytes: Vec<u8> =
-            Vec::with_capacity(packed_rgba_row * height as usize);
+        let mut rgba_bytes: Vec<u8> = Vec::with_capacity(packed_rgba_row * height as usize);
         for row in 0..height as usize {
             let start = row * aligned_row;
             rgba_bytes.extend_from_slice(&raw[start..start + packed_rgba_row]);
@@ -456,7 +453,10 @@ mod tests {
     fn segmentation_palette_ground_is_red() {
         let palette = SegmentationPalette::default();
         let [r, g, b] = palette.colors[&0];
-        assert!((r - 1.0).abs() < 1e-6, "ground red channel should be 1.0, got {r}");
+        assert!(
+            (r - 1.0).abs() < 1e-6,
+            "ground red channel should be 1.0, got {r}"
+        );
         assert!(g < 0.01, "ground green channel should be ~0, got {g}");
         assert!(b < 0.01, "ground blue channel should be ~0, got {b}");
     }

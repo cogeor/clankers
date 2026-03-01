@@ -1,7 +1,7 @@
 //! Integration tests for the sensor pipeline.
 //!
-//! Exercises LidarSensor trait implementations, ObservationBuffer roundtrips,
-//! and LidarConfig defaults. These tests run headless (no GPU required).
+//! Exercises `LidarSensor` trait implementations, `ObservationBuffer` roundtrips,
+//! and `LidarConfig` defaults. These tests run headless (no GPU required).
 
 use bevy::prelude::*;
 use clankers_core::physics::LidarConfig;
@@ -98,7 +98,11 @@ fn observation_buffer_multiple_slots() {
     let lidar_idx = buf.register(lidar_sensor.name(), lidar_sensor.observation_dim());
 
     assert_eq!(buf.sensor_count(), 2);
-    assert_eq!(buf.dim(), 6 + 8, "total dim should be sum of all sensor dims");
+    assert_eq!(
+        buf.dim(),
+        6 + 8,
+        "total dim should be sum of all sensor dims"
+    );
 
     // Write to each slot independently
     let joint_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];

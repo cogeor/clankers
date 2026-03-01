@@ -28,7 +28,13 @@ pub fn side_panel_system(
     mut mode: ResMut<VizMode>,
     mut episode: ResMut<Episode>,
     mut commander: ResMut<TeleopCommander>,
-    joints: Query<(Entity, &JointCommand, &JointState, &JointTorque, Option<&RobotId>)>,
+    joints: Query<(
+        Entity,
+        &JointCommand,
+        &JointState,
+        &JointTorque,
+        Option<&RobotId>,
+    )>,
     obs_buffer: Res<ObservationBuffer>,
     policy_runner: Option<Res<PolicyRunner>>,
     stats: Option<Res<EpisodeStats>>,
@@ -54,11 +60,11 @@ pub fn side_panel_system(
             mode_section(ui, &mut mode, policy_runner.is_some());
             ui.separator();
 
-            if *mode == VizMode::Replay {
-                if let Some(ref mut ps) = playback_state {
-                    replay_section(ui, ps);
-                    ui.separator();
-                }
+            if *mode == VizMode::Replay
+                && let Some(ref mut ps) = playback_state
+            {
+                replay_section(ui, ps);
+                ui.separator();
             }
 
             robot_section(ui, robot_group.as_deref(), &mut selected_robot);
@@ -82,7 +88,12 @@ pub fn side_panel_system(
 fn mode_section(ui: &mut egui::Ui, mode: &mut ResMut<VizMode>, has_policy: bool) {
     ui.label("Mode");
     ui.horizontal(|ui| {
-        for candidate in [VizMode::Paused, VizMode::Teleop, VizMode::Policy, VizMode::Replay] {
+        for candidate in [
+            VizMode::Paused,
+            VizMode::Teleop,
+            VizMode::Policy,
+            VizMode::Replay,
+        ] {
             let enabled = candidate != VizMode::Policy || has_policy;
             let button = egui::Button::new(candidate.label()).selected(**mode == candidate);
             let response = ui.add_enabled(enabled, button);
@@ -103,14 +114,12 @@ fn replay_section(ui: &mut egui::Ui, state: &mut PlaybackState) {
             if ui.button("Pause").clicked() {
                 state.playing = false;
             }
-        } else {
-            if ui.button("Play").clicked() {
-                // If at end, restart from beginning.
-                if state.cursor_ns >= state.duration_ns {
-                    state.cursor_ns = 0;
-                }
-                state.playing = true;
+        } else if ui.button("Play").clicked() {
+            // If at end, restart from beginning.
+            if state.cursor_ns >= state.duration_ns {
+                state.cursor_ns = 0;
             }
+            state.playing = true;
         }
 
         if ui.button("Reset").clicked() {
@@ -250,7 +259,13 @@ fn robot_section(
 
 fn joints_section(
     ui: &mut egui::Ui,
-    joints: &Query<(Entity, &JointCommand, &JointState, &JointTorque, Option<&RobotId>)>,
+    joints: &Query<(
+        Entity,
+        &JointCommand,
+        &JointState,
+        &JointTorque,
+        Option<&RobotId>,
+    )>,
     commander: &mut ResMut<TeleopCommander>,
     mode: VizMode,
     selected: &SelectedRobotId,
@@ -260,10 +275,7 @@ fn joints_section(
     // Collect and filter joints by selected robot.
     let filtered: Vec<_> = joints
         .iter()
-        .filter(|(_, _, _, _, rid)| match selected.0 {
-            Some(sel) => rid.map_or(false, |r| *r == sel),
-            None => true,
-        })
+        .filter(|(_, _, _, _, rid)| selected.0.is_none_or(|sel| rid.is_some_and(|r| *r == sel)))
         .collect();
 
     if filtered.is_empty() {
@@ -329,7 +341,12 @@ fn observation_section(ui: &mut egui::Ui, buffer: &ObservationBuffer) {
                     } else {
                         for (si, slot) in slots.iter().enumerate() {
                             let data = buffer.read(si);
-                            ui.label(format!("{} [{}..{}]:", slot.name, slot.offset, slot.offset + slot.dim));
+                            ui.label(format!(
+                                "{} [{}..{}]:",
+                                slot.name,
+                                slot.offset,
+                                slot.offset + slot.dim
+                            ));
                             ui.indent(slot.name.as_str(), |ui| {
                                 for (j, &v) in data.iter().enumerate() {
                                     ui.label(format!("[{}] {v:.4}", slot.offset + j));
@@ -349,30 +366,28 @@ fn action_section(
 ) {
     egui::CollapsingHeader::new("Action")
         .default_open(false)
-        .show(ui, |ui| {
-            match mode {
-                VizMode::Policy => {
-                    if let Some(runner) = policy_runner {
-                        ui.label(format!("Policy: {}", runner.policy_name()));
-                        for (i, &v) in runner.action().as_slice().iter().enumerate() {
-                            ui.label(format!("[{i}] {v:.4}"));
-                        }
-                    } else {
-                        ui.label("No policy loaded.");
+        .show(ui, |ui| match mode {
+            VizMode::Policy => {
+                if let Some(runner) = policy_runner {
+                    ui.label(format!("Policy: {}", runner.policy_name()));
+                    for (i, &v) in runner.action().as_slice().iter().enumerate() {
+                        ui.label(format!("[{i}] {v:.4}"));
                     }
+                } else {
+                    ui.label("No policy loaded.");
                 }
-                VizMode::Teleop => {
-                    ui.label("Source: Teleop");
-                    for (ch, v) in commander.iter() {
-                        ui.label(format!("{ch}: {v:.4}"));
-                    }
+            }
+            VizMode::Teleop => {
+                ui.label("Source: Teleop");
+                for (ch, v) in commander.iter() {
+                    ui.label(format!("{ch}: {v:.4}"));
                 }
-                VizMode::Paused => {
-                    ui.label("Simulation paused.");
-                }
-                VizMode::Replay => {
-                    ui.label("Replay mode.");
-                }
+            }
+            VizMode::Paused => {
+                ui.label("Simulation paused.");
+            }
+            VizMode::Replay => {
+                ui.label("Replay mode.");
             }
         });
 }

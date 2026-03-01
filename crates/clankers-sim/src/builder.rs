@@ -16,11 +16,15 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use clankers_core::config::SimConfig;
+use clankers_core::config::{ObjectConfig, Shape, SimConfig};
 use clankers_core::types::RobotGroup;
 use clankers_env::episode::EpisodeConfig;
+use clankers_physics::rapier::bridge::register_robot;
+use clankers_physics::rapier::{RapierBackend, RapierBackendFixed, RapierContext};
+use clankers_physics::ClankersPhysicsPlugin;
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::RobotModel;
+use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle};
 
 use crate::ClankersSimPlugin;
 
@@ -34,6 +38,9 @@ pub struct SpawnedScene {
     pub app: App,
     /// Spawned robots, keyed by the robot model name.
     pub robots: HashMap<String, SpawnedRobot>,
+    /// Physics rigid-body handles for objects added via [`SceneBuilder::with_object`],
+    /// keyed by object name. Empty when physics is not enabled.
+    pub object_bodies: HashMap<String, RigidBodyHandle>,
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +51,14 @@ pub struct SpawnedScene {
 struct RobotEntry {
     model: RobotModel,
     initial_positions: HashMap<String, f32>,
+}
+
+/// Physics backend configuration for auto-registration.
+struct PhysicsConfig {
+    /// When true, robot base links are fixed in place.
+    fixed_base: bool,
+    /// When true, physics runs on `FixedUpdate` instead of `Update`.
+    use_fixed_update: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +73,8 @@ pub struct SceneBuilder {
     sim_config: Option<SimConfig>,
     episode_config: Option<EpisodeConfig>,
     robots: Vec<RobotEntry>,
+    physics: Option<PhysicsConfig>,
+    objects: Vec<ObjectConfig>,
 }
 
 impl Default for SceneBuilder {
@@ -74,6 +91,8 @@ impl SceneBuilder {
             sim_config: None,
             episode_config: None,
             robots: Vec::new(),
+            physics: None,
+            objects: Vec::new(),
         }
     }
 
@@ -130,11 +149,59 @@ impl SceneBuilder {
         Ok(self.with_robot(model, initial_positions))
     }
 
+    /// Enable Rapier physics and auto-register all robots in [`build()`](Self::build).
+    ///
+    /// Physics systems run on the `Update` schedule. For visualization binaries
+    /// that need `FixedUpdate`, use [`with_physics_fixed_update`](Self::with_physics_fixed_update).
+    ///
+    /// When `fixed_base` is true, each robot's root link is pinned in world
+    /// space (typical for table-mounted arms).
+    #[must_use]
+    pub const fn with_physics(mut self, fixed_base: bool) -> Self {
+        self.physics = Some(PhysicsConfig {
+            fixed_base,
+            use_fixed_update: false,
+        });
+        self
+    }
+
+    /// Enable Rapier physics on the `FixedUpdate` schedule.
+    ///
+    /// Same as [`with_physics`](Self::with_physics) but registers the step
+    /// system on `FixedUpdate` so simulation and rendering are decoupled.
+    #[must_use]
+    pub const fn with_physics_fixed_update(mut self, fixed_base: bool) -> Self {
+        self.physics = Some(PhysicsConfig {
+            fixed_base,
+            use_fixed_update: true,
+        });
+        self
+    }
+
+    /// Add a free-floating physics object to the scene.
+    ///
+    /// Objects are created during [`build()`](Self::build) as Rapier rigid
+    /// bodies with colliders. Requires [`with_physics`](Self::with_physics)
+    /// to be called first; objects are silently ignored if physics is disabled.
+    ///
+    /// The resulting [`SpawnedScene::object_bodies`] map contains the Rapier
+    /// `RigidBodyHandle` for each object, keyed by name.
+    #[must_use]
+    pub fn with_object(mut self, config: ObjectConfig) -> Self {
+        self.objects.push(config);
+        self
+    }
+
     /// Build the Bevy [`App`] with all plugins and spawned entities.
     ///
     /// Each robot is assigned a [`RobotId`](clankers_core::types::RobotId) via
     /// the [`RobotGroup`] resource, and all its joint entities are tagged with
     /// that ID for multi-robot queries.
+    ///
+    /// When physics is enabled via [`with_physics`](Self::with_physics),
+    /// each robot is automatically registered with the Rapier backend and
+    /// objects added via [`with_object`](Self::with_object) are materialised
+    /// as rigid bodies with colliders.
     ///
     /// Returns a [`SpawnedScene`] containing the app and robot handles.
     #[must_use]
@@ -156,7 +223,9 @@ impl SceneBuilder {
         let mut robot_group = RobotGroup::default();
 
         // Spawn robots into the world with RobotId tagging.
+        // We keep the model alongside the spawned data for physics registration.
         let mut robots = HashMap::new();
+        let mut robot_models: Vec<(RobotModel, String)> = Vec::new();
         for entry in self.robots {
             let robot_id = robot_group.allocate(
                 entry.model.name.clone(),
@@ -172,12 +241,97 @@ impl SceneBuilder {
             let joint_entities: Vec<Entity> = spawned.joints.values().copied().collect();
             let info = robot_group.get_mut(robot_id).expect("just allocated");
             info.joints = joint_entities;
+            robot_models.push((entry.model, spawned.name.clone()));
             robots.insert(spawned.name.clone(), spawned);
         }
 
         app.world_mut().insert_resource(robot_group);
 
-        SpawnedScene { app, robots }
+        // --- Physics auto-registration ---
+        let mut object_bodies = HashMap::new();
+        if let Some(physics_config) = self.physics {
+            // Add the physics plugin (creates RapierContext resource).
+            if physics_config.use_fixed_update {
+                app.add_plugins(ClankersPhysicsPlugin::new(RapierBackendFixed));
+            } else {
+                app.add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
+            }
+
+            let world = app.world_mut();
+            let mut ctx = world.remove_resource::<RapierContext>().unwrap();
+
+            // Register each robot with the Rapier physics backend.
+            for (model, name) in &robot_models {
+                let spawned = &robots[name];
+                register_robot(&mut ctx, model, spawned, world, physics_config.fixed_base);
+            }
+
+            // Create rigid bodies and colliders for scene objects.
+            for obj in &self.objects {
+                let body_builder = if obj.is_static {
+                    RigidBodyBuilder::fixed()
+                } else {
+                    RigidBodyBuilder::dynamic().can_sleep(false)
+                };
+                let body = ctx.rigid_body_set.insert(
+                    body_builder
+                        .translation(Vec3::new(obj.position[0], obj.position[1], obj.position[2]))
+                        .build(),
+                );
+
+                let collider = shape_to_collider(&obj.shape)
+                    .density(obj.mass)
+                    .friction(obj.friction)
+                    .restitution(obj.restitution)
+                    .sensor(obj.is_sensor)
+                    .build();
+                ctx.collider_set
+                    .insert_with_parent(collider, body, &mut ctx.rigid_body_set);
+
+                // Track named handle for callers.
+                ctx.body_handles.insert(obj.name.clone(), body);
+                object_bodies.insert(obj.name.clone(), body);
+            }
+
+            // Re-snapshot so reset covers robots AND objects.
+            ctx.snapshot_initial_state();
+
+            world.insert_resource(ctx);
+        }
+
+        SpawnedScene {
+            app,
+            robots,
+            object_bodies,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shape -> Rapier collider
+// ---------------------------------------------------------------------------
+
+/// Convert a [`Shape`] config into a Rapier [`ColliderBuilder`].
+fn shape_to_collider(shape: &Shape) -> ColliderBuilder {
+    match shape {
+        Shape::Sphere(radius) => ColliderBuilder::ball(*radius),
+        Shape::Box(half_extents) => {
+            ColliderBuilder::cuboid(half_extents[0], half_extents[1], half_extents[2])
+        }
+        Shape::Cylinder {
+            radius,
+            half_height,
+        } => ColliderBuilder::cylinder(*half_height, *radius),
+        Shape::Capsule {
+            radius,
+            half_height,
+        } => ColliderBuilder::capsule_y(*half_height, *radius),
+        // Mesh shapes are not yet supported; fall back to a small sphere
+        // so the build does not panic.
+        Shape::ConvexMesh(_) | Shape::TriMesh(_) => {
+            eprintln!("warning: mesh shapes are not yet supported in with_object(); falling back to unit sphere collider");
+            ColliderBuilder::ball(0.01)
+        }
     }
 }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from clankers_synthetic.cli import main
 from clankers_synthetic.compiler import SkillCompiler
 from clankers_synthetic.ik_solver import (
     DlsSolver,
@@ -12,6 +13,7 @@ from clankers_synthetic.ik_solver import (
 from clankers_synthetic.openai_client import OpenAIClient, OpenAIClientError
 from clankers_synthetic.packager import DatasetPackager
 from clankers_synthetic.parser import VALID_SKILLS, PlanParser
+from clankers_synthetic.pipeline import generate_dataset
 from clankers_synthetic.planner import LLMPlanner, PromptAssembler
 from clankers_synthetic.pvcb_refiner import PVCBRefiner
 from clankers_synthetic.validator import SimValidator
@@ -92,6 +94,10 @@ __all__ = [
     "DatasetPackager",
     # Validator
     "SimValidator",
+    # Pipeline
+    "generate_dataset",
+    # CLI
+    "main",
 ]
 
 __version__ = "0.1.0"

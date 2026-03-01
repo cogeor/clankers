@@ -72,14 +72,27 @@ try:
 except ImportError:
     pass
 
-# Optional observation wrappers (requires `pip install clanker-gym[sb3]`).
+# Optional observation / reward wrappers (requires `pip install clanker-gym[sb3]`).
 try:
     from clanker_gym.wrappers import (  # noqa: F401
+        ClipReward,
         FrameStack,
         NormalizeObservation,
+        NormalizeReward,
     )
 
-    __all__.extend(["NormalizeObservation", "FrameStack"])
+    __all__.extend(["NormalizeObservation", "NormalizeReward", "FrameStack", "ClipReward"])
+except ImportError:
+    pass
+
+# Optional evaluation utilities (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.evaluation import (  # noqa: F401
+        EvalResult,
+        evaluate_policy,
+    )
+
+    __all__.extend(["EvalResult", "evaluate_policy"])
 except ImportError:
     pass
 
@@ -102,6 +115,21 @@ try:
     )
 
     __all__.extend(["McapEpisodeLoader", "EpisodeDataset"])
+except ImportError:
+    pass
+
+# Task preset environments (requires `pip install clanker-gym[sb3]`).
+try:
+    from clanker_gym.envs.arm_reach import make_arm_reach_env  # noqa: F401
+    from clanker_gym.envs.arm_pick import make_arm_pick_env  # noqa: F401
+
+    __all__.extend(["make_arm_reach_env", "make_arm_pick_env"])
+except ImportError:
+    pass
+
+# Auto-register gymnasium environments.
+try:
+    import clanker_gym.registration  # noqa: F401
 except ImportError:
     pass
 

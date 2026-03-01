@@ -220,7 +220,11 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         if isinstance(action, (int, np.integer)):
             action_payload: dict[str, Any] = {"Discrete": int(action)}
         else:
-            action_payload = {"Continuous": np.asarray(action, dtype=np.float32).tolist()}
+            action_arr = np.asarray(action, dtype=np.float32)
+            # Clip to action space bounds.
+            if isinstance(self.action_space, gym_spaces.Box):
+                action_arr = np.clip(action_arr, self.action_space.low, self.action_space.high)
+            action_payload = {"Continuous": action_arr.tolist()}
 
         resp = self._client.send({"type": "step", "action": action_payload})
         obs = self._obs_from_resp(resp)

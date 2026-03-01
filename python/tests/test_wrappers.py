@@ -1,4 +1,4 @@
-"""Tests for NormalizeObservation and FrameStack wrappers."""
+"""Tests for observation and reward wrappers."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ gymnasium = pytest.importorskip("gymnasium")
 
 from gymnasium import spaces as gym_spaces  # noqa: E402
 
-from clanker_gym.wrappers import FrameStack, NormalizeObservation  # noqa: E402
+from clanker_gym.wrappers import (  # noqa: E402
+    ClipReward,
+    FrameStack,
+    NormalizeObservation,
+    NormalizeReward,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +260,127 @@ class TestWrapperComposition:
         assert obs.shape == (3, 4)
         obs2, _, _, _, _ = env.step(np.array([0.0]))
         assert obs2.shape == (3, 4)
+
+
+# ---------------------------------------------------------------------------
+# Helpers -- dummy env that returns configurable rewards.
+# ---------------------------------------------------------------------------
+
+
+class RewardDummyEnv(gymnasium.Env):
+    """Minimal gymnasium env that returns configurable rewards per step.
+
+    The ``rewards`` list is cycled through on each ``step()`` call.
+    """
+
+    metadata: dict = {"render_modes": []}
+
+    def __init__(self, rewards: list[float] | None = None) -> None:
+        super().__init__()
+        self.observation_space = gym_spaces.Box(
+            low=-1.0, high=1.0, shape=(4,), dtype=np.float32
+        )
+        self.action_space = gym_spaces.Box(
+            low=-1.0, high=1.0, shape=(2,), dtype=np.float32
+        )
+        self._rewards = rewards if rewards is not None else [1.0]
+        self._step_idx = 0
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[np.ndarray, dict]:
+        super().reset(seed=seed, options=options)
+        self._step_idx = 0
+        return np.zeros(4, dtype=np.float32), {}
+
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
+        reward = self._rewards[self._step_idx % len(self._rewards)]
+        self._step_idx += 1
+        return np.zeros(4, dtype=np.float32), reward, False, False, {}
+
+
+# ---------------------------------------------------------------------------
+# NormalizeReward tests
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeReward:
+    def test_normalize_reward_basic(self):
+        """Normalized rewards should be finite and non-zero after a few steps."""
+        env = NormalizeReward(RewardDummyEnv(rewards=[1.0, 2.0, 3.0]))
+        env.reset()
+        rewards = []
+        for _ in range(6):
+            _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+            rewards.append(r)
+        # All rewards should be finite.
+        assert all(np.isfinite(r) for r in rewards)
+        # At least one non-zero reward after the first step.
+        assert any(r != 0.0 for r in rewards)
+
+    def test_normalize_reward_reset_clears_return(self):
+        """The discounted return should reset to zero on reset()."""
+        env = NormalizeReward(RewardDummyEnv(rewards=[5.0]))
+        env.reset()
+        for _ in range(5):
+            env.step(np.array([0.0, 0.0]))
+        assert env._return != 0.0
+        env.reset()
+        assert env._return == 0.0
+
+    def test_normalize_reward_clip(self):
+        """Normalized rewards must be within [-clip, clip]."""
+        env = NormalizeReward(RewardDummyEnv(rewards=[1000.0]), clip=3.0)
+        env.reset()
+        for _ in range(10):
+            _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+            assert -3.0 <= r <= 3.0
+
+    def test_normalize_reward_parameters(self):
+        """Constructor parameters should be stored correctly."""
+        env = NormalizeReward(
+            RewardDummyEnv(), gamma=0.95, epsilon=1e-4, clip=5.0
+        )
+        assert env.gamma == 0.95
+        assert env.epsilon == 1e-4
+        assert env.clip == 5.0
+
+
+# ---------------------------------------------------------------------------
+# ClipReward tests
+# ---------------------------------------------------------------------------
+
+
+class TestClipReward:
+    def test_clip_reward_basic(self):
+        """Values within range pass through unchanged."""
+        env = ClipReward(RewardDummyEnv(rewards=[5.0]), min_reward=-10.0, max_reward=10.0)
+        env.reset()
+        _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+        assert r == 5.0
+
+    def test_clip_reward_clips_high(self):
+        """Values above max_reward are clipped."""
+        env = ClipReward(RewardDummyEnv(rewards=[100.0]), min_reward=-10.0, max_reward=10.0)
+        env.reset()
+        _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+        assert r == 10.0
+
+    def test_clip_reward_clips_low(self):
+        """Values below min_reward are clipped."""
+        env = ClipReward(RewardDummyEnv(rewards=[-100.0]), min_reward=-10.0, max_reward=10.0)
+        env.reset()
+        _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+        assert r == -10.0
+
+    def test_clip_reward_custom_bounds(self):
+        """Custom bounds work correctly."""
+        env = ClipReward(RewardDummyEnv(rewards=[50.0]), min_reward=-1.0, max_reward=1.0)
+        env.reset()
+        _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+        assert r == 1.0
+
+    def test_clip_reward_negative_within_range(self):
+        """Negative values within range pass through."""
+        env = ClipReward(RewardDummyEnv(rewards=[-5.0]), min_reward=-10.0, max_reward=10.0)
+        env.reset()
+        _, r, _, _, _ = env.step(np.array([0.0, 0.0]))
+        assert r == -5.0

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from clankers_synthetic.compiler import SkillCompiler
 from clankers_synthetic.ik_solver import (
     DlsSolver,
     IKResult,
@@ -10,6 +11,7 @@ from clankers_synthetic.ik_solver import (
 )
 from clankers_synthetic.openai_client import OpenAIClient, OpenAIClientError
 from clankers_synthetic.parser import VALID_SKILLS, PlanParser
+from clankers_synthetic.planner import LLMPlanner, PromptAssembler
 from clankers_synthetic.validator import SimValidator
 from clankers_synthetic.specs import (
     CanonicalPlan,
@@ -77,6 +79,11 @@ __all__ = [
     "KinematicChain",
     "JointInfo",
     "IKResult",
+    # Planner
+    "PromptAssembler",
+    "LLMPlanner",
+    # Compiler
+    "SkillCompiler",
     # Validator
     "SimValidator",
 ]

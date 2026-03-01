@@ -98,21 +98,69 @@ class Discrete:
         return cls(n=data["n"])
 
 
-def space_from_dict(data: dict[str, Any]) -> Box | Discrete:
+class Dict:
+    """Dictionary observation space containing named sub-spaces.
+
+    Compatible with ``gymnasium.spaces.Dict`` for goal-conditioned RL (HER).
+
+    Parameters
+    ----------
+    spaces : dict[str, Box | Discrete | Dict]
+        Named sub-spaces.
+    """
+
+    def __init__(self, spaces: dict[str, "Box | Discrete | Dict"]) -> None:
+        self.spaces = dict(spaces)
+
+    def sample(self, rng: np.random.Generator | None = None) -> dict[str, Any]:
+        """Sample from each sub-space."""
+        if rng is None:
+            rng = np.random.default_rng()
+        return {k: v.sample(rng) for k, v in self.spaces.items()}
+
+    def contains(self, x: dict) -> bool:
+        """Check if *x* is in this space."""
+        if not isinstance(x, dict):
+            return False
+        if set(x.keys()) != set(self.spaces.keys()):
+            return False
+        return all(self.spaces[k].contains(x[k]) for k in x)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Dict":
+        """Deserialize from ``{"spaces": {"key": <space_dict>, ...}}``."""
+        sub = data["spaces"]
+        return cls({k: space_from_dict(v) for k, v in sub.items()})
+
+    def __repr__(self) -> str:
+        inner = ", ".join(f"{k!r}: {v!r}" for k, v in self.spaces.items())
+        return f"Dict({{{inner}}})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Dict):
+            return NotImplemented
+        return self.spaces == other.spaces
+
+
+def space_from_dict(data: dict[str, Any]) -> Box | Discrete | Dict:
     """Deserialize a space from a protocol dict.
 
     Handles both flat format ``{"low": ..., "high": ...}`` and
     Rust serde enum format ``{"Box": {"low": ..., "high": ...}}``.
     """
-    # Rust serde enum format: {"Box": {...}} or {"Discrete": {...}}
+    # Rust serde enum format: {"Box": {...}}, {"Discrete": {...}}, {"Dict": {...}}
     if "Box" in data:
         return Box.from_dict(data["Box"])
     if "Discrete" in data:
         return Discrete.from_dict(data["Discrete"])
+    if "Dict" in data:
+        return Dict.from_dict(data["Dict"])
     # Flat format
     if "low" in data and "high" in data:
         return Box.from_dict(data)
     if "n" in data:
         return Discrete.from_dict(data)
+    if "spaces" in data:
+        return Dict.from_dict(data)
     msg = f"Cannot determine space type from keys: {list(data.keys())}"
     raise ValueError(msg)

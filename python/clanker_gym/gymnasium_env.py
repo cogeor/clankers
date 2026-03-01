@@ -33,7 +33,7 @@ except ImportError as exc:
 
 from clanker_gym.client import GymClient
 from clanker_gym.rewards import ConstantReward, RewardFunction
-from clanker_gym.spaces import Box, Discrete, space_from_dict
+from clanker_gym.spaces import Box, Dict, Discrete, space_from_dict
 from clanker_gym.terminations import TerminationFn, cartpole_termination
 
 # Type alias used internally for image observations.
@@ -65,13 +65,15 @@ def _image_space_from_dict(obs_data: dict[str, Any], channel_last: bool) -> gym_
 
 
 def _to_gymnasium_space(
-    space: Box | Discrete,
-) -> gym_spaces.Box | gym_spaces.Discrete:
+    space: Box | Discrete | Dict,
+) -> gym_spaces.Box | gym_spaces.Discrete | gym_spaces.Dict:
     """Convert a clanker_gym space to a gymnasium space."""
     if isinstance(space, Box):
         return gym_spaces.Box(low=space.low, high=space.high, dtype=np.float32)
     if isinstance(space, Discrete):
         return gym_spaces.Discrete(n=space.n)
+    if isinstance(space, Dict):
+        return gym_spaces.Dict({k: _to_gymnasium_space(v) for k, v in space.spaces.items()})
     msg = f"Unsupported space type: {type(space)}"
     raise TypeError(msg)
 

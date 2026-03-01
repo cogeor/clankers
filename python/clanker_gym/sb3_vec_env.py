@@ -33,19 +33,21 @@ except ImportError as exc:
     ) from exc
 
 from clanker_gym.rewards import ConstantReward, RewardFunction
-from clanker_gym.spaces import Box, Discrete
+from clanker_gym.spaces import Box, Dict, Discrete
 from clanker_gym.terminations import TerminationFn, cartpole_termination
 from clanker_gym.vec_env import ClankerVecEnv
 
 
 def _to_gymnasium_space(
-    space: Box | Discrete,
-) -> gym_spaces.Box | gym_spaces.Discrete:
+    space: Box | Discrete | Dict,
+) -> gym_spaces.Box | gym_spaces.Discrete | gym_spaces.Dict:
     """Convert a clanker_gym space to a gymnasium space."""
     if isinstance(space, Box):
         return gym_spaces.Box(low=space.low, high=space.high, dtype=np.float32)
     if isinstance(space, Discrete):
         return gym_spaces.Discrete(n=space.n)
+    if isinstance(space, Dict):
+        return gym_spaces.Dict({k: _to_gymnasium_space(v) for k, v in space.spaces.items()})
     msg = f"Unsupported space type: {type(space)}"
     raise TypeError(msg)
 

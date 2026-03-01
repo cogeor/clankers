@@ -2,7 +2,7 @@
 
 Usage::
 
-    python -m clanker_gym.augmentation input.mcap output.mcap [options]
+    python -m clankers.augmentation input.mcap output.mcap [options]
 
     Options:
         --steps N         Inference steps (default: 20)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="clanker_gym.augmentation",
+        prog="clankers.augmentation",
         description="Transform simulation segmentation MCAP recordings into "
         "photorealistic images using Stable Diffusion + ControlNet.",
     )
@@ -125,9 +125,9 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # Lazy imports -- only load heavy dependencies when actually running
-    from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
-    from clanker_gym.augmentation.pipeline import Sim2RealPipeline
-    from clanker_gym.augmentation.prompts import SceneType
+    from clankers.augmentation.mcap_augmentor import McapAugmentor
+    from clankers.augmentation.pipeline import Sim2RealPipeline
+    from clankers.augmentation.prompts import SceneType
 
     # Map scene string to enum
     scene_map = {

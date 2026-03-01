@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from clanker_gym.augmentation.pipeline import Sim2RealPipeline
-from clanker_gym.augmentation.prompts import SceneType
+from clankers.augmentation.pipeline import Sim2RealPipeline
+from clankers.augmentation.prompts import SceneType
 
 # ---------------------------------------------------------------------------
 # Initialisation
@@ -50,7 +50,7 @@ class TestPipelineInit:
 
 
 class TestPipelineGenerate:
-    @patch("clanker_gym.augmentation.pipeline.Sim2RealPipeline._load_pipeline")
+    @patch("clankers.augmentation.pipeline.Sim2RealPipeline._load_pipeline")
     def test_generate_calls_remap(self, mock_load):
         """generate() remaps the segmentation image via PaletteRemapper."""
         pipe = Sim2RealPipeline(device="cpu", dtype="float32")
@@ -82,7 +82,7 @@ class TestPipelineGenerate:
                 "sys.modules",
                 {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch},
             ),
-            patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output),
+            patch("clankers.augmentation.pipeline.np.array", return_value=fake_output),
         ):
             pipe.generate(seg, num_inference_steps=5)
 
@@ -91,7 +91,7 @@ class TestPipelineGenerate:
         # The mock pipeline was called
         mock_pipe.assert_called_once()
 
-    @patch("clanker_gym.augmentation.pipeline.Sim2RealPipeline._load_pipeline")
+    @patch("clankers.augmentation.pipeline.Sim2RealPipeline._load_pipeline")
     def test_generate_uses_prompt_override(self, mock_load):
         """When prompt_override is given, it is passed to the pipeline."""
         pipe = Sim2RealPipeline(device="cpu", dtype="float32")
@@ -116,7 +116,7 @@ class TestPipelineGenerate:
                 "sys.modules",
                 {"PIL": MagicMock(), "PIL.Image": mock_image_mod, "torch": mock_torch},
             ),
-            patch("clanker_gym.augmentation.pipeline.np.array", return_value=fake_output),
+            patch("clankers.augmentation.pipeline.np.array", return_value=fake_output),
         ):
             pipe.generate(seg, prompt_override="custom prompt here")
 
@@ -135,7 +135,7 @@ class TestPipelineGenerate:
 
 
 class TestPipelineBatch:
-    @patch("clanker_gym.augmentation.pipeline.Sim2RealPipeline.generate")
+    @patch("clankers.augmentation.pipeline.Sim2RealPipeline.generate")
     def test_batch_increments_seed(self, mock_gen):
         """generate_batch() passes seed+i for each image."""
         mock_gen.return_value = np.zeros((4, 4, 3), dtype=np.uint8)
@@ -149,7 +149,7 @@ class TestPipelineBatch:
         seeds = [call.kwargs["seed"] for call in mock_gen.call_args_list]
         assert seeds == [42, 43, 44]
 
-    @patch("clanker_gym.augmentation.pipeline.Sim2RealPipeline.generate")
+    @patch("clankers.augmentation.pipeline.Sim2RealPipeline.generate")
     def test_batch_none_seed(self, mock_gen):
         """generate_batch() passes None seed when no base seed is given."""
         mock_gen.return_value = np.zeros((4, 4, 3), dtype=np.uint8)

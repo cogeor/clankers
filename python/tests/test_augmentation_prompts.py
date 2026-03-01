@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clanker_gym.augmentation.prompts import PromptBuilder, SceneType
+from clankers.augmentation.prompts import PromptBuilder, SceneType
 
 
 class TestPromptBuilder:

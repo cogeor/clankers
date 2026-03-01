@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from clanker_gym.augmentation.pipeline import Sim2RealPipeline
+    from clankers.augmentation.pipeline import Sim2RealPipeline
 
 import numpy as np
 from numpy.typing import NDArray
@@ -51,7 +51,7 @@ class McapAugmentor:
     """Augments MCAP recordings by transforming segmentation images to realistic ones.
 
     Reads ``/camera/*`` channels from an input MCAP file, runs each image
-    through a :class:`~clanker_gym.augmentation.pipeline.Sim2RealPipeline`,
+    through a :class:`~clankers.augmentation.pipeline.Sim2RealPipeline`,
     and writes the augmented images to a new MCAP file with a configurable
     topic suffix.
 

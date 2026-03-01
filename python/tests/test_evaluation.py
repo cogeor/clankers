@@ -5,8 +5,8 @@ import pytest
 import gymnasium
 from gymnasium import spaces as gym_spaces
 
-from clanker_gym.evaluation import EvalResult, evaluate_policy
-from clanker_gym.rewards import CompositeReward, ConstantReward, ActionPenaltyReward
+from clankers.evaluation import EvalResult, evaluate_policy
+from clankers.rewards import CompositeReward, ConstantReward, ActionPenaltyReward
 
 
 class _FixedEnv(gymnasium.Env):

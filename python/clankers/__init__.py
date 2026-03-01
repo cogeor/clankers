@@ -1,8 +1,8 @@
 """Clanker Gym: Python client for Clankers simulation training."""
 
-from clanker_gym.client import GymClient
-from clanker_gym.env import ClankerEnv
-from clanker_gym.rewards import (
+from clankers.client import GymClient
+from clankers.env import ClankerEnv
+from clankers.rewards import (
     ActionPenaltyReward,
     CompositeReward,
     ConstantReward,
@@ -10,8 +10,8 @@ from clanker_gym.rewards import (
     RewardFunction,
     SparseReward,
 )
-from clanker_gym.spaces import Box, Dict, Discrete
-from clanker_gym.terminations import (
+from clankers.spaces import Box, Dict, Discrete
+from clankers.terminations import (
     BoundsTermination,
     CompositeTermination,
     FailureTermination,
@@ -20,7 +20,7 @@ from clanker_gym.terminations import (
     TimeoutTermination,
     cartpole_termination,
 )
-from clanker_gym.vec_env import ClankerVecEnv
+from clankers.vec_env import ClankerVecEnv
 
 __all__ = [
     "Box",
@@ -46,9 +46,9 @@ __all__ = [
     "cartpole_termination",
 ]
 
-# Optional Gymnasium integration (requires `pip install clanker-gym[sb3]`).
+# Optional Gymnasium integration (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.gymnasium_env import (  # noqa: F401
+    from clankers.gymnasium_env import (  # noqa: F401
         ClankerGymnasiumEnv,
         make_cartpole_gymnasium_env,
     )
@@ -57,9 +57,9 @@ try:
 except ImportError:
     pass
 
-# Optional GoalEnv wrapper for HER (requires `pip install clanker-gym[sb3]`).
+# Optional GoalEnv wrapper for HER (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.goal_env import (  # noqa: F401
+    from clankers.goal_env import (  # noqa: F401
         ClankerGoalEnv,
         DenseGoalReward,
         GoalRewardFn,
@@ -72,9 +72,9 @@ try:
 except ImportError:
     pass
 
-# Optional observation / reward wrappers (requires `pip install clanker-gym[sb3]`).
+# Optional observation / reward wrappers (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.wrappers import (  # noqa: F401
+    from clankers.wrappers import (  # noqa: F401
         ClipReward,
         FrameStack,
         NormalizeObservation,
@@ -85,9 +85,9 @@ try:
 except ImportError:
     pass
 
-# Optional evaluation utilities (requires `pip install clanker-gym[sb3]`).
+# Optional evaluation utilities (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.evaluation import (  # noqa: F401
+    from clankers.evaluation import (  # noqa: F401
         EvalResult,
         evaluate_policy,
     )
@@ -96,9 +96,9 @@ try:
 except ImportError:
     pass
 
-# Optional SB3 VecEnv integration (requires `pip install clanker-gym[sb3]`).
+# Optional SB3 VecEnv integration (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.sb3_vec_env import (  # noqa: F401
+    from clankers.sb3_vec_env import (  # noqa: F401
         ClankerSB3VecEnv,
         make_cartpole_sb3_vec_env,
     )
@@ -107,9 +107,9 @@ try:
 except ImportError:
     pass
 
-# Optional MCAP episode loading (requires `pip install clanker-gym[mcap]`).
+# Optional MCAP episode loading (requires `pip install clankers[mcap]`).
 try:
-    from clanker_gym.mcap_loader import (  # noqa: F401
+    from clankers.mcap_loader import (  # noqa: F401
         EpisodeDataset,
         McapEpisodeLoader,
     )
@@ -118,10 +118,10 @@ try:
 except ImportError:
     pass
 
-# Task preset environments (requires `pip install clanker-gym[sb3]`).
+# Task preset environments (requires `pip install clankers[sb3]`).
 try:
-    from clanker_gym.envs.arm_reach import make_arm_reach_env  # noqa: F401
-    from clanker_gym.envs.arm_pick import make_arm_pick_env  # noqa: F401
+    from clankers.envs.arm_reach import make_arm_reach_env  # noqa: F401
+    from clankers.envs.arm_pick import make_arm_pick_env  # noqa: F401
 
     __all__.extend(["make_arm_reach_env", "make_arm_pick_env"])
 except ImportError:
@@ -129,7 +129,7 @@ except ImportError:
 
 # Auto-register gymnasium environments.
 try:
-    import clanker_gym.registration  # noqa: F401
+    import clankers.registration  # noqa: F401
 except ImportError:
     pass
 

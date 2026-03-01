@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from clanker_gym.augmentation.palette import (
+from clankers.augmentation.palette import (
     ADE20K_MAPPING,
     CLANKERS_PALETTE,
     PaletteRemapper,

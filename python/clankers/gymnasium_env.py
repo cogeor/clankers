@@ -1,10 +1,10 @@
 """Gymnasium-compatible wrapper for Stable-Baselines3 integration.
 
 Provides ``ClankerGymnasiumEnv``, a ``gymnasium.Env`` subclass that
-wraps :class:`~clanker_gym.env.ClankerEnv` and computes rewards via a
-pluggable :class:`~clanker_gym.rewards.RewardFunction`.
+wraps :class:`~clankers.env.ClankerEnv` and computes rewards via a
+pluggable :class:`~clankers.rewards.RewardFunction`.
 
-Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
+Requires the ``sb3`` extra: ``pip install clankers[sb3]``.
 
 Image observations
 ------------------
@@ -28,13 +28,13 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for ClankerGymnasiumEnv. Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for ClankerGymnasiumEnv. Install with: pip install clankers[sb3]"
     ) from exc
 
-from clanker_gym.client import GymClient
-from clanker_gym.rewards import ConstantReward, RewardFunction
-from clanker_gym.spaces import Box, Dict, Discrete, space_from_dict
-from clanker_gym.terminations import TerminationFn, cartpole_termination
+from clankers.client import GymClient
+from clankers.rewards import ConstantReward, RewardFunction
+from clankers.spaces import Box, Dict, Discrete, space_from_dict
+from clankers.terminations import TerminationFn, cartpole_termination
 
 # Type alias used internally for image observations.
 _ImageObs = NDArray[np.uint8]
@@ -67,7 +67,7 @@ def _image_space_from_dict(obs_data: dict[str, Any], channel_last: bool) -> gym_
 def _to_gymnasium_space(
     space: Box | Discrete | Dict,
 ) -> gym_spaces.Box | gym_spaces.Discrete | gym_spaces.Dict:
-    """Convert a clanker_gym space to a gymnasium space."""
+    """Convert a clankers space to a gymnasium space."""
     if isinstance(space, Box):
         return gym_spaces.Box(low=space.low, high=space.high, dtype=np.float32)
     if isinstance(space, Discrete):

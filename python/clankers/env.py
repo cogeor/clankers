@@ -12,8 +12,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from clanker_gym.client import GymClient
-from clanker_gym.spaces import Box, Discrete, space_from_dict
+from clankers.client import GymClient
+from clankers.spaces import Box, Discrete, space_from_dict
 
 
 class ClankerEnv:
@@ -70,7 +70,7 @@ class ClankerEnv:
         """Take one step.
 
         Reward is not included in the server response — compute it
-        Python-side using :mod:`clanker_gym.rewards`.
+        Python-side using :mod:`clankers.rewards`.
 
         Returns
         -------

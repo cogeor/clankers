@@ -5,7 +5,7 @@ from __future__ import annotations
 import gymnasium
 import pytest
 
-import clanker_gym.registration  # triggers register_envs()
+import clankers.registration  # triggers register_envs()
 
 
 class TestRegistration:
@@ -31,8 +31,8 @@ class TestRegistration:
 
     def test_idempotent_registration(self) -> None:
         """Calling register_envs() twice should not raise."""
-        clanker_gym.registration.register_envs()
-        clanker_gym.registration.register_envs()
+        clankers.registration.register_envs()
+        clankers.registration.register_envs()
 
 
 class TestFactoryFunctions:
@@ -40,7 +40,7 @@ class TestFactoryFunctions:
 
     def test_make_arm_reach_factory(self) -> None:
         """make_arm_reach_env produces a ClankerGymnasiumEnv."""
-        from clanker_gym.envs.arm_reach import make_arm_reach_env
+        from clankers.envs.arm_reach import make_arm_reach_env
 
         env = make_arm_reach_env()
         # Don't connect; just verify it was created with correct reward/termination
@@ -50,7 +50,7 @@ class TestFactoryFunctions:
 
     def test_make_arm_pick_factory(self) -> None:
         """make_arm_pick_env produces a ClankerGymnasiumEnv."""
-        from clanker_gym.envs.arm_pick import make_arm_pick_env
+        from clankers.envs.arm_pick import make_arm_pick_env
 
         env = make_arm_pick_env()
         assert env._reward_fn is not None

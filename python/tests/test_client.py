@@ -1,11 +1,11 @@
-"""Tests for clanker_gym.client framing and encoding."""
+"""Tests for clankers.client framing and encoding."""
 
 import json
 import struct
 
 import pytest
 
-from clanker_gym.client import GymClient, ProtocolError
+from clankers.client import GymClient, ProtocolError
 
 
 class TestFraming:

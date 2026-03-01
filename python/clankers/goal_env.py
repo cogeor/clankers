@@ -20,10 +20,10 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium required for ClankerGoalEnv. pip install clanker-gym[sb3]"
+        "gymnasium required for ClankerGoalEnv. pip install clankers[sb3]"
     ) from exc
 
-from clanker_gym.gymnasium_env import ClankerGymnasiumEnv
+from clankers.gymnasium_env import ClankerGymnasiumEnv
 
 
 class GoalRewardFn(ABC):

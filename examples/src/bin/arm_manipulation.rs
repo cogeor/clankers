@@ -12,18 +12,12 @@
 //!
 //! Run: `cargo run -p clankers-examples --bin arm_manipulation`
 
-use std::collections::HashMap;
-
 use bevy::prelude::*;
-use clankers_actuator::components::Actuator;
-use clankers_actuator_core::prelude::ControlMode;
 use clankers_core::ClankersSet;
 use clankers_core::types::SegmentationClass;
 use clankers_env::prelude::*;
-use clankers_examples::SIX_DOF_ARM_URDF;
-use clankers_physics::ClankersPhysicsPlugin;
-use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
-use clankers_sim::SceneBuilder;
+use clankers_examples::arm_setup::{ArmSetupConfig, setup_arm};
+use clankers_physics::rapier::RapierContext;
 use clankers_teleop::prelude::*;
 use clankers_viz::ClankersVizPlugin;
 use clankers_viz::input::{KeyboardJointBinding, KeyboardTeleopMap};
@@ -137,45 +131,20 @@ fn sync_objects_system(
 // ---------------------------------------------------------------------------
 
 fn main() {
-    // 1. Parse URDF
-    let model =
-        clankers_urdf::parse_string(SIX_DOF_ARM_URDF).expect("failed to parse six_dof_arm URDF");
+    // 1. Setup arm with shared module (8 DOF for arm + gripper, viz mode)
+    let setup = setup_arm(ArmSetupConfig {
+        max_episode_steps: 50_000,
+        use_fixed_update: true,
+        sensor_dof: 8,
+    });
+    let mut scene = setup.scene;
 
-    // 2. Build scene with position-controlled actuators
-    let mut scene = SceneBuilder::new()
-        .with_max_episode_steps(50_000)
-        .with_robot(model.clone(), HashMap::new())
-        .build();
-
-    let spawned = &scene.robots["six_dof_arm"];
-
-    // 3. Switch all actuators to position mode (PID controller)
-    for entity in spawned.joints.values() {
-        let mut actuator = scene.app.world_mut().get_mut::<Actuator>(*entity).unwrap();
-        *actuator = Actuator::new(
-            actuator.motor.clone(),
-            actuator.transmission.clone(),
-            actuator.friction.clone(),
-            ControlMode::Position {
-                kp: 100.0,
-                ki: 0.0,
-                kd: 10.0,
-            },
-        );
-    }
-
-    // 4. Add Rapier physics
-    scene
-        .app
-        .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
-
-    // 5. Register robot with rapier (fixed base = tabletop mounted)
+    // 2. Add table and dynamic objects to rapier context
     {
         let world = scene.app.world_mut();
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
-        register_robot(&mut ctx, &model, spawned, world, true);
 
-        // 6. Add table body (fixed, at z=0.4)
+        // Table body (fixed, at z=0.4)
         let table_body = ctx.rigid_body_set.insert(
             RigidBodyBuilder::fixed()
                 .translation(Vec3::new(0.35, 0.0, 0.4))
@@ -187,7 +156,7 @@ fn main() {
         ctx.collider_set
             .insert_with_parent(table_collider, table_body, &mut ctx.rigid_body_set);
 
-        // 7. Add dynamic objects on the table
+        // Dynamic objects on the table
         let object_configs: Vec<(&str, Vec3, ColliderBuilder)> = vec![
             (
                 "red_cube",
@@ -230,33 +199,9 @@ fn main() {
         world.insert_resource(ctx);
     }
 
-    // 8. Register sensors (6 arm joints + 2 gripper fingers = 8 DOF)
-    {
-        let world = scene.app.world_mut();
-        let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
-        let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(8)), &mut buffer);
-        world.insert_resource(buffer);
-        world.insert_resource(registry);
-    }
-
-    // 9. Teleop: map 6 arm joints + 2 gripper fingers to keyboard channels
-    let arm_joint_names = [
-        "j1_base_yaw",
-        "j2_shoulder_pitch",
-        "j3_elbow_pitch",
-        "j4_forearm_roll",
-        "j5_wrist_pitch",
-        "j6_wrist_roll",
-    ];
-    let arm_joints: Vec<Entity> = arm_joint_names
-        .iter()
-        .map(|name| {
-            spawned
-                .joint_entity(name)
-                .unwrap_or_else(|| panic!("missing joint {name}"))
-        })
-        .collect();
+    // 3. Teleop: map 6 arm joints + 2 gripper fingers to keyboard channels
+    let spawned = &scene.robots["six_dof_arm"];
+    let arm_joints = &setup.joint_entities;
 
     let finger_left = spawned.joint_entity("j_finger_left");
     let finger_right = spawned.joint_entity("j_finger_right");
@@ -313,7 +258,7 @@ fn main() {
         increment: 0.05,
     });
 
-    // 10. Windowed rendering
+    // 4. Windowed rendering
     scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Clankers -- Arm Manipulation".to_string(),
@@ -323,17 +268,17 @@ fn main() {
         ..default()
     }));
 
-    // 11. Teleop + viz plugins
+    // 5. Teleop + viz plugins
     scene.app.add_plugins(ClankersTeleopPlugin);
     scene.app.add_plugins(ClankersVizPlugin::default());
 
-    // 12. Systems
+    // 6. Systems
     scene.app.add_systems(Startup, spawn_scene_meshes);
     scene
         .app
         .add_systems(Update, sync_objects_system.after(ClankersSet::Simulate));
 
-    // 13. Start episode and run
+    // 7. Start episode and run
     scene.app.world_mut().resource_mut::<Episode>().reset(None);
 
     println!("Arm manipulation scene");

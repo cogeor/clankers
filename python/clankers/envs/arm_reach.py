@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from clanker_gym.gymnasium_env import ClankerGymnasiumEnv
-from clanker_gym.rewards import ActionPenaltyReward, CompositeReward, DistanceReward
-from clanker_gym.terminations import CompositeTermination, SuccessTermination, TimeoutTermination
+from clankers.gymnasium_env import ClankerGymnasiumEnv
+from clankers.rewards import ActionPenaltyReward, CompositeReward, DistanceReward
+from clankers.terminations import CompositeTermination, SuccessTermination, TimeoutTermination
 
 
 def make_arm_reach_env(

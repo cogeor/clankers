@@ -144,13 +144,13 @@ if _NEED_SB3_SHIM:
 # ---------------------------------------------------------------------------
 # Now we can safely import the adapter.
 # ---------------------------------------------------------------------------
-from clanker_gym.rewards import ConstantReward  # noqa: E402
-from clanker_gym.sb3_vec_env import (  # noqa: E402
+from clankers.rewards import ConstantReward  # noqa: E402
+from clankers.sb3_vec_env import (  # noqa: E402
     ClankerSB3VecEnv,
     make_cartpole_sb3_vec_env,
 )
-from clanker_gym.spaces import Box  # noqa: E402
-from clanker_gym.terminations import BoundsTermination  # noqa: E402
+from clankers.spaces import Box  # noqa: E402
+from clankers.terminations import BoundsTermination  # noqa: E402
 
 NUM_ENVS = 3
 OBS_DIM = 4
@@ -569,7 +569,7 @@ class TestStubs:
 
 
 class TestMakeCartpoleSB3VecEnv:
-    @patch("clanker_gym.sb3_vec_env.ClankerVecEnv")
+    @patch("clankers.sb3_vec_env.ClankerVecEnv")
     def test_factory_creates_configured_env(self, mock_cls):
         """Verify the factory passes correct args; skip actual connect."""
         mock_instance = MagicMock()

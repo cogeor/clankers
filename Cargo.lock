@@ -1976,9 +1976,11 @@ dependencies = [
  "clankers-actuator-core",
  "clankers-core",
  "clankers-env",
+ "clankers-physics",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_distr 0.4.3",
+ "rapier3d",
  "thiserror 2.0.18",
 ]
 
@@ -2001,6 +2003,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bevy_panorbit_camera",
  "clankers-actuator",
  "clankers-actuator-core",
  "clankers-core",
@@ -2012,6 +2015,7 @@ dependencies = [
  "clankers-noise",
  "clankers-physics",
  "clankers-policy",
+ "clankers-record",
  "clankers-sim",
  "clankers-teleop",
  "clankers-urdf",
@@ -2134,11 +2138,13 @@ dependencies = [
  "clankers-domain-rand",
  "clankers-env",
  "clankers-gym",
+ "clankers-physics",
  "clankers-policy",
  "clankers-render",
  "clankers-teleop",
  "clankers-test-utils",
  "clankers-urdf",
+ "rapier3d",
 ]
 
 [[package]]

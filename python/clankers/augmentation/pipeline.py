@@ -13,8 +13,8 @@ import contextlib
 import numpy as np
 from numpy.typing import NDArray
 
-from clanker_gym.augmentation.palette import PaletteRemapper
-from clanker_gym.augmentation.prompts import PromptBuilder, SceneType
+from clankers.augmentation.palette import PaletteRemapper
+from clankers.augmentation.prompts import PromptBuilder, SceneType
 
 # Default model identifiers
 DEFAULT_SD_MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"

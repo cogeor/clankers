@@ -54,7 +54,7 @@ class GymClient:
         self,
         host: str = "127.0.0.1",
         port: int = 9876,
-        client_name: str = "clanker_gym_py",
+        client_name: str = "clankers_py",
         capabilities: dict[str, bool] | None = None,
     ) -> None:
         self.host = host

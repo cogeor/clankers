@@ -10,14 +10,14 @@ import pytest
 # Skip entire module if gymnasium is not installed.
 gymnasium = pytest.importorskip("gymnasium")
 
-from clanker_gym.gymnasium_env import (  # noqa: E402
+from clankers.gymnasium_env import (  # noqa: E402
     ClankerGymnasiumEnv,
     _to_gymnasium_space,
     make_cartpole_gymnasium_env,
 )
-from clanker_gym.rewards import ConstantReward, DistanceReward  # noqa: E402
-from clanker_gym.spaces import Box, Discrete  # noqa: E402
-from clanker_gym.terminations import BoundsTermination  # noqa: E402
+from clankers.rewards import ConstantReward, DistanceReward  # noqa: E402
+from clankers.spaces import Box, Discrete  # noqa: E402
+from clankers.terminations import BoundsTermination  # noqa: E402
 
 
 class TestToGymnasiumSpace:

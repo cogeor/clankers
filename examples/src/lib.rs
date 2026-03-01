@@ -1,5 +1,6 @@
 //! Shared URDF definitions, helpers, and control modules for Clankers examples.
 
+pub mod arm_setup;
 pub mod mpc_control;
 pub mod quadruped_setup;
 

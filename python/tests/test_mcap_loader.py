@@ -127,7 +127,7 @@ class TestLoaderWithSyntheticMcap:
     """Tests for McapEpisodeLoader.load() with synthetic data."""
 
     def test_shapes(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         data = loader.load()
@@ -145,7 +145,7 @@ class TestLoaderWithSyntheticMcap:
         assert data["rewards"].shape == (NUM_STEPS,)
 
     def test_dtypes(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         data = loader.load()
@@ -156,7 +156,7 @@ class TestLoaderWithSyntheticMcap:
         assert data["rewards"].dtype == np.float32
 
     def test_values(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         data = loader.load()
@@ -178,7 +178,7 @@ class TestSb3ReplayBuffer:
     """Tests for McapEpisodeLoader.to_sb3_replay_buffer()."""
 
     def test_keys(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         buf = loader.to_sb3_replay_buffer()
@@ -190,7 +190,7 @@ class TestSb3ReplayBuffer:
         assert "dones" in buf
 
     def test_shapes(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         buf = loader.to_sb3_replay_buffer()
@@ -203,7 +203,7 @@ class TestSb3ReplayBuffer:
         assert buf["dones"].shape == (NUM_STEPS - 1,)
 
     def test_dones_last_is_terminal(self, synthetic_mcap):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         loader = McapEpisodeLoader(synthetic_mcap)
         buf = loader.to_sb3_replay_buffer()
@@ -218,13 +218,13 @@ class TestEpisodeDataset:
     """Tests for EpisodeDataset."""
 
     def test_len(self, synthetic_mcap_dir):
-        from clanker_gym.mcap_loader import EpisodeDataset
+        from clankers.mcap_loader import EpisodeDataset
 
         dataset = EpisodeDataset(synthetic_mcap_dir)
         assert len(dataset) == 3
 
     def test_getitem_returns_buffer(self, synthetic_mcap_dir):
-        from clanker_gym.mcap_loader import EpisodeDataset
+        from clankers.mcap_loader import EpisodeDataset
 
         dataset = EpisodeDataset(synthetic_mcap_dir)
         buf = dataset[0]
@@ -234,11 +234,121 @@ class TestEpisodeDataset:
         assert buf["observations"].shape[0] == NUM_STEPS - 1
 
 
+class TestRustFormatMcap:
+    """Tests for MCAP files written by Rust's RecorderPlugin.
+
+    Rust serializes ActionFrame as {"timestamp_ns": ..., "data": [...]}
+    and RewardFrame as {"timestamp_ns": ..., "reward": 0.5}. The loader
+    must unwrap these dicts to extract the bare values.
+    """
+
+    @staticmethod
+    def _write_rust_format_mcap(path: str) -> None:
+        """Write MCAP with Rust-style ActionFrame/RewardFrame dicts."""
+        with open(path, "wb") as f:
+            writer = Writer(f, compression=CompressionType.NONE)
+            writer.start()
+
+            schema_id = writer.register_schema(name="json", encoding="jsonschema", data=b"")
+            joint_ch = writer.register_channel(
+                topic="/joint_states",
+                message_encoding="application/json",
+                schema_id=schema_id,
+            )
+            action_ch = writer.register_channel(
+                topic="/actions",
+                message_encoding="application/json",
+                schema_id=schema_id,
+            )
+            reward_ch = writer.register_channel(
+                topic="/reward",
+                message_encoding="application/json",
+                schema_id=schema_id,
+            )
+
+            for i in range(NUM_STEPS):
+                ts = (i + 1) * 1_000_000
+
+                joint_frame = {
+                    "timestamp_ns": ts,
+                    "names": ["shoulder", "elbow"],
+                    "positions": [0.1 * i, -0.1 * i],
+                    "velocities": [0.01 * i, 0.02 * i],
+                    "torques": [1.0 * i, -0.5 * i],
+                }
+                writer.add_message(
+                    channel_id=joint_ch,
+                    log_time=ts,
+                    publish_time=ts,
+                    data=json.dumps(joint_frame).encode("utf-8"),
+                )
+
+                # Rust-style ActionFrame dict
+                action_frame = {
+                    "timestamp_ns": ts,
+                    "data": [0.5 * i, -0.5 * i, 0.0],
+                }
+                writer.add_message(
+                    channel_id=action_ch,
+                    log_time=ts,
+                    publish_time=ts,
+                    data=json.dumps(action_frame).encode("utf-8"),
+                )
+
+                # Rust-style RewardFrame dict
+                reward_frame = {
+                    "timestamp_ns": ts,
+                    "reward": float(i) * 0.1,
+                }
+                writer.add_message(
+                    channel_id=reward_ch,
+                    log_time=ts,
+                    publish_time=ts,
+                    data=json.dumps(reward_frame).encode("utf-8"),
+                )
+
+            writer.finish()
+
+    @pytest.fixture()
+    def rust_mcap(self, tmp_path):
+        path = os.path.join(str(tmp_path), "rust_episode.mcap")
+        self._write_rust_format_mcap(path)
+        return path
+
+    def test_actions_unwrapped(self, rust_mcap):
+        from clankers.mcap_loader import McapEpisodeLoader
+
+        data = McapEpisodeLoader(rust_mcap).load()
+        assert data["actions"] is not None
+        assert data["actions"].shape == (NUM_STEPS, NUM_ACTION_DIMS)
+        # Step 0: [0.0, 0.0, 0.0]
+        np.testing.assert_allclose(data["actions"][0], [0.0, 0.0, 0.0], atol=1e-6)
+        # Step 5: [2.5, -2.5, 0.0]
+        np.testing.assert_allclose(data["actions"][5], [2.5, -2.5, 0.0], atol=1e-6)
+
+    def test_rewards_unwrapped(self, rust_mcap):
+        from clankers.mcap_loader import McapEpisodeLoader
+
+        data = McapEpisodeLoader(rust_mcap).load()
+        assert data["rewards"] is not None
+        assert data["rewards"].shape == (NUM_STEPS,)
+        np.testing.assert_allclose(data["rewards"][0], 0.0, atol=1e-6)
+        np.testing.assert_allclose(data["rewards"][10], 1.0, atol=1e-6)
+
+    def test_sb3_buffer_from_rust_format(self, rust_mcap):
+        from clankers.mcap_loader import McapEpisodeLoader
+
+        buf = McapEpisodeLoader(rust_mcap).to_sb3_replay_buffer()
+        assert buf["actions"].shape == (NUM_STEPS - 1, NUM_ACTION_DIMS)
+        assert buf["rewards"].shape == (NUM_STEPS - 1,)
+        assert buf["dones"][-1] == 1.0
+
+
 class TestLoaderErrors:
     """Tests for error handling."""
 
     def test_missing_file(self, tmp_path):
-        from clanker_gym.mcap_loader import McapEpisodeLoader
+        from clankers.mcap_loader import McapEpisodeLoader
 
         nonexistent = os.path.join(str(tmp_path), "does_not_exist.mcap")
         loader = McapEpisodeLoader(nonexistent)

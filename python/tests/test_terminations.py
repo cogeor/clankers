@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from clanker_gym.terminations import (
+from clankers.terminations import (
     BoundsTermination,
     CompositeTermination,
     FailureTermination,

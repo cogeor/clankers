@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from clanker_gym.vec_env import ClankerVecEnv
+from clankers.vec_env import ClankerVecEnv
 
 
 class TestClankerVecEnv:

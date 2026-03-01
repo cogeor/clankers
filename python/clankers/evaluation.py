@@ -15,11 +15,11 @@ try:
     import gymnasium
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for clanker_gym evaluation. "
-        "Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for clankers evaluation. "
+        "Install with: pip install clankers[sb3]"
     ) from exc
 
-from clanker_gym.rewards import CompositeReward
+from clankers.rewards import CompositeReward
 
 logger = logging.getLogger(__name__)
 

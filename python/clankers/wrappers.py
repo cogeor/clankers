@@ -4,7 +4,7 @@ Provides wrappers that work at the single-env level, independent of the
 vectorised-env transport (TCP, shared-memory, etc.).  This avoids the
 coupling to ``VecNormalize`` that SB3 expects from its own ``VecEnv``.
 
-Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
+Requires the ``sb3`` extra: ``pip install clankers[sb3]``.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for clanker_gym wrappers. "
-        "Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for clankers wrappers. "
+        "Install with: pip install clankers[sb3]"
     ) from exc
 
 

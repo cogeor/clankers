@@ -23,7 +23,7 @@ Requires ``mcap>=1.0.0``.  Install with::
 
     pip install mcap
 
-The module imports ``mcap`` lazily so that the rest of ``clanker_gym``
+The module imports ``mcap`` lazily so that the rest of ``clankers``
 remains importable even when ``mcap`` is not installed.
 """
 
@@ -135,10 +135,18 @@ class McapEpisodeLoader:
                     raw["timestamps_ns"].append(int(frame.get("timestamp_ns", message.log_time)))
                 elif topic == self.CHANNEL_ACTIONS:
                     action = json.loads(message.data.decode("utf-8"))
-                    raw["actions"].append(action)
+                    # Handle both Rust ActionFrame dict and bare list
+                    if isinstance(action, dict):
+                        raw["actions"].append(action.get("data", []))
+                    else:
+                        raw["actions"].append(action)
                 elif topic == self.CHANNEL_REWARD:
                     reward = json.loads(message.data.decode("utf-8"))
-                    raw["rewards"].append(reward)
+                    # Handle both Rust RewardFrame dict and bare float
+                    if isinstance(reward, dict):
+                        raw["rewards"].append(reward.get("reward", 0.0))
+                    else:
+                        raw["rewards"].append(reward)
                 elif topic == self.CHANNEL_IMAGE:
                     raw["images"].append(bytes(message.data))
                     # Try to get image dimensions from first message if metadata missing.

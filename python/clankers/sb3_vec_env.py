@@ -1,11 +1,11 @@
 """Stable-Baselines3 VecEnv adapter for batched Clankers training.
 
-``ClankerSB3VecEnv`` wraps :class:`~clanker_gym.vec_env.ClankerVecEnv` as a
+``ClankerSB3VecEnv`` wraps :class:`~clankers.vec_env.ClankerVecEnv` as a
 ``stable_baselines3.common.vec_env.VecEnv`` subclass.  It handles auto-reset
 (the SB3 convention), pluggable reward/termination functions, and the
 async step interface required by SB3.
 
-Requires the ``sb3`` extra: ``pip install clanker-gym[sb3]``.
+Requires the ``sb3`` extra: ``pip install clankers[sb3]``.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for ClankerSB3VecEnv. Install with: pip install clanker-gym[sb3]"
+        "gymnasium is required for ClankerSB3VecEnv. Install with: pip install clankers[sb3]"
     ) from exc
 
 try:
@@ -29,19 +29,19 @@ try:
 except ImportError as exc:
     raise ImportError(
         "stable_baselines3 is required for ClankerSB3VecEnv. "
-        "Install with: pip install clanker-gym[sb3]"
+        "Install with: pip install clankers[sb3]"
     ) from exc
 
-from clanker_gym.rewards import ConstantReward, RewardFunction
-from clanker_gym.spaces import Box, Dict, Discrete
-from clanker_gym.terminations import TerminationFn, cartpole_termination
-from clanker_gym.vec_env import ClankerVecEnv
+from clankers.rewards import ConstantReward, RewardFunction
+from clankers.spaces import Box, Dict, Discrete
+from clankers.terminations import TerminationFn, cartpole_termination
+from clankers.vec_env import ClankerVecEnv
 
 
 def _to_gymnasium_space(
     space: Box | Discrete | Dict,
 ) -> gym_spaces.Box | gym_spaces.Discrete | gym_spaces.Dict:
-    """Convert a clanker_gym space to a gymnasium space."""
+    """Convert a clankers space to a gymnasium space."""
     if isinstance(space, Box):
         return gym_spaces.Box(low=space.low, high=space.high, dtype=np.float32)
     if isinstance(space, Discrete):
@@ -89,7 +89,7 @@ class ClankerSB3VecEnv(VecEnv):
         self._vec_env = ClankerVecEnv(host=host, port=port)
         self._vec_env.connect()
 
-        # Convert clanker_gym spaces to gymnasium spaces.
+        # Convert clankers spaces to gymnasium spaces.
         assert self._vec_env.observation_space is not None
         assert self._vec_env.action_space is not None
         obs_space = _to_gymnasium_space(self._vec_env.observation_space)

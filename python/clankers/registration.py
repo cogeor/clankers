@@ -22,19 +22,19 @@ def register_envs() -> None:
 
     gymnasium.register(
         id="ClankerArmReach-v0",
-        entry_point="clanker_gym.envs.arm_reach:make_arm_reach_env",
+        entry_point="clankers.envs.arm_reach:make_arm_reach_env",
         kwargs={},
     )
 
     gymnasium.register(
         id="ClankerArmPick-v0",
-        entry_point="clanker_gym.envs.arm_pick:make_arm_pick_env",
+        entry_point="clankers.envs.arm_pick:make_arm_pick_env",
         kwargs={},
     )
 
     gymnasium.register(
         id="ClankerCartPole-v0",
-        entry_point="clanker_gym.gymnasium_env:make_cartpole_gymnasium_env",
+        entry_point="clankers.gymnasium_env:make_cartpole_gymnasium_env",
         kwargs={},
     )
 

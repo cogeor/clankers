@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from clanker_gym.rewards import (
+from clankers.rewards import (
     ActionPenaltyReward,
     CompositeReward,
     ConstantReward,

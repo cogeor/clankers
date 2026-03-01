@@ -1,9 +1,9 @@
-"""Tests for clanker_gym.spaces."""
+"""Tests for clankers.spaces."""
 
 import numpy as np
 import pytest
 
-from clanker_gym.spaces import Box, Dict, Discrete, space_from_dict
+from clankers.spaces import Box, Dict, Discrete, space_from_dict
 
 
 class TestBox:

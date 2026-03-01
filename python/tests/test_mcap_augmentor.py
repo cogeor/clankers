@@ -28,7 +28,7 @@ if _HAS_MCAP:
     from mcap.writer import CompressionType as _CompressionType
     from mcap.writer import Writer as McapWriter
 
-    from clanker_gym.augmentation.mcap_augmentor import McapAugmentor
+    from clankers.augmentation.mcap_augmentor import McapAugmentor
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def _patch_mcap_writer():
             kwargs.setdefault("compression", _CompressionType.NONE)
             super().__init__(output, **kwargs)
 
-    with patch("clanker_gym.augmentation.mcap_augmentor.McapWriter", _NoCompressWriter):
+    with patch("clankers.augmentation.mcap_augmentor.McapWriter", _NoCompressWriter):
         yield
 
 

@@ -10,7 +10,7 @@ gymnasium = pytest.importorskip("gymnasium")
 
 from gymnasium import spaces as gym_spaces  # noqa: E402
 
-from clanker_gym.wrappers import (  # noqa: E402
+from clankers.wrappers import (  # noqa: E402
     ClipReward,
     FrameStack,
     NormalizeObservation,

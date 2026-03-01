@@ -33,7 +33,7 @@ use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContex
 use clankers_teleop::ClankersTeleopPlugin;
 use clankers_teleop::TeleopConfig;
 use clankers_viz::systems::VizSimGate;
-use clankers_viz::{ClankersVizPlugin, VizMode};
+use clankers_viz::{ClankersVizPlugin, VizMode, phys_to_vis};
 use clap::Parser;
 use nalgebra::Vector3;
 
@@ -144,10 +144,6 @@ fn body_state_from_rapier_viz(
     let bevy_quat = *body.rotation();
     let (bs, na_quat) = body_state_from_rapier(ctx, link_name)?;
     Some((bs, bevy_quat, na_quat))
-}
-
-fn phys_to_vis(pos: Vec3) -> Vec3 {
-    Vec3::new(pos.x, pos.z, -pos.y)
 }
 
 fn link_vis_pos(rapier: &RapierContext, link_name: &str) -> Option<Vec3> {

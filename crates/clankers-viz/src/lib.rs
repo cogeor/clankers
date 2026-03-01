@@ -29,6 +29,7 @@ pub mod mode;
 pub mod plugin;
 pub mod replay;
 pub mod systems;
+pub mod transform;
 pub mod ui;
 
 /// Resource tracking which robot is selected in the viz UI.
@@ -41,6 +42,7 @@ pub use config::VizConfig;
 pub use mode::VizMode;
 pub use plugin::ClankersVizPlugin;
 pub use replay::{PlaybackIndex, PlaybackState};
+pub use transform::{phys_rot_to_vis, phys_to_vis};
 
 #[cfg(test)]
 mod tests {

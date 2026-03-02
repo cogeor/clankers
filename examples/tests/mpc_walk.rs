@@ -599,7 +599,7 @@ fn run_stand_then_locomote(
 // ---- Standing ------------------------------------------------------------
 
 #[test]
-#[ignore] // non-deterministic: Rapier physics can diverge across runs
+#[ignore = "non-deterministic: Rapier physics can diverge across runs"]
 fn standing_maintains_height() {
     let mut harness = setup_quadruped();
 
@@ -658,7 +658,7 @@ fn trot_com_velocity_nonzero() {
 }
 
 #[test]
-#[ignore] // non-deterministic: Rapier physics can diverge across runs
+#[ignore = "non-deterministic: Rapier physics can diverge across runs"]
 fn trot_feet_above_ground() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
     let (_harness, _stand, loco) =

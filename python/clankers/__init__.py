@@ -141,4 +141,12 @@ try:
 except ImportError:
     pass
 
+# Trajectory dataset for behavioral cloning (requires torch).
+try:
+    from clankers.trajectory_dataset import TrajectoryDataset  # noqa: F401
+
+    __all__.append("TrajectoryDataset")
+except ImportError:
+    pass
+
 __version__ = "0.1.0"

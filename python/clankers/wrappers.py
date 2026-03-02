@@ -178,7 +178,7 @@ class NormalizeReward(gymnasium.RewardWrapper):  # type: ignore[misc]
     def reset(self, **kwargs: object) -> tuple[np.ndarray, dict]:
         """Reset the environment and clear the discounted return."""
         self._return = 0.0  # reset discounted return on episode boundary
-        return self.env.reset(**kwargs)  # type: ignore[arg-type]
+        return self.env.reset(**kwargs)  # type: ignore[arg-type, no-any-return]
 
 
 class ClipReward(gymnasium.RewardWrapper):  # type: ignore[misc]

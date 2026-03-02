@@ -26,8 +26,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 try:
-    from mcap.reader import make_reader  # type: ignore[import-untyped]
-    from mcap.writer import Writer as McapWriter  # type: ignore[import-untyped]
+    from mcap.reader import make_reader  # type: ignore[import-untyped, import-not-found]
+    from mcap.writer import Writer as McapWriter  # type: ignore[import-untyped, import-not-found]
 
     _MCAP_AVAILABLE = True
 except ImportError:

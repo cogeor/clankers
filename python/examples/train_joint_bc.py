@@ -4,16 +4,21 @@ Trains a neural network to predict next joint positions from current joint
 positions (or to predict actions or velocities from positions).  The model
 can be any ``nn.Module`` with matching input/output dimensions.
 
+When a ``--scene`` spec is provided, the encoder discovers all joints
+(including gripper prismatic joints), so the model learns to control
+all joints end-to-end without any gripper hack.
+
 Usage::
+
+    # Train 8-joint velocity model (recommended — all joints incl. gripper)
+    py -3.12 python/examples/train_joint_bc.py \\
+        --trace output/arm_pick_dataset/dry_run_trace.json \\
+        --scene python/clankers_synthetic/scenes/arm_pick_cube.json \\
+        --mode velocity --control-dt 0.02
 
     # Train from a single trace file (auto-detect joints from obs dim)
     py -3.12 python/examples/train_joint_bc.py \\
         --trace output/arm_pick_dataset/dry_run_trace.json
-
-    # Train with explicit scene spec for named joints
-    py -3.12 python/examples/train_joint_bc.py \\
-        --trace output/arm_pick_dataset/dry_run_trace.json \\
-        --scene python/clankers_synthetic/scenes/arm_pick_cube.json
 
     # Train from a packaged dataset directory
     py -3.12 python/examples/train_joint_bc.py \\
@@ -24,7 +29,7 @@ Usage::
         --trace output/arm_pick_dataset/dry_run_trace.json \\
         --mode action
 
-    # Train velocity predictor (input=pos, output=vel in rad/s)
+    # Train velocity predictor (6-DOF arm only)
     py -3.12 python/examples/train_joint_bc.py \\
         --trace output/arm_pick_dataset/dry_run_trace.json \\
         --mode velocity --control-dt 0.02

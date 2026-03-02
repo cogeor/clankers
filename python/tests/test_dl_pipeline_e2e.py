@@ -47,6 +47,16 @@ def _make_trace(n_steps: int = 50, n_joints: int = 6, dt: float = 0.02) -> dict:
 
 
 JOINT_NAMES = [f"joint_{i}" for i in range(6)]
+JOINT_NAMES_8 = [
+    "j1_base_yaw",
+    "j2_shoulder_pitch",
+    "j3_elbow_pitch",
+    "j4_forearm_roll",
+    "j5_wrist_pitch",
+    "j6_wrist_roll",
+    "j_finger_left",
+    "j_finger_right",
+]
 
 
 @pytest.fixture
@@ -278,4 +288,135 @@ class TestOpenLoopReplay:
         # After 4 integration steps at 1.0 rad/s with dt=0.02:
         # pos = 4 * 1.0 * 0.02 = 0.08
         expected_final = np.full(6, 4 * dt)
+        assert np.allclose(preds[4], expected_final, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# 8-joint (full joint including gripper) tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def trace_file_8(tmp_path: Path) -> Path:
+    """Write a synthetic 8-joint trace to a temp file."""
+    trace = _make_trace(n_steps=50, n_joints=8)
+    path = tmp_path / "test_trace_8.json"
+    path.write_text(json.dumps(trace))
+    return path
+
+
+class TestFullJointVelocity:
+    """Test: 8-joint (arm + gripper) velocity pipeline end-to-end."""
+
+    def test_dataset_8joint_shape(self, trace_file_8: Path):
+        ds = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8
+        )
+        assert ds.input_dim == 8
+        assert ds.target_dim == 8
+        assert len(ds) == 49
+
+    def test_velocity_dataset_8joint(self, trace_file_8: Path):
+        ds = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8,
+            include_velocities=True, control_dt=0.02,
+        )
+        assert ds.input_dim == 8
+        assert ds.target_dim == 8
+        pos, vel = ds[0]
+        assert pos.shape == (8,)
+        assert vel.shape == (8,)
+
+    def test_velocity_values_8joint(self, trace_file_8: Path):
+        ds_pos = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8,
+        )
+        ds_vel = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8,
+            include_velocities=True, control_dt=0.02,
+        )
+        pos_t, pos_next = ds_pos[0]
+        _, vel_t = ds_vel[0]
+        expected_vel = (pos_next - pos_t) / 0.02
+        assert torch.allclose(vel_t, expected_vel, atol=1e-5)
+
+    def test_train_and_export_8joint_velocity(self, trace_file_8: Path, tmp_path: Path):
+        from train_joint_bc import JointMLP, export_onnx, train
+
+        ds = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8,
+            include_velocities=True, control_dt=0.02,
+        )
+        assert ds.input_dim == 8
+        assert ds.target_dim == 8
+
+        model = JointMLP(input_dim=8, output_dim=8, hidden=32)
+        trained = train(ds, model, epochs=3, batch_size=16)
+
+        with torch.no_grad():
+            dummy = torch.randn(1, 8)
+            out = trained(dummy)
+            assert out.shape == (1, 8)
+
+        # Export and verify ONNX metadata
+        onnx_path = str(tmp_path / "vel8_model.onnx")
+        export_onnx(trained, ds, onnx_path, mode="velocity", control_dt=0.02)
+
+        import onnxruntime as ort
+
+        session = ort.InferenceSession(onnx_path)
+        meta = dict(session.get_modelmeta().custom_metadata_map or {})
+        assert meta.get("clanker_prediction_mode") == "velocity"
+        assert meta.get("clanker_target_dim") == "8"
+        assert meta.get("clanker_input_dim") == "8"
+
+        # Verify inference shape
+        input_name = session.get_inputs()[0].name
+        dummy_np = np.random.randn(1, 8).astype(np.float32)
+        result = session.run(None, {input_name: dummy_np})[0]
+        assert result.shape == (1, 8)
+
+    def test_encoder_roundtrip_8joint(self, trace_file_8: Path, tmp_path: Path):
+        from train_joint_bc import JointMLP, export_onnx, train
+
+        ds = TrajectoryDataset.from_trace_file(
+            trace_file_8, joint_names=JOINT_NAMES_8,
+            include_velocities=True, control_dt=0.02,
+        )
+        model = JointMLP(input_dim=8, output_dim=8, hidden=32)
+        trained = train(ds, model, epochs=3, batch_size=16)
+
+        onnx_path = str(tmp_path / "enc8_model.onnx")
+        export_onnx(trained, ds, onnx_path, mode="velocity", control_dt=0.02)
+
+        import onnxruntime as ort
+
+        session = ort.InferenceSession(onnx_path)
+        meta = dict(session.get_modelmeta().custom_metadata_map or {})
+        recovered = JointEncoder.from_json(meta["clanker_joint_encoder"])
+        assert recovered == ds.encoder
+        assert recovered.dof == 8
+        assert list(recovered.names) == JOINT_NAMES_8
+
+    def test_replay_8joint_velocity(self, trace_file_8: Path):
+        from replay_policy import extract_positions, open_loop_rollout
+
+        trace_data = json.loads(trace_file_8.read_text())
+        encoder = JointEncoder(JOINT_NAMES_8)
+        gt_positions = extract_positions(trace_data, encoder)
+
+        assert len(gt_positions) == 50
+        assert gt_positions[0].shape == (8,)
+
+        # Constant velocity rollout with 8 joints
+        initial = np.zeros(8, dtype=np.float32)
+        dt = 0.02
+
+        def const_vel_fn(x):
+            return np.ones_like(x)
+
+        preds = open_loop_rollout(const_vel_fn, initial, 5, mode="velocity", control_dt=dt)
+        assert len(preds) == 5
+        assert preds[0].shape == (8,)
+        expected_final = np.full(8, 4 * dt)
         assert np.allclose(preds[4], expected_final, atol=1e-6)

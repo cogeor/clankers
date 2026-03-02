@@ -5,27 +5,26 @@ Loads a trained ONNX (or PyTorch) model and runs it closed-loop against
 the arm_pick_gym server. Reports success rate, cube heights, and episode
 statistics.
 
-The model predicts arm joint targets (6-dim). Gripper control uses a
-simple time-based strategy derived from the training demonstrations:
-open at start, close at a configurable step, stay closed.
+The model output dimension is auto-detected from ONNX metadata:
+- **8-dim** (all joints including gripper): the model controls all joints
+  directly—no gripper hack needed. Gripper open/close is learned.
+- **6-dim** (arm joints only): gripper uses a time-based strategy
+  (open at start, close at --gripper-close-step).
 
 Usage:
     1. Start gym server:
        cargo run -j 24 -p clankers-examples --bin arm_pick_gym
 
-    2. Evaluate:
+    2. Evaluate (8-joint model, recommended):
        py -3.12 python/examples/eval_pick_policy.py \\
            --model joint_bc.onnx \\
            --n-episodes 10
 
-    Options:
-       --model PATH       Path to .onnx or .pt model
-       --n-episodes N     Number of evaluation episodes (default: 10)
-       --port PORT        Gym server port (default: 9880)
-       --gripper-close-step N  Step at which to close gripper (default: 120)
-       --max-steps N      Max steps per episode (default: 500)
-       --control-dt DT    Override control dt (auto from ONNX metadata)
-       --verbose          Print per-step info
+    3. Evaluate (6-joint legacy model with gripper hack):
+       py -3.12 python/examples/eval_pick_policy.py \\
+           --model joint_bc_6dof.onnx \\
+           --n-episodes 10 \\
+           --gripper-close-step 120
 """
 
 from __future__ import annotations
@@ -93,19 +92,9 @@ def load_model(path: str, encoder_path: str | None = None, scene_path: str | Non
         raise ValueError(f"Unsupported model format: {path}")
 
 
-def extract_arm_positions(obs: np.ndarray, n_arm: int = 6) -> np.ndarray:
-    """Extract arm joint positions from interleaved obs [pos0, vel0, ...]."""
-    return np.array([obs[i * 2] for i in range(n_arm)], dtype=np.float32)
-
-
-def make_action(
-    arm_targets: np.ndarray,
-    gripper_width: float,
-    n_gripper: int = 2,
-) -> np.ndarray:
-    """Build full 8-dim action from arm targets + gripper width."""
-    gripper = np.full(n_gripper, gripper_width, dtype=np.float32)
-    return np.concatenate([arm_targets, gripper])
+def extract_positions(obs: np.ndarray, n_joints: int) -> np.ndarray:
+    """Extract joint positions from interleaved obs [pos0, vel0, ...]."""
+    return np.array([obs[i * 2] for i in range(n_joints)], dtype=np.float32)
 
 
 def main():
@@ -118,18 +107,19 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Gym server host")
     parser.add_argument("--port", type=int, default=9880, help="Gym server port")
     parser.add_argument("--n-episodes", type=int, default=10, help="Number of episodes")
+    parser.add_argument("--max-steps", type=int, default=500, help="Max steps per episode")
+    parser.add_argument("--control-dt", type=float, default=None, help="Override control dt")
+    parser.add_argument("--verbose", action="store_true", help="Print per-step info")
+    parser.add_argument("--output", default=None, help="Save results JSON to this path")
+    # Legacy 6-DOF gripper hack (only used when model output_dim == 6)
     parser.add_argument(
         "--gripper-close-step",
         type=int,
         default=120,
-        help="Step at which to close gripper (default: 120)",
+        help="Step at which to close gripper (6-DOF models only)",
     )
-    parser.add_argument("--max-steps", type=int, default=500, help="Max steps per episode")
-    parser.add_argument("--control-dt", type=float, default=None, help="Override control dt")
-    parser.add_argument("--gripper-open", type=float, default=0.03, help="Gripper open width")
-    parser.add_argument("--gripper-closed", type=float, default=0.0, help="Gripper closed width")
-    parser.add_argument("--verbose", action="store_true", help="Print per-step info")
-    parser.add_argument("--output", default=None, help="Save results JSON to this path")
+    parser.add_argument("--gripper-open", type=float, default=0.03, help="Gripper open width (6-DOF only)")
+    parser.add_argument("--gripper-closed", type=float, default=0.0, help="Gripper closed width (6-DOF only)")
     args = parser.parse_args()
 
     from clankers.env import ClankerEnv
@@ -149,14 +139,18 @@ def main():
     if encoder:
         print(f"  Encoder: {encoder}")
 
-    # Determine arm DOF from model
-    n_arm = output_dim
-    n_gripper = 2
+    # Auto-detect full-joint vs arm-only from output dim
+    full_joint = output_dim > 6
+    n_joints = output_dim  # joints the model predicts
+    n_total_action = 8     # total action dim the gym expects
     success_threshold = 0.525
 
     # Run episodes
     print(f"\nRunning {args.n_episodes} episodes (max {args.max_steps} steps each)")
-    print(f"  Gripper closes at step {args.gripper_close_step}")
+    if full_joint:
+        print(f"  Full-joint model ({n_joints} DOF) — gripper learned from data")
+    else:
+        print(f"  Arm-only model ({n_joints} DOF) — gripper closes at step {args.gripper_close_step}")
     print(f"  Server: {args.host}:{args.port}")
     print()
 
@@ -168,7 +162,7 @@ def main():
         env.connect()
         obs, info = env.reset()
 
-        current_pos = extract_arm_positions(obs, n_arm)
+        current_pos = extract_positions(obs, n_joints)
         success = False
         cube_z = 0.0
         terminated = False
@@ -179,28 +173,33 @@ def main():
             if terminated or truncated:
                 break
 
-            # Gripper control: open until gripper_close_step, then closed
-            if step < args.gripper_close_step:
-                gripper_w = args.gripper_open
-            else:
-                gripper_w = args.gripper_closed
-
             # Policy prediction
             model_input = current_pos.reshape(1, -1)
             prediction = infer_fn(model_input)[0]
 
             if prediction_mode == "velocity":
                 # Integrate: next_pos = current_pos + vel * dt
-                arm_targets = current_pos + prediction * control_dt
+                targets = current_pos + prediction * control_dt
             else:
                 # Position or action mode: use prediction directly
-                arm_targets = prediction
+                targets = prediction
 
-            arm_targets = arm_targets.astype(np.float32)
-            action = make_action(arm_targets, gripper_w, n_gripper)
+            targets = targets.astype(np.float32)
+
+            if full_joint:
+                # Model predicts all joints — use directly as action
+                action = targets
+            else:
+                # Legacy 6-DOF: append gripper width
+                if step < args.gripper_close_step:
+                    gripper_w = args.gripper_open
+                else:
+                    gripper_w = args.gripper_closed
+                gripper = np.full(n_total_action - n_joints, gripper_w, dtype=np.float32)
+                action = np.concatenate([targets, gripper])
 
             obs, terminated, truncated, info = env.step(action)
-            current_pos = extract_arm_positions(obs, n_arm)
+            current_pos = extract_positions(obs, n_joints)
 
             # Check cube height
             body_poses = info.get("body_poses", {})
@@ -212,7 +211,7 @@ def main():
             if args.verbose and step % 50 == 0:
                 print(
                     f"  ep={ep} step={step}: cube_z={cube_z:.4f} "
-                    f"arm_targets={arm_targets[:3].tolist()}"
+                    f"targets={targets[:3].tolist()}"
                 )
 
         env.close()
@@ -257,13 +256,15 @@ def main():
         report = {
             "model": args.model,
             "prediction_mode": prediction_mode,
+            "output_dim": output_dim,
             "n_total": n_total,
             "n_success": n_success,
             "success_rate": success_rate,
             "elapsed_seconds": elapsed,
-            "gripper_close_step": args.gripper_close_step,
             "episodes": results,
         }
+        if not full_joint:
+            report["gripper_close_step"] = args.gripper_close_step
         with open(args.output, "w") as f:
             json.dump(report, f, indent=2)
         print(f"\n  Results saved to: {args.output}")

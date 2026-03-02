@@ -1,9 +1,9 @@
 //! Offscreen camera sensor spawning.
 //!
-//! [`SimCamera`] is a marker component that identifies camera entities owned
-//! by the sensor system. [`spawn_camera_sensor`] creates a render-target
-//! [`Image`], spawns a `Camera3d` entity pointed at that image, and registers
-//! a matching [`FrameBuffer`] in [`CameraFrameBuffers`].
+//! `SimCamera` is a marker component that identifies camera entities owned
+//! by the sensor system. `spawn_camera_sensor` creates a render-target
+//! `Image`, spawns a `Camera3d` entity pointed at that image, and registers
+//! a matching `FrameBuffer` in `CameraFrameBuffers`.
 //!
 //! This module is compiled only when the `gpu` feature is enabled because it
 //! depends on `bevy_render`, `bevy_core_pipeline`, and `bevy_pbr`.

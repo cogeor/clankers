@@ -44,11 +44,11 @@ struct Args {
     #[arg(long, default_value_t = 100)]
     ramp: u32,
 
-    /// Override q_weights[9] and [10] (vx, vy velocity tracking)
+    /// Override q_weights\[9\] and \[10\] (vx, vy velocity tracking)
     #[arg(long)]
     q_vx: Option<f64>,
 
-    /// Override q_weights[5] (pz height tracking)
+    /// Override q_weights\[5\] (pz height tracking)
     #[arg(long)]
     q_pz: Option<f64>,
 
@@ -72,11 +72,11 @@ struct Args {
     #[arg(long)]
     cp_gain: Option<f64>,
 
-    /// Override q_weights[0,1] (roll, pitch orientation tracking)
+    /// Override q_weights\[0,1\] (roll, pitch orientation tracking)
     #[arg(long)]
     q_roll: Option<f64>,
 
-    /// Override q_weights[6,7] (wx, wy angular velocity damping)
+    /// Override q_weights\[6,7\] (wx, wy angular velocity damping)
     #[arg(long)]
     q_omega: Option<f64>,
 

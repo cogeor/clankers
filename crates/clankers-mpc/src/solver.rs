@@ -55,7 +55,7 @@ impl MpcSolver {
     /// Create a new MPC solver with pre-allocated workspace.
     ///
     /// `n_feet` determines workspace dimensions and must match the number of
-    /// foot positions passed to [`solve`].
+    /// foot positions passed to [`MpcSolver::solve`].
     pub fn new(config: MpcConfig, n_feet: usize) -> Self {
         let h = config.horizon;
         let n_u_step = 3 * n_feet;

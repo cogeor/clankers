@@ -4,7 +4,7 @@
 //! [`SegmentationFrameBuffer`] stores the most-recent segmentation render as
 //! packed RGB bytes (one `u8` triple per pixel).
 //!
-//! When the `gpu` feature is enabled, [`ClankersSegmentationPlugin`] wires up
+//! When the `gpu` feature is enabled, `ClankersSegmentationPlugin` wires up
 //! an offscreen camera that renders each segmentation class with a uniform flat
 //! colour and copies the resulting pixels to the CPU via Bevy's GPU readback.
 

@@ -71,9 +71,7 @@ pub struct ImageFrame {
     pub height: u32,
     /// Camera label identifying which camera produced this frame.
     pub label: String,
-    /// Raw pixel bytes (format depends on the camera's [`PixelFormat`]).
-    ///
-    /// [`PixelFormat`]: clankers_render::config::PixelFormat
+    /// Raw pixel bytes (format depends on the camera's `PixelFormat`).
     pub data: Vec<u8>,
 }
 

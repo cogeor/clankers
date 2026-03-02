@@ -1,13 +1,13 @@
 //! GPU-to-CPU readback plugin for camera sensor frames.
 //!
-//! [`ImageCopyPlugin`] registers the Bevy [`GpuReadbackPlugin`] and adds a
+//! `ImageCopyPlugin` registers the Bevy `GpuReadbackPlugin` and adds a
 //! system that:
 //!
-//! 1. Detects newly spawned [`SimCamera`] entities and attaches a [`Readback`]
+//! 1. Detects newly spawned `SimCamera` entities and attaches a `Readback`
 //!    component so Bevy begins copying pixels from the GPU every frame.
-//! 2. Listens for [`ReadbackComplete`] events on those entities and strips
+//! 2. Listens for `ReadbackComplete` events on those entities and strips
 //!    wgpu row-padding before writing the packed pixels into
-//!    [`CameraFrameBuffers`] keyed by the camera's label.
+//!    `CameraFrameBuffers` keyed by the camera's label.
 //!
 //! This module is compiled only when the `gpu` feature is enabled.
 

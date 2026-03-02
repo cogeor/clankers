@@ -203,8 +203,8 @@ fn sync_pole_visual(
 /// Copies PolicyRunner's current action to JointCommand components.
 ///
 /// The cartpole PPO policy produces a 2-element action:
-///   action[0] -> cart_slide force (JointCommand on cart entity)
-///   action[1] -> pole_hinge torque (JointCommand on pole entity)
+///   action\[0\] -> cart_slide force (JointCommand on cart entity)
+///   action\[1\] -> pole_hinge torque (JointCommand on pole entity)
 ///
 /// If the policy produces only 1 action (discrete cart force), only
 /// the cart joint is driven.

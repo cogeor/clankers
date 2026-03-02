@@ -75,7 +75,7 @@ pub struct RapierContext {
     ///
     /// All Rapier body positions are relative to this origin. To get the true
     /// world position of a body: `world_pos = rapier_pos + world_origin`.
-    /// Periodically call [`rebase_origin`] to shift bodies back near zero.
+    /// Periodically call [`RapierContext::rebase_origin`] to shift bodies back near zero.
     pub world_origin: [f64; 3],
 }
 
@@ -196,7 +196,7 @@ impl RapierContext {
 
     /// Cast a ray through the physics world and return the hit distance.
     ///
-    /// Uses the broad-phase BVH to build a temporary [`QueryPipeline`] view and
+    /// Uses the broad-phase BVH to build a temporary `QueryPipeline` view and
     /// then casts a ray from `origin` in `direction` up to `max_range` metres.
     /// Returns `None` if nothing is hit within range.
     ///

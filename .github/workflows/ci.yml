@@ -58,7 +58,7 @@ jobs:
       - run: pip install ruff mypy numpy
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy --config-file pyproject.toml clanker_gym/
+      - run: mypy --config-file pyproject.toml clankers/
 
   doc:
     name: Documentation

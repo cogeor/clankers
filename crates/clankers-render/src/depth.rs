@@ -1,19 +1,19 @@
 //! GPU depth-capture plugin for depth sensor frames.
 //!
-//! [`ClankersDepthPlugin`] registers GPU readback infrastructure for depth
-//! sensing. It inserts a [`DepthFrameBuffer`] resource and provides the
-//! [`DepthCamera`] marker component along with the
-//! [`spawn_depth_camera_sensor`] helper.
+//! `ClankersDepthPlugin` registers GPU readback infrastructure for depth
+//! sensing. It inserts a `DepthFrameBuffer` resource and provides the
+//! `DepthCamera` marker component along with the
+//! `spawn_depth_camera_sensor` helper.
 //!
 //! The plugin creates an offscreen image with `Depth32Float` format and attaches
-//! [`Readback::texture`] to the camera entity so that Bevy's
-//! [`GpuReadbackPlugin`] copies the depth attachment bytes to the CPU each
-//! frame. The [`handle_depth_readback_complete`] observer interprets those
+//! `Readback::texture` to the camera entity so that Bevy's
+//! `GpuReadbackPlugin` copies the depth attachment bytes to the CPU each
+//! frame. The `handle_depth_readback_complete` observer interprets those
 //! bytes as `f32` depth values (one per pixel) and writes them into the
-//! [`DepthFrameBuffer`].
+//! `DepthFrameBuffer`.
 //!
 //! Note: connecting the camera's internal depth prepass texture to the
-//! registered [`Image`] asset requires a custom render-graph node. This
+//! registered `Image` asset requires a custom render-graph node. This
 //! plugin wires up the CPU side completely; the GPU-side render graph
 //! integration is expected to be added in a future loop.
 //!

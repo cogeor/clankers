@@ -12,12 +12,12 @@
 //!
 //! When the `gpu` feature is enabled, additional types become available:
 //!
-//! - [`camera::SimCamera`] — marker component for sensor cameras
-//! - [`camera::spawn_camera_sensor`] — helper to create offscreen cameras
-//! - [`readback::ImageCopyPlugin`] — copies GPU frames into [`CameraFrameBuffers`]
-//! - [`depth::ClankersDepthPlugin`] — copies GPU depth frames into [`DepthFrameBuffer`]
-//! - [`depth::DepthCamera`] — marker component for depth-capture cameras
-//! - [`depth::spawn_depth_camera_sensor`] — helper to create depth cameras
+//! - `camera::SimCamera` — marker component for sensor cameras
+//! - `camera::spawn_camera_sensor` — helper to create offscreen cameras
+//! - `readback::ImageCopyPlugin` — copies GPU frames into [`CameraFrameBuffers`]
+//! - `depth::ClankersDepthPlugin` — copies GPU depth frames into [`DepthFrameBuffer`]
+//! - `depth::DepthCamera` — marker component for depth-capture cameras
+//! - `depth::spawn_depth_camera_sensor` — helper to create depth cameras
 //!
 //! The design is rendering-backend-agnostic. In headless mode the frame buffers
 //! exist but are only written to when external code explicitly calls
@@ -66,9 +66,9 @@ pub use sensor::{DepthSensor, ImageSensor, SegmentationSensor};
 /// Registers [`RenderConfig`], [`FrameBuffer`], and [`CameraFrameBuffers`].
 /// The single legacy frame buffer is created from the current render config at
 /// startup (for backward compatibility). Per-camera buffers are registered by
-/// [`camera::spawn_camera_sensor`] or added manually.
+/// `camera::spawn_camera_sensor` or added manually.
 ///
-/// When the `gpu` feature is active, add [`readback::ImageCopyPlugin`]
+/// When the `gpu` feature is active, add `readback::ImageCopyPlugin`
 /// separately to enable live GPU readback.
 pub struct ClankersRenderPlugin;
 

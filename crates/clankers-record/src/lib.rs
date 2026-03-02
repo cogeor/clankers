@@ -1,6 +1,6 @@
 //! `clankers-record` — MCAP episode recorder for the Clankers robotics simulator.
 //!
-//! Add [`RecorderPlugin`] to your Bevy app and insert a [`RecordingConfig`]
+//! Add [`plugin::RecorderPlugin`] to your Bevy app and insert a [`recorder::RecordingConfig`]
 //! resource to enable recording. The plugin writes an MCAP file containing
 //! timestamped joint states, actions, and rewards.
 //!

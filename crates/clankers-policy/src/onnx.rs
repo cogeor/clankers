@@ -94,7 +94,7 @@ pub enum ActionTransform {
 /// A policy backed by an ONNX Runtime session.
 ///
 /// Wraps an [`ort::session::Session`] and implements the
-/// [`Policy`](clankers_core::traits::Policy) trait. The session is protected
+/// [`Policy`] trait. The session is protected
 /// by a [`Mutex`] because `Session::run` requires `&mut self`.
 pub struct OnnxPolicy {
     session: Mutex<Session>,

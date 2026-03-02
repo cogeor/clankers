@@ -3,7 +3,7 @@
 //! # Architecture
 //!
 //! [`RecordingConfig`] is inserted as a Bevy [`Resource`] before the app
-//! starts.  [`Recorder`] is inserted by [`RecorderPlugin`] on startup as a
+//! starts.  [`Recorder`] is inserted by `RecorderPlugin` on startup as a
 //! **non-send resource** (because `mcap::Writer` is not `Send`).
 //! The recording systems run in [`PostUpdate`] and append serialized frames
 //! to the open MCAP file.
@@ -38,7 +38,7 @@ use crate::types::{ActionFrame, JointFrame, RewardFrame};
 /// Configuration resource that controls what gets recorded and where.
 ///
 /// Insert this resource before the app starts.  If it is absent the
-/// [`RecorderPlugin`] will use sensible defaults and write to
+/// `RecorderPlugin` will use sensible defaults and write to
 /// `episode_recording.mcap` in the current directory.
 #[derive(Resource, Clone, Debug)]
 pub struct RecordingConfig {

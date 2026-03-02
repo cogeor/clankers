@@ -89,7 +89,7 @@ impl GaitScheduler {
 
     /// Check if a specific foot is in contact at the current phase.
     ///
-    /// If a contact override is set for this foot (via [`apply_contact_feedback`]),
+    /// If a contact override is set for this foot (via [`GaitScheduler::apply_contact_feedback`]),
     /// the override takes precedence over the scheduled contact.
     pub fn is_contact(&self, foot: usize) -> bool {
         if let Some(override_val) = self.contact_overrides[foot] {
@@ -130,7 +130,7 @@ impl GaitScheduler {
     /// Returns `contacts[step][foot]` as a `Vec<Vec<bool>>` of size `horizon × n_feet`.
     ///
     /// For step k=0 (current timestep), contact overrides from
-    /// [`apply_contact_feedback`] are respected so the MPC plan matches
+    /// [`GaitScheduler::apply_contact_feedback`] are respected so the MPC plan matches
     /// the motor commands' stance/swing decisions.  Future steps use the
     /// scheduled gait pattern.
     pub fn contact_sequence(&self, horizon: usize, dt: f64) -> Vec<Vec<bool>> {

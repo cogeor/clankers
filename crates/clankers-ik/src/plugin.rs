@@ -1,14 +1,14 @@
 //! Bevy ECS integration for the IK solver.
 //!
 //! Provides [`ClankerIkPlugin`] which adds an IK solve system that reads
-//! [`IkGoal`] targets and writes [`JointCommand`] values each frame.
+//! `IkGoal` targets and writes [`JointCommand`] values each frame.
 //!
 //! # Usage
 //!
 //! 1. Add [`ClankerIkPlugin`] to your app.
 //! 2. Spawn a robot with [`clankers_urdf::spawn_robot`].
 //! 3. Call [`IkChainMap::insert`] to register the robot's IK chain.
-//! 4. Set [`IkGoal`] targets on joint entities.
+//! 4. Set `IkGoal` targets on joint entities.
 //!
 //! The plugin's system runs in [`ClankersSet::Decide`], before the actuator
 //! step in [`ClankersSet::Act`].

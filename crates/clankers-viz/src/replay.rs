@@ -78,7 +78,7 @@ impl PlaybackState {
 // MCAP Loading
 // ---------------------------------------------------------------------------
 
-/// Startup system: loads the MCAP file from [`VizConfig::replay_path`] into
+/// Startup system: loads the MCAP file from the configured replay path into
 /// [`PlaybackIndex`].
 #[allow(clippy::needless_pass_by_value)]
 pub fn load_replay_mcap(config: Res<crate::config::VizConfig>, mut commands: Commands) {
@@ -210,7 +210,7 @@ fn load_mcap_file(
 
 /// Advances the playback cursor based on wall-clock delta time and speed.
 ///
-/// Only runs when [`VizMode::Replay`] and [`PlaybackState::playing`].
+/// Only runs when in replay mode and [`PlaybackState::playing`].
 #[allow(clippy::needless_pass_by_value)]
 pub fn replay_advance_system(
     time: Res<Time>,

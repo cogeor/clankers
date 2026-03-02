@@ -33,6 +33,8 @@ nalgebra.workspace = true
 rapier3d.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

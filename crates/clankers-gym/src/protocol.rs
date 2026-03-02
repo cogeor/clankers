@@ -156,6 +156,9 @@ pub enum Response {
     /// Result of a step operation.
     Step {
         observation: Observation,
+        /// Scalar reward for this step.
+        #[serde(default)]
+        reward: f32,
         terminated: bool,
         truncated: bool,
         info: StepInfo,
@@ -178,6 +181,9 @@ pub enum Response {
     BatchStep {
         /// Per-env observations.
         observations: Vec<Observation>,
+        /// Per-env rewards.
+        #[serde(default)]
+        rewards: Vec<f32>,
         /// Per-env terminated flags.
         terminated: Vec<bool>,
         /// Per-env truncated flags.
@@ -213,6 +219,7 @@ impl Response {
     pub fn from_step(result: StepResult) -> Self {
         Self::Step {
             observation: result.observation,
+            reward: result.reward,
             terminated: result.terminated,
             truncated: result.truncated,
             info: result.info,
@@ -228,6 +235,7 @@ impl Response {
     pub fn from_step_binary(result: StepResult, encoding: ObsEncoding) -> Self {
         Self::Step {
             observation: Observation::zeros(0),
+            reward: result.reward,
             terminated: result.terminated,
             truncated: result.truncated,
             info: result.info,
@@ -249,6 +257,7 @@ impl Response {
     pub fn from_batch_step(result: BatchStepResult) -> Self {
         Self::BatchStep {
             observations: result.observations,
+            rewards: result.rewards,
             terminated: result.terminated,
             truncated: result.truncated,
             infos: result.infos,
@@ -921,6 +930,7 @@ mod tests {
             info: ResetInfo {
                 seed: Some(7),
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -937,6 +947,7 @@ mod tests {
     fn response_step_roundtrip() {
         let result = StepResult {
             observation: Observation::new(vec![0.5]),
+            reward: 0.0,
             terminated: false,
             truncated: true,
             info: StepInfo {
@@ -1055,6 +1066,7 @@ mod tests {
                 ResetInfo {
                     seed: Some(42),
                     custom: HashMap::new(),
+                    ..Default::default()
                 },
                 ResetInfo::default(),
             ],
@@ -1078,6 +1090,7 @@ mod tests {
     fn response_batch_step_roundtrip() {
         let resp = Response::BatchStep {
             observations: vec![Observation::zeros(2), Observation::zeros(2)],
+            rewards: vec![0.0, 0.0],
             terminated: vec![false, true],
             truncated: vec![false, false],
             infos: vec![StepInfo::default(), StepInfo::default()],
@@ -1107,6 +1120,7 @@ mod tests {
         use clankers_core::types::BatchStepResult;
         let result = BatchStepResult {
             observations: vec![Observation::zeros(2)],
+            rewards: vec![0.0],
             terminated: vec![false],
             truncated: vec![false],
             infos: vec![StepInfo::default()],
@@ -1304,6 +1318,7 @@ mod tests {
     fn response_step_with_obs_encoding_roundtrip() {
         let resp = Response::Step {
             observation: Observation::zeros(0),
+            reward: 0.0,
             terminated: false,
             truncated: false,
             info: StepInfo {
@@ -1338,6 +1353,7 @@ mod tests {
     fn response_step_without_obs_encoding_omits_field() {
         let result = StepResult {
             observation: Observation::new(vec![0.5]),
+            reward: 0.0,
             terminated: false,
             truncated: false,
             info: StepInfo {

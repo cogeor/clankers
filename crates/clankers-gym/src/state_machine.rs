@@ -294,6 +294,7 @@ mod tests {
 
         sm.on_response(&Response::Step {
             observation: clankers_core::types::Observation::zeros(1),
+            reward: 0.0,
             terminated: true,
             truncated: false,
             info: clankers_core::types::StepInfo::default(),
@@ -312,6 +313,7 @@ mod tests {
 
         sm.on_response(&Response::Step {
             observation: clankers_core::types::Observation::zeros(1),
+            reward: 0.0,
             terminated: false,
             truncated: true,
             info: clankers_core::types::StepInfo::default(),
@@ -471,6 +473,7 @@ mod tests {
 
         sm.on_response(&Response::BatchStep {
             observations: vec![clankers_core::types::Observation::zeros(1)],
+            rewards: vec![0.0],
             terminated: vec![true],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],
@@ -488,6 +491,7 @@ mod tests {
 
         sm.on_response(&Response::BatchStep {
             observations: vec![clankers_core::types::Observation::zeros(1)],
+            rewards: vec![0.0],
             terminated: vec![false],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],

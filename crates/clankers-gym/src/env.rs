@@ -7,8 +7,8 @@ use bevy::prelude::*;
 
 use clankers_core::traits::ActionApplicator;
 use clankers_core::types::{
-    Action, ActionSpace, Observation, ObservationSpace, ResetInfo, ResetResult, StepInfo,
-    StepResult,
+    Action, ActionSpace, ContactEvent, Observation, ObservationSpace, ResetInfo, ResetResult,
+    StepInfo, StepResult,
 };
 use clankers_env::buffer::ObservationBuffer;
 use clankers_env::episode::Episode;
@@ -36,12 +36,16 @@ use clankers_env::episode::Episode;
 /// Callback invoked on each environment reset.
 type ResetFn = dyn Fn(&mut World);
 
+/// Callback evaluated after each step to determine task success.
+type SuccessFn = dyn Fn(&World) -> bool;
+
 pub struct GymEnv {
     app: App,
     obs_space: ObservationSpace,
     act_space: ActionSpace,
     applicator: Box<dyn ActionApplicator>,
     reset_fn: Option<Box<ResetFn>>,
+    success_fn: Option<Box<SuccessFn>>,
 }
 
 impl GymEnv {
@@ -63,12 +67,23 @@ impl GymEnv {
             act_space,
             applicator,
             reset_fn: None,
+            success_fn: None,
         }
     }
 
     /// Set a callback that resets world state (physics, joints) on episode reset.
     pub fn with_reset_fn(mut self, f: impl Fn(&mut World) + 'static) -> Self {
         self.reset_fn = Some(Box::new(f));
+        self
+    }
+
+    /// Set a callback that evaluates task success after each step.
+    ///
+    /// The closure receives a read-only reference to the [`World`] and returns
+    /// `true` when the task-specific success condition is met. The result is
+    /// written to [`StepInfo::is_success`].
+    pub fn with_success_fn(mut self, f: impl Fn(&World) -> bool + 'static) -> Self {
+        self.success_fn = Some(Box::new(f));
         self
     }
 
@@ -105,11 +120,13 @@ impl GymEnv {
         self.app.world_mut().resource_mut::<Episode>().reset(seed);
 
         let observation = self.current_observation();
+        let step_info = Self::collect_step_info(self.app.world());
         ResetResult {
             observation,
             info: ResetInfo {
                 seed,
-                ..Default::default()
+                custom: step_info.custom,
+                body_poses: step_info.body_poses,
             },
         }
     }
@@ -130,15 +147,20 @@ impl GymEnv {
         let episode = self.app.world().resource::<Episode>();
         let terminated = episode.state == clankers_env::episode::EpisodeState::Done;
         let truncated = episode.state == clankers_env::episode::EpisodeState::Truncated;
+        let episode_length = episode.step_count;
+
+        let mut info = Self::collect_step_info(self.app.world());
+        info.episode_length = episode_length;
+        if let Some(ref success_fn) = self.success_fn {
+            info.is_success = (success_fn)(self.app.world());
+        }
 
         StepResult {
             observation,
+            reward: 0.0,
             terminated,
             truncated,
-            info: StepInfo {
-                episode_length: episode.step_count,
-                ..Default::default()
-            },
+            info,
         }
     }
 
@@ -151,6 +173,77 @@ impl GymEnv {
     #[must_use]
     pub const fn app(&self) -> &App {
         &self.app
+    }
+
+    /// Collect body poses and contact events from Rapier physics (if present).
+    fn collect_step_info(world: &World) -> StepInfo {
+        use clankers_physics::rapier::RapierContext;
+        use std::collections::HashMap;
+
+        let mut info = StepInfo::default();
+
+        let Some(ctx) = world.get_resource::<RapierContext>() else {
+            return info;
+        };
+
+        // Body poses: read all named bodies from body_handles
+        let mut body_poses = HashMap::new();
+        for (name, &handle) in &ctx.body_handles {
+            if let Some(body) = ctx.rigid_body_set.get(handle) {
+                let t = body.translation();
+                let r = body.rotation();
+                body_poses.insert(
+                    name.clone(),
+                    [t.x, t.y, t.z, r.x, r.y, r.z, r.w],
+                );
+            }
+        }
+        info.body_poses = body_poses;
+
+        // Contact events: iterate active contact pairs
+        let mut contacts = Vec::new();
+        // Build reverse map: collider handle -> body name
+        let mut collider_to_name: HashMap<rapier3d::prelude::ColliderHandle, String> =
+            HashMap::new();
+        for (name, &body_handle) in &ctx.body_handles {
+            if let Some(body) = ctx.rigid_body_set.get(body_handle) {
+                for &collider_handle in body.colliders() {
+                    collider_to_name.insert(collider_handle, name.clone());
+                }
+            }
+        }
+
+        let dt = ctx.integration_parameters.dt;
+        for contact_pair in ctx.narrow_phase.contact_pairs() {
+            if !contact_pair.has_any_active_contact() {
+                continue;
+            }
+            let name_a = collider_to_name
+                .get(&contact_pair.collider1)
+                .cloned()
+                .unwrap_or_default();
+            let name_b = collider_to_name
+                .get(&contact_pair.collider2)
+                .cloned()
+                .unwrap_or_default();
+            // total_impulse() returns N·s; divide by dt to get force in N
+            let impulse = contact_pair.total_impulse();
+            let force_magnitude = if dt > 0.0 {
+                impulse.length() / dt
+            } else {
+                impulse.length()
+            };
+            if !name_a.is_empty() || !name_b.is_empty() {
+                contacts.push(ContactEvent {
+                    body_a: name_a,
+                    body_b: name_b,
+                    force_magnitude,
+                });
+            }
+        }
+        info.contact_events = contacts;
+
+        info
     }
 
     fn current_observation(&self) -> Observation {
@@ -175,7 +268,7 @@ impl clankers_env::vec_runner::VecEnvInstance for GymEnv {
     }
 
     fn obs_dim(&self) -> usize {
-        self.obs_space.shape()[0]
+        self.obs_space.shape().iter().product()
     }
 }
 

@@ -36,7 +36,7 @@ use crate::protocol::EnvInfo;
 ///     }
 ///     fn step(&mut self, _action: &Action) -> StepResult {
 ///         StepResult {
-///             observation: Observation::zeros(2),
+///             observation: Observation::zeros(2), reward: 0.0,
 ///             terminated: false, truncated: false, info: StepInfo::default(),
 ///         }
 ///     }
@@ -207,6 +207,7 @@ impl GymVecEnv {
 
         BatchStepResult {
             observations,
+            rewards: vec![0.0; n],
             terminated,
             truncated,
             infos,
@@ -262,6 +263,7 @@ mod tests {
             StepResult {
                 #[allow(clippy::cast_precision_loss)]
                 observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
+                reward: 0.0,
                 terminated,
                 truncated: false,
                 info: StepInfo::default(),

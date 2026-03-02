@@ -354,6 +354,12 @@ impl ActionSpace {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     pub observation: Observation,
+    /// Scalar reward for this step.
+    ///
+    /// Gymnasium contract: `(obs, reward, terminated, truncated, info)`.
+    /// Python-side `RewardFunction` computes this; the protocol relays it.
+    #[serde(default)]
+    pub reward: f32,
     /// Episode ended due to task success/failure.
     pub terminated: bool,
     /// Episode ended due to time limit.
@@ -372,7 +378,7 @@ pub struct ContactEvent {
     pub force_magnitude: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StepInfo {
     pub episode_length: u32,
     pub custom: HashMap<String, f32>,
@@ -387,18 +393,6 @@ pub struct StepInfo {
     pub is_success: bool,
 }
 
-impl Default for StepInfo {
-    fn default() -> Self {
-        Self {
-            episode_length: 0,
-            custom: HashMap::new(),
-            body_poses: HashMap::new(),
-            contact_events: Vec::new(),
-            is_success: false,
-        }
-    }
-}
-
 /// Result of `env.reset()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResetResult {
@@ -410,6 +404,9 @@ pub struct ResetResult {
 pub struct ResetInfo {
     pub seed: Option<u64>,
     pub custom: HashMap<String, f32>,
+    /// Named body poses at reset, same format as [`StepInfo::body_poses`].
+    #[serde(default)]
+    pub body_poses: HashMap<String, [f32; 7]>,
 }
 
 // ---------------------------------------------------------------------------
@@ -428,6 +425,7 @@ pub struct ResetInfo {
 ///
 /// let result = BatchStepResult {
 ///     observations: vec![Observation::zeros(2), Observation::zeros(2)],
+///     rewards: vec![1.0, 0.0],
 ///     terminated: vec![false, true],
 ///     truncated: vec![false, false],
 ///     infos: vec![StepInfo::default(), StepInfo::default()],
@@ -438,6 +436,9 @@ pub struct ResetInfo {
 pub struct BatchStepResult {
     /// Observations per environment.
     pub observations: Vec<Observation>,
+    /// Rewards per environment.
+    #[serde(default)]
+    pub rewards: Vec<f32>,
     /// Terminated flags per environment.
     pub terminated: Vec<bool>,
     /// Truncated flags per environment.
@@ -462,6 +463,7 @@ impl BatchStepResult {
     pub fn get(&self, idx: usize) -> StepResult {
         StepResult {
             observation: self.observations[idx].clone(),
+            reward: self.rewards.get(idx).copied().unwrap_or(0.0),
             terminated: self.terminated[idx],
             truncated: self.truncated[idx],
             info: self.infos[idx].clone(),
@@ -473,12 +475,14 @@ impl BatchStepResult {
     pub fn from_results(results: Vec<StepResult>) -> Self {
         let n = results.len();
         let mut observations = Vec::with_capacity(n);
+        let mut rewards = Vec::with_capacity(n);
         let mut terminated = Vec::with_capacity(n);
         let mut truncated = Vec::with_capacity(n);
         let mut infos = Vec::with_capacity(n);
 
         for r in results {
             observations.push(r.observation);
+            rewards.push(r.reward);
             terminated.push(r.terminated);
             truncated.push(r.truncated);
             infos.push(r.info);
@@ -486,6 +490,7 @@ impl BatchStepResult {
 
         Self {
             observations,
+            rewards,
             terminated,
             truncated,
             infos,
@@ -1398,6 +1403,7 @@ mod tests {
     fn step_result_construction() {
         let result = StepResult {
             observation: Observation::new(vec![1.0, 2.0]),
+            reward: 0.0,
             terminated: false,
             truncated: true,
             info: StepInfo {
@@ -1417,6 +1423,7 @@ mod tests {
         custom.insert("distance".to_string(), 0.42);
         let result = StepResult {
             observation: Observation::new(vec![1.0]),
+            reward: 1.5,
             terminated: true,
             truncated: false,
             info: StepInfo {
@@ -1427,6 +1434,7 @@ mod tests {
         };
         let json = serde_json::to_string(&result).unwrap();
         let result2: StepResult = serde_json::from_str(&json).unwrap();
+        assert!((result.reward - result2.reward).abs() < f32::EPSILON);
         assert_eq!(result.observation, result2.observation);
         assert_eq!(result.terminated, result2.terminated);
         assert_eq!(result.truncated, result2.truncated);
@@ -1440,6 +1448,7 @@ mod tests {
             info: ResetInfo {
                 seed: Some(42),
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         assert_eq!(result.observation.len(), 4);
@@ -1453,6 +1462,7 @@ mod tests {
             info: ResetInfo {
                 seed: None,
                 custom: HashMap::new(),
+                ..Default::default()
             },
         };
         let json = serde_json::to_string(&result).unwrap();
@@ -1562,12 +1572,14 @@ mod tests {
         let results = vec![
             StepResult {
                 observation: Observation::new(vec![1.0, 2.0]),
+                reward: 0.5,
                 terminated: false,
                 truncated: false,
                 info: StepInfo::default(),
             },
             StepResult {
                 observation: Observation::new(vec![3.0, 4.0]),
+                reward: 1.0,
                 terminated: true,
                 truncated: false,
                 info: StepInfo {
@@ -1587,6 +1599,7 @@ mod tests {
     fn batch_step_result_get() {
         let batch = BatchStepResult {
             observations: vec![Observation::new(vec![1.0]), Observation::new(vec![2.0])],
+            rewards: vec![0.0, 1.0],
             terminated: vec![false, true],
             truncated: vec![false, false],
             infos: vec![StepInfo::default(), StepInfo::default()],
@@ -1600,6 +1613,7 @@ mod tests {
     fn batch_step_result_serialize_roundtrip() {
         let batch = BatchStepResult {
             observations: vec![Observation::zeros(2)],
+            rewards: vec![0.0],
             terminated: vec![false],
             truncated: vec![true],
             infos: vec![StepInfo::default()],
@@ -1620,6 +1634,7 @@ mod tests {
                 info: ResetInfo {
                     seed: Some(42),
                     custom: HashMap::new(),
+                    ..Default::default()
                 },
             },
             ResetResult {
@@ -1639,6 +1654,7 @@ mod tests {
             infos: vec![ResetInfo {
                 seed: Some(7),
                 custom: HashMap::new(),
+                ..Default::default()
             }],
         };
         let r = batch.get(0);

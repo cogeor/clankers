@@ -309,7 +309,7 @@ fn dispatch(
         Request::Ping { timestamp } => {
             let server_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
+                .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
             (
                 Response::Pong {
                     timestamp: *timestamp,
@@ -412,7 +412,7 @@ fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfi
         Request::Ping { timestamp } => {
             let server_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
+                .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
             Response::Pong {
                 timestamp: *timestamp,
                 server_time,
@@ -710,6 +710,7 @@ mod tests {
             StepResult {
                 #[allow(clippy::cast_precision_loss)]
                 observation: Observation::new(vec![self.step_count as f32; self.obs_dim]),
+                reward: 0.0,
                 terminated: false,
                 truncated: false,
                 info: StepInfo::default(),

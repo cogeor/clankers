@@ -67,6 +67,8 @@ pub struct VecEnvRunner {
     episodes: EnvEpisodeMap,
     obs_buf: VecObsBuffer,
     done_buf: VecDoneBuffer,
+    /// Envs that terminated last step and need resetting (for `AutoResetMode::NextStep`).
+    pending_resets: Vec<EnvId>,
 }
 
 impl VecEnvRunner {
@@ -103,6 +105,7 @@ impl VecEnvRunner {
             episodes: EnvEpisodeMap::new(num_envs),
             obs_buf: VecObsBuffer::new(n, obs_dim),
             done_buf: VecDoneBuffer::new(n),
+            pending_resets: Vec::new(),
         }
     }
 
@@ -180,6 +183,17 @@ impl VecEnvRunner {
     pub fn step_all(&mut self, actions: &[Action]) {
         assert_eq!(actions.len(), self.envs.len(), "action count mismatch");
 
+        // NextStep: reset envs that terminated on the previous step.
+        if self.config.auto_reset_mode() == AutoResetMode::NextStep {
+            for env_id in self.pending_resets.drain(..) {
+                let idx = usize::from(env_id.index());
+                let result = self.envs[idx].reset(None);
+                self.obs_buf.set(idx, &result.observation);
+                self.episodes.reset(env_id, None);
+                self.done_buf.set(idx, false, false);
+            }
+        }
+
         for (i, (env, action)) in self.envs.iter_mut().zip(actions.iter()).enumerate() {
             let result = env.step(action);
             self.obs_buf.set(i, &result.observation);
@@ -205,14 +219,20 @@ impl VecEnvRunner {
         }
 
         // Auto-reset handling
-        if self.config.auto_reset_mode() == AutoResetMode::Immediate {
-            let done_envs = self.episodes.done_envs();
-            for env_id in done_envs {
-                let idx = usize::from(env_id.index());
-                let result = self.envs[idx].reset(None);
-                self.obs_buf.set(idx, &result.observation);
-                self.episodes.reset(env_id, None);
+        match self.config.auto_reset_mode() {
+            AutoResetMode::Immediate => {
+                let done_envs = self.episodes.done_envs();
+                for env_id in done_envs {
+                    let idx = usize::from(env_id.index());
+                    let result = self.envs[idx].reset(None);
+                    self.obs_buf.set(idx, &result.observation);
+                    self.episodes.reset(env_id, None);
+                }
             }
+            AutoResetMode::NextStep => {
+                self.pending_resets = self.episodes.done_envs();
+            }
+            AutoResetMode::Disabled => {}
         }
     }
 
@@ -352,6 +372,36 @@ mod tests {
         // Env 0 terminated at step 1, then immediately reset
         // So observation should be zeros (from reset), not [1.0, 1.0]
         assert_eq!(runner.get_obs(0).as_slice(), &[0.0, 0.0]);
+        assert!(runner.episodes().get(EnvId(0)).is_running());
+    }
+
+    #[test]
+    fn auto_reset_next_step() {
+        // Env 0 terminates at step_count >= 2 (i.e. after 2 steps).
+        let envs: Vec<Box<dyn VecEnvInstance>> = vec![
+            Box::new(ConstEnv::terminating_at(2, 2)),
+            Box::new(ConstEnv::new(2)),
+        ];
+        let config = VecEnvConfig::new(2).with_auto_reset(AutoResetMode::NextStep);
+        let mut runner = VecEnvRunner::new(envs, config);
+        runner.reset_all(None);
+
+        let actions = vec![Action::zeros(2), Action::zeros(2)];
+
+        // Step 1: env 0 step_count=1, not terminated yet.
+        runner.step_all(&actions);
+        assert!(!runner.done_buffer().terminated(0));
+
+        // Step 2: env 0 step_count=2, terminates. Terminal obs preserved.
+        runner.step_all(&actions);
+        assert_eq!(runner.get_obs(0).as_slice(), &[2.0, 2.0]); // terminal obs kept
+        assert!(runner.done_buffer().terminated(0));
+
+        // Step 3: env 0 is auto-reset at the START, then stepped.
+        // After reset step_count=0, step increments to 1 → obs=[1.0, 1.0].
+        runner.step_all(&actions);
+        assert_eq!(runner.get_obs(0).as_slice(), &[1.0, 1.0]); // fresh episode, step 1
+        assert!(!runner.done_buffer().terminated(0));
         assert!(runner.episodes().get(EnvId(0)).is_running());
     }
 

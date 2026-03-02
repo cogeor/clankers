@@ -1,4 +1,5 @@
 """Skill compiler: execute CanonicalPlan skill-by-skill through a gymnasium env."""
+
 from __future__ import annotations
 
 from typing import Any, Protocol
@@ -85,11 +86,7 @@ class SkillCompiler:
 
         # Reset env
         obs, info = env.reset()
-        current_obs = (
-            np.array(obs, dtype=np.float32)
-            if not isinstance(obs, np.ndarray)
-            else obs
-        )
+        current_obs = np.array(obs, dtype=np.float32) if not isinstance(obs, np.ndarray) else obs
 
         # Current joint positions (from obs or zeros)
         current_joints = self._extract_joint_positions(current_obs, info)
@@ -128,29 +125,17 @@ class SkillCompiler:
             Tuple of (new_steps, obs, joints, terminated, truncated, info).
         """
         if skill.name == "move_to":
-            return self._exec_move_to(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_move_to(skill, env, current_obs, current_joints, all_steps)
         elif skill.name == "move_linear":
-            return self._exec_move_linear(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_move_linear(skill, env, current_obs, current_joints, all_steps)
         elif skill.name == "set_gripper":
-            return self._exec_set_gripper(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_set_gripper(skill, env, current_obs, current_joints, all_steps)
         elif skill.name == "move_relative":
-            return self._exec_move_relative(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_move_relative(skill, env, current_obs, current_joints, all_steps)
         elif skill.name == "move_joints":
-            return self._exec_move_joints(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_move_joints(skill, env, current_obs, current_joints, all_steps)
         elif skill.name == "wait":
-            return self._exec_wait(
-                skill, env, current_obs, current_joints, all_steps
-            )
+            return self._exec_wait(skill, env, current_obs, current_joints, all_steps)
         else:
             # Unsupported skill -- treat as wait(1)
             return self._exec_wait(
@@ -214,7 +199,7 @@ class SkillCompiler:
         current_joints = joints.copy()
         current_obs = obs
 
-        for step_i in range(n_steps):
+        for _step_i in range(n_steps):
             if terminated or truncated:
                 break
 
@@ -225,10 +210,7 @@ class SkillCompiler:
                 # Use body_poses from info to get current EE position
                 body_poses = info.get("body_poses", {}) if info else {}
                 ee_pose = body_poses.get("end_effector", None)
-                if ee_pose and len(ee_pose) >= 3:
-                    current_ee = np.array(ee_pose[:3])
-                else:
-                    current_ee = np.zeros(3)
+                current_ee = np.array(ee_pose[:3]) if ee_pose and len(ee_pose) >= 3 else np.zeros(3)
                 waypoint = current_ee + direction * distance * (1.0 / n_steps)
                 ik_result = self.ik_solver.solve(waypoint, current_joints)
                 target_joints = ik_result.joint_angles
@@ -244,12 +226,8 @@ class SkillCompiler:
             )
 
             trace_step = TraceStep(
-                obs=current_obs.tolist()
-                if hasattr(current_obs, "tolist")
-                else list(current_obs),
-                action=action.tolist()
-                if hasattr(action, "tolist")
-                else list(action),
+                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
+                action=action.tolist() if hasattr(action, "tolist") else list(action),
                 next_obs=next_obs_arr.tolist()
                 if hasattr(next_obs_arr, "tolist")
                 else list(next_obs_arr),
@@ -333,12 +311,8 @@ class SkillCompiler:
             )
 
             trace_step = TraceStep(
-                obs=current_obs.tolist()
-                if hasattr(current_obs, "tolist")
-                else list(current_obs),
-                action=action.tolist()
-                if hasattr(action, "tolist")
-                else list(action),
+                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
+                action=action.tolist() if hasattr(action, "tolist") else list(action),
                 next_obs=next_obs_arr.tolist()
                 if hasattr(next_obs_arr, "tolist")
                 else list(next_obs_arr),
@@ -379,12 +353,8 @@ class SkillCompiler:
             )
 
             trace_step = TraceStep(
-                obs=current_obs.tolist()
-                if hasattr(current_obs, "tolist")
-                else list(current_obs),
-                action=action.tolist()
-                if hasattr(action, "tolist")
-                else list(action),
+                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
+                action=action.tolist() if hasattr(action, "tolist") else list(action),
                 next_obs=next_obs_arr.tolist()
                 if hasattr(next_obs_arr, "tolist")
                 else list(next_obs_arr),
@@ -437,12 +407,8 @@ class SkillCompiler:
             )
 
             trace_step = TraceStep(
-                obs=current_obs.tolist()
-                if hasattr(current_obs, "tolist")
-                else list(current_obs),
-                action=action.tolist()
-                if hasattr(action, "tolist")
-                else list(action),
+                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
+                action=action.tolist() if hasattr(action, "tolist") else list(action),
                 next_obs=next_obs_arr.tolist()
                 if hasattr(next_obs_arr, "tolist")
                 else list(next_obs_arr),
@@ -479,13 +445,9 @@ class SkillCompiler:
         elif guard.type == "distance":
             body_poses = info.get("body_poses", {})
             ee_pose = body_poses.get("end_effector", [])
-            target_pose = (
-                body_poses.get(guard.from_body, []) if guard.from_body else []
-            )
+            target_pose = body_poses.get(guard.from_body, []) if guard.from_body else []
             if len(ee_pose) >= 3 and len(target_pose) >= 3:
-                dist = np.linalg.norm(
-                    np.array(ee_pose[:3]) - np.array(target_pose[:3])
-                )
+                dist = np.linalg.norm(np.array(ee_pose[:3]) - np.array(target_pose[:3]))
                 if guard.threshold is not None and dist <= guard.threshold:
                     return True
         elif guard.type == "timeout":
@@ -499,9 +461,7 @@ class SkillCompiler:
             jp = info.get("joint_positions")
             if jp is not None:
                 if isinstance(jp, dict):
-                    return np.array(
-                        [jp.get(name, 0.0) for name in self.joint_names]
-                    )
+                    return np.array([jp.get(name, 0.0) for name in self.joint_names])
                 return np.array(jp, dtype=float)
         # JointStateSensor produces interleaved [pos0, vel0, pos1, vel1, ...]
         # so obs length = 2 * n_joints. If obs is shorter (e.g. mock env),

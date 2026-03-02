@@ -63,16 +63,20 @@ def make_arm_pick_env(
     if ee_indices is None:
         ee_indices = [0, 1, 2]
 
-    reward_fn = CompositeReward([
-        (DistanceReward(object_indices, goal_indices), 1.0),
-        (DistanceReward(ee_indices, object_indices), 0.5),
-        (ActionPenaltyReward(scale=action_penalty), 1.0),
-    ])
+    reward_fn = CompositeReward(
+        [
+            (DistanceReward(object_indices, goal_indices), 1.0),
+            (DistanceReward(ee_indices, object_indices), 0.5),
+            (ActionPenaltyReward(scale=action_penalty), 1.0),
+        ]
+    )
 
-    termination_fn = CompositeTermination([
-        SuccessTermination(object_indices, goal_indices, success_threshold),
-        TimeoutTermination(max_steps),
-    ])
+    termination_fn = CompositeTermination(
+        [
+            SuccessTermination(object_indices, goal_indices, success_threshold),
+            TimeoutTermination(max_steps),
+        ]
+    )
 
     return ClankerGymnasiumEnv(
         host=host,

@@ -257,11 +257,20 @@ class TestSceneSpec:
     def test_nested_objects(self):
         objects = [
             _make_object_spec(name="cube", position=[0.2, 0.0, 0.8]),
-            _make_object_spec(name="bin", shape="cylinder", position=[-0.2, 0.1, 0.75],
-                              is_container=True, is_static=True),
-            _make_object_spec(name="sphere", shape="sphere",
-                              shape_params={"radius": 0.03},
-                              position=[0.1, -0.1, 0.8], is_graspable=True),
+            _make_object_spec(
+                name="bin",
+                shape="cylinder",
+                position=[-0.2, 0.1, 0.75],
+                is_container=True,
+                is_static=True,
+            ),
+            _make_object_spec(
+                name="sphere",
+                shape="sphere",
+                shape_params={"radius": 0.03},
+                position=[0.1, -0.1, 0.8],
+                is_graspable=True,
+            ),
         ]
         scene = _make_scene_spec(objects=objects)
         assert len(scene.objects) == 3
@@ -789,16 +798,29 @@ class TestSceneSpecNested:
         scene = _make_scene_spec(
             scene_id="integration_scene",
             objects=[
-                _make_object_spec(name="table", shape="box",
-                                  shape_params={"half_extents": [0.4, 0.3, 0.02]},
-                                  position=[0.0, 0.0, 0.74], is_static=True),
-                _make_object_spec(name="red_cube", shape="box",
-                                  shape_params={"half_extents": [0.025, 0.025, 0.025]},
-                                  position=[0.2, 0.0, 0.79], is_graspable=True, mass=0.05),
-                _make_object_spec(name="bin", shape="cylinder",
-                                  shape_params={"radius": 0.1, "height": 0.12},
-                                  position=[-0.2, 0.1, 0.8], is_container=True,
-                                  is_static=True),
+                _make_object_spec(
+                    name="table",
+                    shape="box",
+                    shape_params={"half_extents": [0.4, 0.3, 0.02]},
+                    position=[0.0, 0.0, 0.74],
+                    is_static=True,
+                ),
+                _make_object_spec(
+                    name="red_cube",
+                    shape="box",
+                    shape_params={"half_extents": [0.025, 0.025, 0.025]},
+                    position=[0.2, 0.0, 0.79],
+                    is_graspable=True,
+                    mass=0.05,
+                ),
+                _make_object_spec(
+                    name="bin",
+                    shape="cylinder",
+                    shape_params={"radius": 0.1, "height": 0.12},
+                    position=[-0.2, 0.1, 0.8],
+                    is_container=True,
+                    is_static=True,
+                ),
             ],
         )
         assert len(scene.objects) == 3
@@ -949,15 +971,17 @@ class TestExecutionTraceIntegration:
     def test_multi_step_trace(self):
         steps = []
         for i in range(50):
-            steps.append(TraceStep(
-                obs=[float(i), float(i) * 0.1, 0.5],
-                action=[0.1, -0.05],
-                next_obs=[float(i) + 0.02, float(i) * 0.1 + 0.01, 0.5],
-                reward=-0.5 + i * 0.01,
-                terminated=(i == 49),
-                truncated=False,
-                info={"step": i},
-            ))
+            steps.append(
+                TraceStep(
+                    obs=[float(i), float(i) * 0.1, 0.5],
+                    action=[0.1, -0.05],
+                    next_obs=[float(i) + 0.02, float(i) * 0.1 + 0.01, 0.5],
+                    reward=-0.5 + i * 0.01,
+                    terminated=(i == 49),
+                    truncated=False,
+                    info={"step": i},
+                )
+            )
         trace = ExecutionTrace(
             plan_id="trace_integration",
             steps=steps,

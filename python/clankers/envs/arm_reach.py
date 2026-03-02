@@ -57,15 +57,19 @@ def make_arm_reach_env(
     if goal_indices is None:
         goal_indices = [6, 7, 8]
 
-    reward_fn = CompositeReward([
-        (DistanceReward(ee_indices, goal_indices), 1.0),
-        (ActionPenaltyReward(scale=action_penalty), 1.0),
-    ])
+    reward_fn = CompositeReward(
+        [
+            (DistanceReward(ee_indices, goal_indices), 1.0),
+            (ActionPenaltyReward(scale=action_penalty), 1.0),
+        ]
+    )
 
-    termination_fn = CompositeTermination([
-        SuccessTermination(ee_indices, goal_indices, success_threshold),
-        TimeoutTermination(max_steps),
-    ])
+    termination_fn = CompositeTermination(
+        [
+            SuccessTermination(ee_indices, goal_indices, success_threshold),
+            TimeoutTermination(max_steps),
+        ]
+    )
 
     return ClankerGymnasiumEnv(
         host=host,

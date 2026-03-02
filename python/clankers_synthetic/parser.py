@@ -1,4 +1,5 @@
 """Strict plan parser and canonicalization for LLM-proposed skill plans."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,14 +13,16 @@ from clankers_synthetic.specs import (
 )
 
 # Valid skill names (exhaustive vocabulary from spec section 5.2)
-VALID_SKILLS = frozenset({
-    "move_to",
-    "move_linear",
-    "move_relative",
-    "set_gripper",
-    "wait",
-    "move_joints",
-})
+VALID_SKILLS = frozenset(
+    {
+        "move_to",
+        "move_linear",
+        "move_relative",
+        "set_gripper",
+        "wait",
+        "move_joints",
+    }
+)
 
 # Required params per skill
 REQUIRED_PARAMS: dict[str, set[str]] = {
@@ -51,9 +54,7 @@ class PlanParser:
     def __init__(self, max_gripper_width: float = 0.08) -> None:
         self.max_gripper_width = max_gripper_width
 
-    def parse(
-        self, raw: dict, scene: SceneSpec
-    ) -> CanonicalPlan | PlanRejection:
+    def parse(self, raw: dict, scene: SceneSpec) -> CanonicalPlan | PlanRejection:
         """Parse and validate a raw LLM plan dict against the scene.
 
         Args:
@@ -102,9 +103,7 @@ class PlanParser:
             # Check required params
             missing = REQUIRED_PARAMS.get(name, set()) - set(params.keys())
             if missing:
-                errors.append(
-                    f"Skill {i} ({name}): missing required params: {missing}"
-                )
+                errors.append(f"Skill {i} ({name}): missing required params: {missing}")
                 error_codes.append("MISSING_PARAMS")
                 continue
 
@@ -115,18 +114,14 @@ class PlanParser:
             resolved_params: dict = {}
 
             if name == "move_to":
-                target_pos, orient, errs = self._resolve_move_to(
-                    params, scene, object_names, i
-                )
+                target_pos, orient, errs = self._resolve_move_to(params, scene, object_names, i)
                 errors.extend(errs)
                 if errs:
                     error_codes.extend(["INVALID_TARGET"] * len(errs))
                     continue
                 target_orient = orient
                 resolved_params = {
-                    k: v
-                    for k, v in params.items()
-                    if k not in ("target", "orientation")
+                    k: v for k, v in params.items() if k not in ("target", "orientation")
                 }
 
             elif name == "move_linear":
@@ -137,9 +132,7 @@ class PlanParser:
                     error_codes.append("INVALID_PARAMS")
                     continue
                 if not isinstance(distance, (int, float)) or distance <= 0:
-                    errors.append(
-                        f"Skill {i}: distance must be positive number"
-                    )
+                    errors.append(f"Skill {i}: distance must be positive number")
                     error_codes.append("INVALID_PARAMS")
                     continue
                 # Normalize direction vector
@@ -192,9 +185,7 @@ class PlanParser:
             elif name == "wait":
                 steps = params.get("steps")
                 if not isinstance(steps, int) or steps <= 0:
-                    errors.append(
-                        f"Skill {i}: steps must be positive integer"
-                    )
+                    errors.append(f"Skill {i}: steps must be positive integer")
                     error_codes.append("INVALID_PARAMS")
                     continue
                 resolved_params = {"steps": steps}
@@ -208,19 +199,10 @@ class PlanParser:
                 resolved_params = {"targets": targets}
 
             # Validate speed_fraction if present
-            sf = resolved_params.get(
-                "speed_fraction", params.get("speed_fraction")
-            )
+            sf = resolved_params.get("speed_fraction", params.get("speed_fraction"))
             if sf is not None:
-                if (
-                    not isinstance(sf, (int, float))
-                    or sf < 0.0
-                    or sf > 1.0
-                ):
-                    errors.append(
-                        f"Skill {i}: speed_fraction must be in [0.0, 1.0],"
-                        f" got {sf}"
-                    )
+                if not isinstance(sf, (int, float)) or sf < 0.0 or sf > 1.0:
+                    errors.append(f"Skill {i}: speed_fraction must be in [0.0, 1.0], got {sf}")
                     error_codes.append("OUT_OF_RANGE")
                     continue
                 resolved_params["speed_fraction"] = float(sf)
@@ -237,9 +219,7 @@ class PlanParser:
             guard_raw = params.get("guard")
             if guard_raw and isinstance(guard_raw, dict):
                 prev_error_count = len(errors)
-                guard = self._parse_guard(
-                    guard_raw, object_names, i, errors, error_codes
-                )
+                guard = self._parse_guard(guard_raw, object_names, i, errors, error_codes)
                 if len(errors) > prev_error_count:
                     continue
 
@@ -318,13 +298,12 @@ class PlanParser:
             bounds_min = scene.constraints.workspace_bounds_min
             bounds_max = scene.constraints.workspace_bounds_max
             for dim, (val, lo, hi) in enumerate(
-                zip(world_pos, bounds_min, bounds_max)
+                zip(world_pos, bounds_min, bounds_max, strict=False)
             ):
                 if val < lo or val > hi:
                     axis = "XYZ"[dim]
                     errors.append(
-                        f"Skill {skill_idx}: target {axis}={val} outside "
-                        f"workspace [{lo}, {hi}]"
+                        f"Skill {skill_idx}: target {axis}={val} outside workspace [{lo}, {hi}]"
                     )
 
         # Parse orientation if present
@@ -337,10 +316,7 @@ class PlanParser:
                 q = np.array(quat, dtype=float)
                 norm = np.linalg.norm(q)
                 if norm < 0.9 or norm > 1.1:
-                    errors.append(
-                        f"Skill {skill_idx}: quaternion norm {norm:.3f}"
-                        f" too far from 1.0"
-                    )
+                    errors.append(f"Skill {skill_idx}: quaternion norm {norm:.3f} too far from 1.0")
                 else:
                     orient = (q / norm).tolist()
 
@@ -357,18 +333,14 @@ class PlanParser:
         """Parse a guard condition dict."""
         guard_type = guard_raw.get("type")
         if guard_type not in ("contact", "distance", "timeout"):
-            errors.append(
-                f"Skill {skill_idx}: unknown guard type '{guard_type}'"
-            )
+            errors.append(f"Skill {skill_idx}: unknown guard type '{guard_type}'")
             error_codes.append("INVALID_GUARD")
             return None
 
         if guard_type == "contact":
             body = guard_raw.get("body")
             if body and body not in object_names:
-                errors.append(
-                    f"Skill {skill_idx}: guard body '{body}' not in scene"
-                )
+                errors.append(f"Skill {skill_idx}: guard body '{body}' not in scene")
                 error_codes.append("UNKNOWN_OBJECT")
                 return None
             return GuardCondition(
@@ -379,9 +351,7 @@ class PlanParser:
         elif guard_type == "distance":
             from_body = guard_raw.get("from")
             if from_body and from_body not in object_names:
-                errors.append(
-                    f"Skill {skill_idx}: guard from '{from_body}' not in scene"
-                )
+                errors.append(f"Skill {skill_idx}: guard from '{from_body}' not in scene")
                 error_codes.append("UNKNOWN_OBJECT")
                 return None
             return GuardCondition(

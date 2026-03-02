@@ -228,10 +228,7 @@ def _build_dataset(
             positions_list.append(all_pos[i])
             if include_velocities:
                 # vel_t = (pos_{t+1} - pos_t) / dt
-                vel = [
-                    (all_pos[i + 1][j] - all_pos[i][j]) / control_dt
-                    for j in range(n_joints)
-                ]
+                vel = [(all_pos[i + 1][j] - all_pos[i][j]) / control_dt for j in range(n_joints)]
                 targets_list.append(vel)
             else:
                 targets_list.append(all_pos[i + 1])

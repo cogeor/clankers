@@ -1,4 +1,5 @@
 """OpenAI API client wrapper with retry, timeout, and provenance metadata."""
+
 from __future__ import annotations
 
 import hashlib
@@ -109,13 +110,9 @@ class OpenAIClient:
                     try:
                         content = json.loads(content_str)
                     except json.JSONDecodeError as e:
-                        raise OpenAIClientError(
-                            f"LLM returned non-JSON response: {e}"
-                        ) from e
+                        raise OpenAIClientError(f"LLM returned non-JSON response: {e}") from e
 
-                    response_hash = hashlib.sha256(
-                        content_str.encode()
-                    ).hexdigest()[:16]
+                    response_hash = hashlib.sha256(content_str.encode()).hexdigest()[:16]
 
                     provenance = {
                         "model": response.model,

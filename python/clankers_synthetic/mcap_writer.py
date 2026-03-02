@@ -41,9 +41,7 @@ def episode_to_mcap(
     try:
         from mcap.writer import Writer
     except ImportError as exc:
-        raise ImportError(
-            "mcap package not installed. Install with: pip install mcap"
-        ) from exc
+        raise ImportError("mcap package not installed. Install with: pip install mcap") from exc
 
     with open(episode_path) as f:
         episode = json.load(f)
@@ -73,40 +71,46 @@ def episode_to_mcap(
         joint_schema_id = writer.register_schema(
             name="clankers.JointFrame",
             encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "timestamp_ns": {"type": "integer"},
-                    "names": {"type": "array", "items": {"type": "string"}},
-                    "positions": {"type": "array", "items": {"type": "number"}},
-                    "velocities": {"type": "array", "items": {"type": "number"}},
-                    "torques": {"type": "array", "items": {"type": "number"}},
-                },
-            }).encode(),
+            data=json.dumps(
+                {
+                    "type": "object",
+                    "properties": {
+                        "timestamp_ns": {"type": "integer"},
+                        "names": {"type": "array", "items": {"type": "string"}},
+                        "positions": {"type": "array", "items": {"type": "number"}},
+                        "velocities": {"type": "array", "items": {"type": "number"}},
+                        "torques": {"type": "array", "items": {"type": "number"}},
+                    },
+                }
+            ).encode(),
         )
 
         action_schema_id = writer.register_schema(
             name="clankers.ActionFrame",
             encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "timestamp_ns": {"type": "integer"},
-                    "data": {"type": "array", "items": {"type": "number"}},
-                },
-            }).encode(),
+            data=json.dumps(
+                {
+                    "type": "object",
+                    "properties": {
+                        "timestamp_ns": {"type": "integer"},
+                        "data": {"type": "array", "items": {"type": "number"}},
+                    },
+                }
+            ).encode(),
         )
 
         reward_schema_id = writer.register_schema(
             name="clankers.RewardFrame",
             encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "timestamp_ns": {"type": "integer"},
-                    "reward": {"type": "number"},
-                },
-            }).encode(),
+            data=json.dumps(
+                {
+                    "type": "object",
+                    "properties": {
+                        "timestamp_ns": {"type": "integer"},
+                        "reward": {"type": "number"},
+                    },
+                }
+            ).encode(),
         )
 
         # Register channels
@@ -189,7 +193,9 @@ def main():
     """CLI entry point."""
     if len(sys.argv) < 3:
         print("Usage: python -m clankers_synthetic.mcap_writer <episode.json> <output.mcap>")
-        print("       python -m clankers_synthetic.mcap_writer <episode.json> <output.mcap> --dt 0.02")
+        print(
+            "       python -m clankers_synthetic.mcap_writer <episode.json> <output.mcap> --dt 0.02"
+        )
         sys.exit(1)
 
     episode_path = sys.argv[1]

@@ -1,4 +1,5 @@
 """Command-line interface for clankers_synthetic."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,12 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="gpt-5", help="LLM model name")
     parser.add_argument("--temperature", type=float, default=0.3, help="LLM temperature")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument(
-        "--max-refine-iters", type=int, default=3, help="Max refinement iterations"
-    )
-    parser.add_argument(
-        "--api-key", default=None, help="OpenAI API key (or set OPENAI_API_KEY)"
-    )
+    parser.add_argument("--max-refine-iters", type=int, default=3, help="Max refinement iterations")
+    parser.add_argument("--api-key", default=None, help="OpenAI API key (or set OPENAI_API_KEY)")
 
     args = parser.parse_args(argv)
 

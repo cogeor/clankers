@@ -7,9 +7,8 @@ No gym server required — uses synthetic trace data.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -30,19 +29,21 @@ def _make_trace(n_steps: int = 50, n_joints: int = 6, dt: float = 0.02) -> dict:
         vel = [0.1 * (j + 1) * np.cos(phase * (j + 1)) for j in range(n_joints)]
         # Interleaved obs: [pos0, vel0, pos1, vel1, ...]
         obs = []
-        for p, v in zip(pos, vel):
+        for p, v in zip(pos, vel, strict=True):
             obs.extend([p, v])
         # Action = target position (same as next step's position in smooth motion)
         action = [0.1 * np.sin((phase + dt) * (j + 1)) for j in range(n_joints)]
-        steps.append({
-            "obs": obs,
-            "action": action,
-            "next_obs": obs,  # simplified
-            "reward": 0.0,
-            "terminated": False,
-            "truncated": False,
-            "info": {},
-        })
+        steps.append(
+            {
+                "obs": obs,
+                "action": action,
+                "next_obs": obs,  # simplified
+                "reward": 0.0,
+                "terminated": False,
+                "truncated": False,
+                "info": {},
+            }
+        )
     return {"plan_id": "test_trace", "steps": steps}
 
 
@@ -84,17 +85,17 @@ class TestTraceToDataset:
     """Test: trace JSON → TrajectoryDataset loading."""
 
     def test_position_mode_shape(self, trace_file: Path):
-        ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES
-        )
+        ds = TrajectoryDataset.from_trace_file(trace_file, joint_names=JOINT_NAMES)
         assert len(ds) == 49  # 50 steps → 49 consecutive pairs
         assert ds.input_dim == 6
         assert ds.target_dim == 6
 
     def test_velocity_mode_shape(self, trace_file: Path):
         ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
-            include_velocities=True, control_dt=0.02,
+            trace_file,
+            joint_names=JOINT_NAMES,
+            include_velocities=True,
+            control_dt=0.02,
         )
         assert len(ds) == 49
         pos, vel = ds[0]
@@ -103,11 +104,14 @@ class TestTraceToDataset:
 
     def test_velocity_values_correct(self, trace_file: Path):
         ds_pos = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
+            trace_file,
+            joint_names=JOINT_NAMES,
         )
         ds_vel = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
-            include_velocities=True, control_dt=0.02,
+            trace_file,
+            joint_names=JOINT_NAMES,
+            include_velocities=True,
+            control_dt=0.02,
         )
         # vel = (pos_{t+1} - pos_t) / dt
         pos_t, pos_next = ds_pos[0]
@@ -117,7 +121,8 @@ class TestTraceToDataset:
 
     def test_action_mode_shape(self, trace_file: Path):
         ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
+            trace_file,
+            joint_names=JOINT_NAMES,
             include_actions=True,
         )
         assert len(ds) == 50  # action mode: one per step
@@ -125,16 +130,19 @@ class TestTraceToDataset:
 
     def test_dataset_dir_loading(self, dataset_dir: Path):
         ds = TrajectoryDataset.from_dataset_dir(
-            dataset_dir, joint_names=JOINT_NAMES,
+            dataset_dir,
+            joint_names=JOINT_NAMES,
         )
-        # 3 episodes × 30 steps concatenated = 90 total steps → 89 pairs
+        # 3 episodes x 30 steps concatenated = 90 total steps -> 89 pairs
         assert len(ds) == 89
 
     def test_mutual_exclusivity(self, trace_file: Path):
         with pytest.raises(ValueError, match="mutually exclusive"):
             TrajectoryDataset.from_trace_file(
-                trace_file, joint_names=JOINT_NAMES,
-                include_actions=True, include_velocities=True,
+                trace_file,
+                joint_names=JOINT_NAMES,
+                include_actions=True,
+                include_velocities=True,
             )
 
 
@@ -144,9 +152,7 @@ class TestTrainAndExport:
     def test_train_position_mode(self, trace_file: Path):
         from train_joint_bc import JointMLP, train
 
-        ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES
-        )
+        ds = TrajectoryDataset.from_trace_file(trace_file, joint_names=JOINT_NAMES)
         model = JointMLP(input_dim=ds.input_dim, output_dim=ds.target_dim, hidden=32)
         trained = train(ds, model, epochs=5, batch_size=16)
 
@@ -160,8 +166,10 @@ class TestTrainAndExport:
         from train_joint_bc import JointMLP, train
 
         ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
-            include_velocities=True, control_dt=0.02,
+            trace_file,
+            joint_names=JOINT_NAMES,
+            include_velocities=True,
+            control_dt=0.02,
         )
         model = JointMLP(input_dim=ds.input_dim, output_dim=ds.target_dim, hidden=32)
         trained = train(ds, model, epochs=5, batch_size=16)
@@ -174,9 +182,7 @@ class TestTrainAndExport:
     def test_onnx_export_and_reload(self, trace_file: Path, tmp_path: Path):
         from train_joint_bc import JointMLP, export_onnx, train
 
-        ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES
-        )
+        ds = TrajectoryDataset.from_trace_file(trace_file, joint_names=JOINT_NAMES)
         model = JointMLP(input_dim=ds.input_dim, output_dim=ds.target_dim, hidden=32)
         trained = train(ds, model, epochs=5, batch_size=16)
 
@@ -204,8 +210,10 @@ class TestTrainAndExport:
         from train_joint_bc import JointMLP, export_onnx, train
 
         ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES,
-            include_velocities=True, control_dt=0.02,
+            trace_file,
+            joint_names=JOINT_NAMES,
+            include_velocities=True,
+            control_dt=0.02,
         )
         model = JointMLP(input_dim=ds.input_dim, output_dim=ds.target_dim, hidden=32)
         trained = train(ds, model, epochs=3, batch_size=16)
@@ -226,9 +234,7 @@ class TestEncoderRoundTrip:
     def test_encoder_in_onnx(self, trace_file: Path, tmp_path: Path):
         from train_joint_bc import JointMLP, export_onnx, train
 
-        ds = TrajectoryDataset.from_trace_file(
-            trace_file, joint_names=JOINT_NAMES
-        )
+        ds = TrajectoryDataset.from_trace_file(trace_file, joint_names=JOINT_NAMES)
         model = JointMLP(input_dim=ds.input_dim, output_dim=ds.target_dim, hidden=32)
         trained = train(ds, model, epochs=3, batch_size=16)
 
@@ -309,17 +315,17 @@ class TestFullJointVelocity:
     """Test: 8-joint (arm + gripper) velocity pipeline end-to-end."""
 
     def test_dataset_8joint_shape(self, trace_file_8: Path):
-        ds = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8
-        )
+        ds = TrajectoryDataset.from_trace_file(trace_file_8, joint_names=JOINT_NAMES_8)
         assert ds.input_dim == 8
         assert ds.target_dim == 8
         assert len(ds) == 49
 
     def test_velocity_dataset_8joint(self, trace_file_8: Path):
         ds = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8,
-            include_velocities=True, control_dt=0.02,
+            trace_file_8,
+            joint_names=JOINT_NAMES_8,
+            include_velocities=True,
+            control_dt=0.02,
         )
         assert ds.input_dim == 8
         assert ds.target_dim == 8
@@ -329,11 +335,14 @@ class TestFullJointVelocity:
 
     def test_velocity_values_8joint(self, trace_file_8: Path):
         ds_pos = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8,
+            trace_file_8,
+            joint_names=JOINT_NAMES_8,
         )
         ds_vel = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8,
-            include_velocities=True, control_dt=0.02,
+            trace_file_8,
+            joint_names=JOINT_NAMES_8,
+            include_velocities=True,
+            control_dt=0.02,
         )
         pos_t, pos_next = ds_pos[0]
         _, vel_t = ds_vel[0]
@@ -344,8 +353,10 @@ class TestFullJointVelocity:
         from train_joint_bc import JointMLP, export_onnx, train
 
         ds = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8,
-            include_velocities=True, control_dt=0.02,
+            trace_file_8,
+            joint_names=JOINT_NAMES_8,
+            include_velocities=True,
+            control_dt=0.02,
         )
         assert ds.input_dim == 8
         assert ds.target_dim == 8
@@ -380,8 +391,10 @@ class TestFullJointVelocity:
         from train_joint_bc import JointMLP, export_onnx, train
 
         ds = TrajectoryDataset.from_trace_file(
-            trace_file_8, joint_names=JOINT_NAMES_8,
-            include_velocities=True, control_dt=0.02,
+            trace_file_8,
+            joint_names=JOINT_NAMES_8,
+            include_velocities=True,
+            control_dt=0.02,
         )
         model = JointMLP(input_dim=8, output_dim=8, hidden=32)
         trained = train(ds, model, epochs=3, batch_size=16)

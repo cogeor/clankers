@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.planner module."""
+
 from __future__ import annotations
 
 import json
@@ -80,9 +81,7 @@ def _make_mock_client(n_results: int = 1) -> MagicMock:
                     "rationale": f"Test plan {i}",
                     "assumptions": [],
                     "uncertainty_flags": [],
-                    "skills": [
-                        {"name": "move_to", "params": {"speed_fraction": 0.5}}
-                    ],
+                    "skills": [{"name": "move_to", "params": {"speed_fraction": 0.5}}],
                 },
                 "provenance": {
                     "model": "gpt-5",
@@ -187,9 +186,7 @@ class TestPromptAssemblerWithFewShot:
             "skills": [{"name": "move_to", "params": {"speed_fraction": 0.5}}],
         }
 
-        assembler = PromptAssembler(
-            few_shot_examples=[(example_scene, example_task, example_plan)]
-        )
+        assembler = PromptAssembler(few_shot_examples=[(example_scene, example_task, example_plan)])
         scene = _make_scene_spec()
         task = _make_task_spec()
         request = assembler.assemble(scene, task)
@@ -269,7 +266,7 @@ class TestLLMPlannerProposeReturnsCandidates:
         scene = _make_scene_spec()
         task = _make_task_spec()
 
-        results = planner.propose(scene, task, n_candidates=2)
+        planner.propose(scene, task, n_candidates=2)
 
         # The client was called; verify n=2 was passed
         call_kwargs = mock_client.request_json.call_args
@@ -292,9 +289,7 @@ class TestLLMPlannerProposePassesModelAndTemp:
 
     def test_model_and_temperature_in_assembled_request(self) -> None:
         mock_client = _make_mock_client(n_results=1)
-        planner = LLMPlanner(
-            client=mock_client, model="gpt-5-turbo", temperature=0.7
-        )
+        planner = LLMPlanner(client=mock_client, model="gpt-5-turbo", temperature=0.7)
         scene = _make_scene_spec()
         task = _make_task_spec()
 
@@ -444,9 +439,7 @@ class TestLLMRequestStructure:
         scene = _make_scene_spec()
         task = _make_task_spec()
 
-        request = assembler.assemble(
-            scene, task, model="gpt-5", temperature=0.3, max_tokens=4096
-        )
+        request = assembler.assemble(scene, task, model="gpt-5", temperature=0.3, max_tokens=4096)
 
         assert isinstance(request, LLMRequest)
         assert request.model == "gpt-5"

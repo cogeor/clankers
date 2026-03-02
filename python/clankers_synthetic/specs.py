@@ -82,9 +82,7 @@ class SceneSpec(BaseModel):
     """Complete scene description consumed by the LLM prompt assembler."""
 
     scene_id: str
-    units: dict = Field(
-        default_factory=lambda: {"length": "m", "angle": "rad", "time": "s"}
-    )
+    units: dict = Field(default_factory=lambda: {"length": "m", "angle": "rad", "time": "s"})
     simulation: SimulationSpec
     robot: RobotSpec
     objects: list[ObjectSpec]

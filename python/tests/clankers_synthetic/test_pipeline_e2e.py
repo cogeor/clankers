@@ -2,6 +2,7 @@
 
 All LLM calls and env interactions are mocked -- no live API, no live sim.
 """
+
 from __future__ import annotations
 
 import json
@@ -367,16 +368,22 @@ class TestGenerateDataset:
 
         out1 = str(tmp_path / "ds1")
         m1 = generate_dataset(
-            scene=scene, task=task, output_dir=out1,
+            scene=scene,
+            task=task,
+            output_dir=out1,
             env_factory=lambda: MockEnv(n_steps_before_success=3),
-            n_plans=1, seed=42,
+            n_plans=1,
+            seed=42,
         )
 
         out2 = str(tmp_path / "ds2")
         m2 = generate_dataset(
-            scene=scene, task=task, output_dir=out2,
+            scene=scene,
+            task=task,
+            output_dir=out2,
             env_factory=lambda: MockEnv(n_steps_before_success=3),
-            n_plans=1, seed=42,
+            n_plans=1,
+            seed=42,
         )
 
         assert m1.scene_spec_hash == m2.scene_spec_hash
@@ -433,17 +440,28 @@ class TestCLI:
         parser.add_argument("--max-refine-iters", type=int, default=3)
         parser.add_argument("--api-key", default=None)
 
-        args = parser.parse_args([
-            "--scene", "scene.json",
-            "--task", "task.json",
-            "--out", "/tmp/dataset",
-            "--n-plans", "5",
-            "--model", "gpt-4o",
-            "--temperature", "0.7",
-            "--seed", "99",
-            "--max-refine-iters", "2",
-            "--api-key", "sk-test",
-        ])
+        args = parser.parse_args(
+            [
+                "--scene",
+                "scene.json",
+                "--task",
+                "task.json",
+                "--out",
+                "/tmp/dataset",
+                "--n-plans",
+                "5",
+                "--model",
+                "gpt-4o",
+                "--temperature",
+                "0.7",
+                "--seed",
+                "99",
+                "--max-refine-iters",
+                "2",
+                "--api-key",
+                "sk-test",
+            ]
+        )
 
         assert args.scene == "scene.json"
         assert args.task == "task.json"
@@ -489,14 +507,22 @@ class TestCLI:
             llm_model="gpt-5",
         )
 
-        result = cli_main([
-            "--scene", scene_path,
-            "--task", task_path,
-            "--out", out_dir,
-            "--n-plans", "5",
-            "--model", "gpt-5",
-            "--seed", "99",
-        ])
+        result = cli_main(
+            [
+                "--scene",
+                scene_path,
+                "--task",
+                task_path,
+                "--out",
+                out_dir,
+                "--n-plans",
+                "5",
+                "--model",
+                "gpt-5",
+                "--seed",
+                "99",
+            ]
+        )
 
         assert result == 0
         mock_generate.assert_called_once()
@@ -516,9 +542,7 @@ class TestMainModule:
         import sys
 
         # Ensure the package is importable by adding its parent to PYTHONPATH
-        package_parent = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
-        )
+        package_parent = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         env = os.environ.copy()
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = package_parent + os.pathsep + existing if existing else package_parent

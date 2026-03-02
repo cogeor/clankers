@@ -3,6 +3,7 @@
 Applies deterministic rewrite rules to failing plans, then falls back to
 LLM re-proposal if deterministic fixes don't resolve the issue.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -84,14 +85,16 @@ class PVCBRefiner:
 
             if fixed is None and self.planner is not None:
                 # LLM re-proposal fallback
-                attempt_history.append({
-                    "iteration": iteration,
-                    "plan_hash": self._plan_hash(current_plan),
-                    "failure_reason": current_report.failure_reason,
-                    "violations": [
-                        v.model_dump() for v in current_report.constraint_violations
-                    ],
-                })
+                attempt_history.append(
+                    {
+                        "iteration": iteration,
+                        "plan_hash": self._plan_hash(current_plan),
+                        "failure_reason": current_report.failure_reason,
+                        "violations": [
+                            v.model_dump() for v in current_report.constraint_violations
+                        ],
+                    }
+                )
 
                 try:
                     refined = self.planner.refine_candidate(
@@ -150,9 +153,14 @@ class PVCBRefiner:
         # Determine speed reduction factor
         reduction = 0.7 if "max_force" in violation_types else 0.8
 
-        motion_skills = frozenset({
-            "move_to", "move_linear", "move_relative", "move_joints",
-        })
+        motion_skills = frozenset(
+            {
+                "move_to",
+                "move_linear",
+                "move_relative",
+                "move_joints",
+            }
+        )
 
         new_skills = []
         for skill in plan.skills:
@@ -167,13 +175,15 @@ class PVCBRefiner:
                 wait = new_params.get("wait_settle_steps", 5)
                 new_params["wait_settle_steps"] = min(wait + 5, 50)
 
-            new_skills.append(ResolvedSkill(
-                name=skill.name,
-                target_world_position=skill.target_world_position,
-                target_orientation=skill.target_orientation,
-                params=new_params,
-                guard=skill.guard,
-            ))
+            new_skills.append(
+                ResolvedSkill(
+                    name=skill.name,
+                    target_world_position=skill.target_world_position,
+                    target_orientation=skill.target_orientation,
+                    params=new_params,
+                    guard=skill.guard,
+                )
+            )
 
         return CanonicalPlan(
             plan_id=plan.plan_id + "_refined",

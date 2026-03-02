@@ -94,27 +94,33 @@ class TestDiscrete:
 
 class TestDict:
     def test_creation(self):
-        space = Dict({
-            "obs": Box(low=[0.0], high=[1.0]),
-            "goal": Box(low=[-1.0, -1.0], high=[1.0, 1.0]),
-        })
+        space = Dict(
+            {
+                "obs": Box(low=[0.0], high=[1.0]),
+                "goal": Box(low=[-1.0, -1.0], high=[1.0, 1.0]),
+            }
+        )
         assert "obs" in space.spaces
         assert "goal" in space.spaces
         assert isinstance(space.spaces["obs"], Box)
 
     def test_creation_with_discrete(self):
-        space = Dict({
-            "continuous": Box(low=[0.0], high=[1.0]),
-            "discrete": Discrete(n=5),
-        })
+        space = Dict(
+            {
+                "continuous": Box(low=[0.0], high=[1.0]),
+                "discrete": Discrete(n=5),
+            }
+        )
         assert isinstance(space.spaces["continuous"], Box)
         assert isinstance(space.spaces["discrete"], Discrete)
 
     def test_sample(self):
-        space = Dict({
-            "obs": Box(low=[0.0, 0.0], high=[1.0, 1.0]),
-            "action": Discrete(n=3),
-        })
+        space = Dict(
+            {
+                "obs": Box(low=[0.0, 0.0], high=[1.0, 1.0]),
+                "action": Discrete(n=3),
+            }
+        )
         rng = np.random.default_rng(42)
         for _ in range(50):
             s = space.sample(rng)
@@ -129,14 +135,18 @@ class TestDict:
         assert "x" in s
 
     def test_contains_valid(self):
-        space = Dict({
-            "obs": Box(low=[0.0], high=[1.0]),
-            "goal": Box(low=[0.0], high=[1.0]),
-        })
-        assert space.contains({
-            "obs": np.array([0.5], dtype=np.float32),
-            "goal": np.array([0.8], dtype=np.float32),
-        })
+        space = Dict(
+            {
+                "obs": Box(low=[0.0], high=[1.0]),
+                "goal": Box(low=[0.0], high=[1.0]),
+            }
+        )
+        assert space.contains(
+            {
+                "obs": np.array([0.5], dtype=np.float32),
+                "goal": np.array([0.8], dtype=np.float32),
+            }
+        )
 
     def test_contains_invalid_type(self):
         space = Dict({"obs": Box(low=[0.0], high=[1.0])})
@@ -147,18 +157,22 @@ class TestDict:
         assert not space.contains({"wrong_key": np.array([0.5])})
 
     def test_contains_missing_key(self):
-        space = Dict({
-            "obs": Box(low=[0.0], high=[1.0]),
-            "goal": Box(low=[0.0], high=[1.0]),
-        })
+        space = Dict(
+            {
+                "obs": Box(low=[0.0], high=[1.0]),
+                "goal": Box(low=[0.0], high=[1.0]),
+            }
+        )
         assert not space.contains({"obs": np.array([0.5])})
 
     def test_contains_extra_key(self):
         space = Dict({"obs": Box(low=[0.0], high=[1.0])})
-        assert not space.contains({
-            "obs": np.array([0.5]),
-            "extra": np.array([0.5]),
-        })
+        assert not space.contains(
+            {
+                "obs": np.array([0.5]),
+                "extra": np.array([0.5]),
+            }
+        )
 
     def test_contains_out_of_bounds(self):
         space = Dict({"obs": Box(low=[0.0], high=[1.0])})
@@ -201,12 +215,16 @@ class TestDict:
         assert isinstance(space.spaces["action"], Discrete)
 
     def test_nested_dict(self):
-        space = Dict({
-            "outer": Dict({
-                "inner": Box(low=[0.0], high=[1.0]),
-            }),
-            "flat": Discrete(n=2),
-        })
+        space = Dict(
+            {
+                "outer": Dict(
+                    {
+                        "inner": Box(low=[0.0], high=[1.0]),
+                    }
+                ),
+                "flat": Discrete(n=2),
+            }
+        )
         rng = np.random.default_rng(42)
         s = space.sample(rng)
         assert isinstance(s["outer"], dict)

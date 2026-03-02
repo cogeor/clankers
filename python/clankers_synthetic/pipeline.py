@@ -1,4 +1,5 @@
 """End-to-end synthetic dataset generation pipeline."""
+
 from __future__ import annotations
 
 import hashlib

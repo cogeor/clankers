@@ -31,17 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Batch arm pick-and-place dataset generation"
-    )
+    parser = argparse.ArgumentParser(description="Batch arm pick-and-place dataset generation")
     parser.add_argument("--host", default="127.0.0.1", help="Gym server host")
     parser.add_argument("--port", type=int, default=9880, help="Gym server port")
-    parser.add_argument(
-        "--n-episodes", type=int, default=20, help="Number of episodes to generate"
-    )
-    parser.add_argument(
-        "--output", default="output/arm_pick_batch", help="Output directory"
-    )
+    parser.add_argument("--n-episodes", type=int, default=20, help="Number of episodes to generate")
+    parser.add_argument("--output", default="output/arm_pick_batch", help="Output directory")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -83,14 +77,12 @@ def main():
     arm_joint_names = [
         name
         for name, jtype in zip(
-            scene.robot.joint_names, scene.robot.joint_types.values()
+            scene.robot.joint_names, scene.robot.joint_types.values(), strict=False
         )
         if jtype == "revolute"
     ]
     arm_joint_limits = {
-        name: limits
-        for name, limits in scene.robot.joint_limits.items()
-        if name in arm_joint_names
+        name: limits for name, limits in scene.robot.joint_limits.items() if name in arm_joint_names
     }
 
     compiler = SkillCompiler(
@@ -176,9 +168,7 @@ def main():
                 success = cube_z >= success_threshold
 
         length = len(trace.steps)
-        results.append(
-            {"episode": ep, "success": success, "cube_z": cube_z, "length": length}
-        )
+        results.append({"episode": ep, "success": success, "cube_z": cube_z, "length": length})
 
         # Save raw trace
         trace_path = os.path.join(raw_dir, f"trace_{ep:04d}.json")
@@ -209,7 +199,7 @@ def main():
     elapsed = time.time() - t_start
 
     # 5. Package dataset
-    print(f"\n[4/4] Packaging dataset...")
+    print("\n[4/4] Packaging dataset...")
     n_success = sum(1 for r in results if r["success"])
     n_total = len(results)
     success_rate = n_success / max(n_total, 1)

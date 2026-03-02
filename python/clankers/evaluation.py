@@ -3,6 +3,7 @@
 Provides ``evaluate_policy()`` for computing success rates, mean rewards,
 and optional per-component reward breakdowns using ``CompositeReward``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,8 +16,7 @@ try:
     import gymnasium
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for clankers evaluation. "
-        "Install with: pip install clankers[sb3]"
+        "gymnasium is required for clankers evaluation. Install with: pip install clankers[sb3]"
     ) from exc
 
 from clankers.rewards import CompositeReward
@@ -89,7 +89,7 @@ def evaluate_policy(
     # Per-component reward accumulators
     component_sums: dict[str, float] = {}
 
-    for ep in range(n_episodes):
+    for _ep in range(n_episodes):
         obs, info = env.reset()
         done = False
         ep_reward = 0.0
@@ -139,9 +139,7 @@ def evaluate_policy(
 
     if component_sums:
         total_steps = sum(episode_lengths)
-        result.reward_breakdown = {
-            k: v / max(total_steps, 1) for k, v in component_sums.items()
-        }
+        result.reward_breakdown = {k: v / max(total_steps, 1) for k, v in component_sums.items()}
 
     logger.info(
         "Eval: %d episodes, mean_reward=%.3f (+/-%.3f), mean_len=%.1f, success=%.1f%%",

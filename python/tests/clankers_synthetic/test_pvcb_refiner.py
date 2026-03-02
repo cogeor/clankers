@@ -1,4 +1,5 @@
 """Tests for PVCBRefiner -- deterministic rewrite rules + LLM fallback."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -144,9 +145,11 @@ class TestDeterministicFixes:
     def test_deterministic_speed_reduction_on_force(self) -> None:
         """max_force violation reduces speed_fraction by 30%."""
         plan = _make_plan(speed_fraction=0.8)
-        report = _make_report([
-            ConstraintViolation(type="max_force", step=50, details="force exceeded"),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="max_force", step=50, details="force exceeded"),
+            ]
+        )
         refiner = PVCBRefiner(max_iterations=1)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -159,11 +162,11 @@ class TestDeterministicFixes:
     def test_deterministic_speed_reduction_on_ee_speed(self) -> None:
         """soft_ee_speed violation reduces speed_fraction by 20%."""
         plan = _make_plan(speed_fraction=0.8)
-        report = _make_report([
-            ConstraintViolation(
-                type="soft_ee_speed", step=30, details="ee too fast"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="soft_ee_speed", step=30, details="ee too fast"),
+            ]
+        )
         refiner = PVCBRefiner(max_iterations=1)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -176,9 +179,11 @@ class TestDeterministicFixes:
     def test_deterministic_settle_increase_on_force(self) -> None:
         """max_force violation increases set_gripper wait_settle_steps."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(type="max_force", step=50, details="force exceeded"),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="max_force", step=50, details="force exceeded"),
+            ]
+        )
         refiner = PVCBRefiner(max_iterations=1)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -191,11 +196,11 @@ class TestDeterministicFixes:
     def test_unfixable_workspace_returns_none(self) -> None:
         """workspace_bounds violation is not fixable deterministically."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="workspace_bounds", step=10, details="out of bounds"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="workspace_bounds", step=10, details="out of bounds"),
+            ]
+        )
         refiner = PVCBRefiner(max_iterations=1)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -205,11 +210,11 @@ class TestDeterministicFixes:
     def test_unfixable_task_failure_returns_none(self) -> None:
         """task_failure violation is not fixable deterministically."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="task_failure", step=100, details="task not completed"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="task_failure", step=100, details="task not completed"),
+            ]
+        )
         refiner = PVCBRefiner(max_iterations=1)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -223,11 +228,11 @@ class TestLLMFallback:
     def test_llm_fallback_on_unfixable(self) -> None:
         """When deterministic fails, calls planner.refine_candidate."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="workspace_bounds", step=10, details="out of bounds"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="workspace_bounds", step=10, details="out of bounds"),
+            ]
+        )
         mock_planner = _mock_planner()
         refiner = PVCBRefiner(planner=mock_planner, max_iterations=1)
 
@@ -238,11 +243,11 @@ class TestLLMFallback:
     def test_llm_fallback_returns_parsed_plan(self) -> None:
         """LLM refinement returns a valid CanonicalPlan after parsing."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="workspace_bounds", step=10, details="out of bounds"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="workspace_bounds", step=10, details="out of bounds"),
+            ]
+        )
         mock_planner = _mock_planner()
         refiner = PVCBRefiner(planner=mock_planner, max_iterations=3)
 
@@ -255,11 +260,11 @@ class TestLLMFallback:
     def test_no_planner_returns_none_on_unfixable(self) -> None:
         """No LLM planner configured returns None for unfixable violations."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="task_failure", step=100, details="task failed"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="task_failure", step=100, details="task failed"),
+            ]
+        )
         refiner = PVCBRefiner(planner=None, max_iterations=3)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
@@ -272,16 +277,18 @@ class TestLoopDetection:
 
     def test_loop_detection_terminates(self) -> None:
         """Same plan hash detected terminates refinement."""
-        plan = _make_plan(speed_fraction=0.05)
+        _make_plan(speed_fraction=0.05)
         # At 0.05, reduction * 0.7 = 0.035, then clamped to 0.05 minimum
         # This should converge quickly and loop detect.
         # Actually, 0.05 * 0.7 = 0.035 which is below 0.05 minimum, so
         # the fixed plan will have speed_fraction=0.05 (same as input).
         # The hash will match on the second attempt.
-        report = _make_report([
-            ConstraintViolation(type="max_force", step=50, details="force exceeded"),
-        ])
-        refiner = PVCBRefiner(planner=None, max_iterations=3)
+        _make_report(
+            [
+                ConstraintViolation(type="max_force", step=50, details="force exceeded"),
+            ]
+        )
+        PVCBRefiner(planner=None, max_iterations=3)
 
         # The first deterministic fix returns plan with sf=max(0.05*0.7, 0.05)=0.05
         # but the plan_id changes ("_refined" suffix), so it won't hash the same.
@@ -339,11 +346,11 @@ class TestLoopDetection:
         # the parser's output format (speed_fraction only in params,
         # target resolved to target_world_position).
         plan_for_loop = _make_plan(speed_fraction=0.8)
-        report_loop = _make_report([
-            ConstraintViolation(
-                type="workspace_bounds", step=10, details="bounds"
-            ),
-        ])
+        report_loop = _make_report(
+            [
+                ConstraintViolation(type="workspace_bounds", step=10, details="bounds"),
+            ]
+        )
         refiner_loop = PVCBRefiner(planner=mock_planner, max_iterations=5)
 
         # The LLM returns a plan that parses to same skills as the original.
@@ -351,6 +358,7 @@ class TestLoopDetection:
         # and params={"speed_fraction": 0.8} -- we need to verify the hashes
         # actually match.  Build the expected parsed plan to check.
         from clankers_synthetic.parser import PlanParser
+
         test_parser = PlanParser()
         raw_plan = mock_planner.refine_candidate.return_value["plan"]
         parsed = test_parser.parse(raw_plan, _make_scene())
@@ -359,9 +367,7 @@ class TestLoopDetection:
             "Test setup error: mock LLM plan does not hash-match the input plan"
         )
 
-        result = refiner_loop.refine(
-            plan_for_loop, report_loop, _make_scene(), _make_task()
-        )
+        result = refiner_loop.refine(plan_for_loop, report_loop, _make_scene(), _make_task())
 
         assert result is None
         # Planner should have been called (up to max_iterations times)
@@ -370,18 +376,16 @@ class TestLoopDetection:
     def test_max_iterations_respected(self) -> None:
         """Exceeding max_iterations returns None."""
         plan = _make_plan()
-        report = _make_report([
-            ConstraintViolation(
-                type="workspace_bounds", step=10, details="bounds"
-            ),
-        ])
+        report = _make_report(
+            [
+                ConstraintViolation(type="workspace_bounds", step=10, details="bounds"),
+            ]
+        )
         # LLM always returns a rejected plan
         mock_planner = MagicMock()
         mock_planner.refine_candidate.side_effect = RuntimeError("API error")
 
-        refiner = PVCBRefiner(
-            planner=mock_planner, max_iterations=2
-        )
+        refiner = PVCBRefiner(planner=mock_planner, max_iterations=2)
 
         result = refiner.refine(plan, report, _make_scene(), _make_task())
 

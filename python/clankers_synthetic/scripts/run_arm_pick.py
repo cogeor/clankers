@@ -61,16 +61,8 @@ def make_env_factory(host: str, port: int, scene):
     """Create an env factory that returns ClankersBridgeEnv instances."""
     from clankers_synthetic.clankers_bridge import ClankersBridgeEnv
 
-    n_arm = sum(
-        1
-        for jt in scene.robot.joint_types.values()
-        if jt == "revolute"
-    )
-    n_gripper = sum(
-        1
-        for jt in scene.robot.joint_types.values()
-        if jt == "prismatic"
-    )
+    n_arm = sum(1 for jt in scene.robot.joint_types.values() if jt == "revolute")
+    n_gripper = sum(1 for jt in scene.robot.joint_types.values() if jt == "prismatic")
 
     def factory():
         env = ClankersBridgeEnv(
@@ -123,8 +115,8 @@ def run_dry_run(scene, task, env_factory, ik_solver, output_dir: str):
     #   Cube center: [0.3, 0, 0.425], 2.5cm side (collision box)
     #   Table top:   z=0.4125
     #   At reaching config, fingers are ~0.030 below EE
-    #   Finger collision: 1cm×1cm×4cm box, inner edges at y=±0.010 when closed
-    #   Cube width 0.025 > finger gap 0.020 → gripper CAN squeeze
+    #   Finger collision: 1cmx1cmx4cm box, inner edges at y=+-0.010 when closed
+    #   Cube width 0.025 > finger gap 0.020 -> gripper CAN squeeze
     #   IK + physics settling causes ~0.054 undershoot in z
     #   Target EE z=0.51 → settled ~0.456 → fingers ~0.426 ≈ cube center
     plan = CanonicalPlan(
@@ -177,13 +169,15 @@ def run_dry_run(scene, task, env_factory, ik_solver, output_dir: str):
     # Arm-only joint names (exclude gripper for IK)
     arm_joint_names = [
         name
-        for name, jtype in zip(scene.robot.joint_names, scene.robot.joint_types.values())
+        for name, jtype in zip(
+            scene.robot.joint_names,
+            scene.robot.joint_types.values(),
+            strict=False,
+        )
         if jtype == "revolute"
     ]
     arm_joint_limits = {
-        name: limits
-        for name, limits in scene.robot.joint_limits.items()
-        if name in arm_joint_names
+        name: limits for name, limits in scene.robot.joint_limits.items() if name in arm_joint_names
     }
 
     compiler = SkillCompiler(
@@ -218,7 +212,15 @@ def run_dry_run(scene, task, env_factory, ik_solver, output_dir: str):
         env.close()
 
 
-def run_full_pipeline(scene, task, env_factory, ik_solver, output_dir: str, n_plans: int, model: str):
+def run_full_pipeline(
+    scene,
+    task,
+    env_factory,
+    ik_solver,
+    output_dir: str,
+    n_plans: int,
+    model: str,
+):
     """Run the full LLM-driven pipeline."""
     from clankers_synthetic.pipeline import generate_dataset
 
@@ -286,7 +288,15 @@ def main():
     if args.dry_run:
         run_dry_run(scene, task, env_factory, ik_solver, args.output)
     else:
-        run_full_pipeline(scene, task, env_factory, ik_solver, args.output, args.n_plans, args.model)
+        run_full_pipeline(
+            scene,
+            task,
+            env_factory,
+            ik_solver,
+            args.output,
+            args.n_plans,
+            args.model,
+        )
 
     print("\nDone!")
 

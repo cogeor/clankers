@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.packager -- DatasetPackager."""
+
 from __future__ import annotations
 
 import json
@@ -58,7 +59,7 @@ class TestDatasetPackager:
     """Tests for DatasetPackager.package()."""
 
     def test_package_creates_directory_structure(self, tmp_path):
-        """package() creates episodes/, provenance/plans/, provenance/validation/, provenance/prompts/."""
+        """package() creates expected directory structure."""
         packager = DatasetPackager()
         out = str(tmp_path / "dataset")
         traces = [_make_trace_pair()]

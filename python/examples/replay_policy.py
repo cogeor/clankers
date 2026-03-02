@@ -340,8 +340,11 @@ def main() -> None:
 
     # Open-loop rollout
     pred_positions = open_loop_rollout(
-        infer_fn, gt_positions[0], len(gt_positions),
-        mode=prediction_mode, control_dt=control_dt,
+        infer_fn,
+        gt_positions[0],
+        len(gt_positions),
+        mode=prediction_mode,
+        control_dt=control_dt,
     )
 
     # Compute overall MSE

@@ -18,8 +18,7 @@ try:
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
     raise ImportError(
-        "gymnasium is required for clankers wrappers. "
-        "Install with: pip install clankers[sb3]"
+        "gymnasium is required for clankers wrappers. Install with: pip install clankers[sb3]"
     ) from exc
 
 
@@ -100,7 +99,9 @@ class FrameStack(gymnasium.ObservationWrapper):  # type: ignore[misc]
         low = np.repeat(obs_space.low[np.newaxis, ...], n_frames, axis=0)
         high = np.repeat(obs_space.high[np.newaxis, ...], n_frames, axis=0)
         self.observation_space = gym_spaces.Box(
-            low=low, high=high, dtype=np.float32,
+            low=low,
+            high=high,
+            dtype=np.float32,
         )
 
     def reset(self, **kwargs: object) -> tuple[np.ndarray, dict]:

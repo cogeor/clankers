@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.parser — strict plan parser and canonicalization."""
+
 from __future__ import annotations
 
 import math
@@ -141,9 +142,7 @@ def test_unknown_skill_rejected(parser: PlanParser, scene: SceneSpec) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_object_ref_rejected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_unknown_object_ref_rejected(parser: PlanParser, scene: SceneSpec) -> None:
     """Target references object 'mug' which is not in scene."""
     raw = {
         "plan_id": "bad_ref",
@@ -197,9 +196,7 @@ def test_oob_target_rejected(parser: PlanParser, scene: SceneSpec) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_required_params(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_missing_required_params(parser: PlanParser, scene: SceneSpec) -> None:
     """move_to without 'target' param should be rejected."""
     raw = {
         "plan_id": "missing",
@@ -221,9 +218,7 @@ def test_missing_required_params(
 # ---------------------------------------------------------------------------
 
 
-def test_quaternion_normalization(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_quaternion_normalization(parser: PlanParser, scene: SceneSpec) -> None:
     """Slightly non-unit quaternion (norm ~1.05) should be normalized."""
     # quaternion with norm slightly above 1.0
     quat = [0.0, 0.0, 0.0, 1.05]
@@ -257,9 +252,7 @@ def test_quaternion_normalization(
 # ---------------------------------------------------------------------------
 
 
-def test_quaternion_far_from_unit_rejected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_quaternion_far_from_unit_rejected(parser: PlanParser, scene: SceneSpec) -> None:
     """Quaternion with norm 0.5 should be rejected (too far from 1.0)."""
     raw = {
         "plan_id": "bad_quat",
@@ -289,9 +282,7 @@ def test_quaternion_far_from_unit_rejected(
 # ---------------------------------------------------------------------------
 
 
-def test_speed_fraction_out_of_range(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_speed_fraction_out_of_range(parser: PlanParser, scene: SceneSpec) -> None:
     """speed_fraction=1.5 should be rejected."""
     raw = {
         "plan_id": "fast",
@@ -320,9 +311,7 @@ def test_speed_fraction_out_of_range(
 # ---------------------------------------------------------------------------
 
 
-def test_gripper_width_out_of_range(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_gripper_width_out_of_range(parser: PlanParser, scene: SceneSpec) -> None:
     """Gripper width=-0.1 should be rejected."""
     raw = {
         "plan_id": "neg_grip",
@@ -345,9 +334,7 @@ def test_gripper_width_out_of_range(
 # ---------------------------------------------------------------------------
 
 
-def test_default_speed_fraction_applied(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_default_speed_fraction_applied(parser: PlanParser, scene: SceneSpec) -> None:
     """When speed_fraction is not specified, default 0.5 should be applied."""
     raw = {
         "plan_id": "defaults",
@@ -375,9 +362,7 @@ def test_default_speed_fraction_applied(
 # ---------------------------------------------------------------------------
 
 
-def test_direction_vector_normalized(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_direction_vector_normalized(parser: PlanParser, scene: SceneSpec) -> None:
     """direction [0,0,-2] should be normalized to [0,0,-1]."""
     raw = {
         "plan_id": "dir_norm",
@@ -403,9 +388,7 @@ def test_direction_vector_normalized(
 # ---------------------------------------------------------------------------
 
 
-def test_zero_direction_rejected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_zero_direction_rejected(parser: PlanParser, scene: SceneSpec) -> None:
     """direction [0,0,0] should be rejected (zero vector)."""
     raw = {
         "plan_id": "zero_dir",
@@ -430,9 +413,7 @@ def test_zero_direction_rejected(
 # ---------------------------------------------------------------------------
 
 
-def test_guard_condition_parsed(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_guard_condition_parsed(parser: PlanParser, scene: SceneSpec) -> None:
     """Contact guard with valid body reference should be parsed."""
     raw = {
         "plan_id": "guard_ok",
@@ -466,9 +447,7 @@ def test_guard_condition_parsed(
 # ---------------------------------------------------------------------------
 
 
-def test_guard_unknown_body_rejected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_guard_unknown_body_rejected(parser: PlanParser, scene: SceneSpec) -> None:
     """Guard referencing non-existent body should be rejected."""
     raw = {
         "plan_id": "guard_bad",
@@ -498,9 +477,7 @@ def test_guard_unknown_body_rejected(
 # ---------------------------------------------------------------------------
 
 
-def test_wait_negative_steps_rejected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_wait_negative_steps_rejected(parser: PlanParser, scene: SceneSpec) -> None:
     """wait with steps=-1 should be rejected."""
     raw = {
         "plan_id": "neg_wait",
@@ -522,9 +499,7 @@ def test_wait_negative_steps_rejected(
 # ---------------------------------------------------------------------------
 
 
-def test_multiple_errors_collected(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_multiple_errors_collected(parser: PlanParser, scene: SceneSpec) -> None:
     """Plan with 3 bad skills should produce 3 errors in rejection."""
     raw = {
         "plan_id": "multi_err",
@@ -562,9 +537,7 @@ def test_empty_skills_list(parser: PlanParser, scene: SceneSpec) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_plan_metadata_preserved(
-    parser: PlanParser, scene: SceneSpec
-) -> None:
+def test_plan_metadata_preserved(parser: PlanParser, scene: SceneSpec) -> None:
     """plan_type, rationale, assumptions should be carried through."""
     raw = {
         "plan_id": "meta_plan",

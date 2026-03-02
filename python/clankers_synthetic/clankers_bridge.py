@@ -57,9 +57,7 @@ class ClankersBridgeEnv:
     @gripper_width.setter
     def gripper_width(self, width: float) -> None:
         """Set gripper target width (clamped to valid range)."""
-        self._gripper_width = float(
-            np.clip(width, self._gripper_close, self._gripper_open)
-        )
+        self._gripper_width = float(np.clip(width, self._gripper_close, self._gripper_open))
 
     def reset(self, seed: int | None = None) -> tuple[NDArray[np.float32], dict[str, Any]]:
         """Reset the environment.

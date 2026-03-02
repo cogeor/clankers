@@ -10,7 +10,7 @@ achieved/desired goals, enabling Hindsight Experience Replay (HER).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,9 +19,7 @@ try:
     import gymnasium
     from gymnasium import spaces as gym_spaces
 except ImportError as exc:
-    raise ImportError(
-        "gymnasium required for ClankerGoalEnv. pip install clankers[sb3]"
-    ) from exc
+    raise ImportError("gymnasium required for ClankerGoalEnv. pip install clankers[sb3]") from exc
 
 from clankers.gymnasium_env import ClankerGymnasiumEnv
 
@@ -115,7 +113,7 @@ class ClankerGoalEnv(gymnasium.Env):  # type: ignore[misc]
         Distance threshold for is_success (default 0.05).
     """
 
-    metadata: dict[str, Any] = {"render_modes": []}
+    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
 
     def __init__(
         self,
@@ -166,9 +164,7 @@ class ClankerGoalEnv(gymnasium.Env):  # type: ignore[misc]
         """Compute reward -- callable externally for HER relabeling."""
         return self._reward_fn.compute_reward(achieved_goal, desired_goal, info)
 
-    def _get_obs_dict(
-        self, flat_obs: NDArray[np.float32]
-    ) -> dict[str, NDArray[np.float32]]:
+    def _get_obs_dict(self, flat_obs: NDArray[np.float32]) -> dict[str, NDArray[np.float32]]:
         return {
             "observation": flat_obs[self._obs_indices].copy(),
             "achieved_goal": flat_obs[self._achieved_goal_indices].copy(),

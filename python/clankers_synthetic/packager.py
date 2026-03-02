@@ -1,4 +1,5 @@
 """Dataset packager: writes validated traces to JSON episodes + metadata + provenance."""
+
 from __future__ import annotations
 
 import json
@@ -149,11 +150,7 @@ class DatasetPackager:
 
         # Compute stats
         mean_reward = sum(rewards) / n
-        std_reward = (
-            (sum((r - mean_reward) ** 2 for r in rewards) / n) ** 0.5
-            if n > 1
-            else 0.0
-        )
+        std_reward = (sum((r - mean_reward) ** 2 for r in rewards) / n) ** 0.5 if n > 1 else 0.0
 
         stats = {
             "mean_reward": round(mean_reward, 4),

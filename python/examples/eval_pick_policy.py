@@ -98,9 +98,7 @@ def extract_positions(obs: np.ndarray, n_joints: int) -> np.ndarray:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Closed-loop evaluation of a trained pick policy"
-    )
+    parser = argparse.ArgumentParser(description="Closed-loop evaluation of a trained pick policy")
     parser.add_argument("--model", required=True, help="Path to .onnx or .pt model")
     parser.add_argument("--encoder", default=None, help="Encoder JSON (for .pt models)")
     parser.add_argument("--scene", default=None, help="Scene spec JSON for joint names")
@@ -118,8 +116,18 @@ def main():
         default=120,
         help="Step at which to close gripper (6-DOF models only)",
     )
-    parser.add_argument("--gripper-open", type=float, default=0.03, help="Gripper open width (6-DOF only)")
-    parser.add_argument("--gripper-closed", type=float, default=0.0, help="Gripper closed width (6-DOF only)")
+    parser.add_argument(
+        "--gripper-open",
+        type=float,
+        default=0.03,
+        help="Gripper open width (6-DOF only)",
+    )
+    parser.add_argument(
+        "--gripper-closed",
+        type=float,
+        default=0.0,
+        help="Gripper closed width (6-DOF only)",
+    )
     args = parser.parse_args()
 
     from clankers.env import ClankerEnv
@@ -142,7 +150,7 @@ def main():
     # Auto-detect full-joint vs arm-only from output dim
     full_joint = output_dim > 6
     n_joints = output_dim  # joints the model predicts
-    n_total_action = 8     # total action dim the gym expects
+    n_total_action = 8  # total action dim the gym expects
     success_threshold = 0.525
 
     # Run episodes
@@ -150,7 +158,8 @@ def main():
     if full_joint:
         print(f"  Full-joint model ({n_joints} DOF) — gripper learned from data")
     else:
-        print(f"  Arm-only model ({n_joints} DOF) — gripper closes at step {args.gripper_close_step}")
+        close_step = args.gripper_close_step
+        print(f"  Arm-only model ({n_joints} DOF) — gripper closes at step {close_step}")
     print(f"  Server: {args.host}:{args.port}")
     print()
 
@@ -209,10 +218,7 @@ def main():
                     success = True
 
             if args.verbose and step % 50 == 0:
-                print(
-                    f"  ep={ep} step={step}: cube_z={cube_z:.4f} "
-                    f"targets={targets[:3].tolist()}"
-                )
+                print(f"  ep={ep} step={step}: cube_z={cube_z:.4f} targets={targets[:3].tolist()}")
 
         env.close()
 

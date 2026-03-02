@@ -66,9 +66,7 @@ try:
         SparseGoalReward,
     )
 
-    __all__.extend(
-        ["ClankerGoalEnv", "GoalRewardFn", "SparseGoalReward", "DenseGoalReward"]
-    )
+    __all__.extend(["ClankerGoalEnv", "GoalRewardFn", "SparseGoalReward", "DenseGoalReward"])
 except ImportError:
     pass
 
@@ -128,10 +126,10 @@ except ImportError:
     pass
 
 # Auto-register gymnasium environments.
-try:
+import contextlib
+
+with contextlib.suppress(ImportError):
     import clankers.registration  # noqa: F401
-except ImportError:
-    pass
 
 # Joint encoder for DL applications (requires numpy).
 try:

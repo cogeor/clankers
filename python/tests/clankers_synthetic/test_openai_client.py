@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.openai_client module."""
+
 from __future__ import annotations
 
 import json
@@ -150,9 +151,7 @@ class TestMaxRetriesExceeded:
     @patch("time.sleep")
     def test_raises_after_max_retries(self, mock_sleep: MagicMock) -> None:
         client, mock_openai = _make_client(max_retries=2)
-        mock_openai.chat.completions.create.side_effect = RuntimeError(
-            "rate_limit exceeded"
-        )
+        mock_openai.chat.completions.create.side_effect = RuntimeError("rate_limit exceeded")
 
         request = _make_request()
         with pytest.raises(OpenAIClientError, match="failed after 3 attempts"):
@@ -181,9 +180,7 @@ class TestNonRetryableError:
 
     def test_raises_immediately_on_auth_error(self) -> None:
         client, mock_openai = _make_client(max_retries=3)
-        mock_openai.chat.completions.create.side_effect = RuntimeError(
-            "Invalid API key provided"
-        )
+        mock_openai.chat.completions.create.side_effect = RuntimeError("Invalid API key provided")
 
         request = _make_request()
         with pytest.raises(OpenAIClientError, match="failed after 1 attempts"):
@@ -247,9 +244,7 @@ class TestProvenanceMetadata:
         )
         r2 = client.request_json(_make_request())
 
-        assert (
-            r1[0]["provenance"]["response_hash"] != r2[0]["provenance"]["response_hash"]
-        )
+        assert r1[0]["provenance"]["response_hash"] != r2[0]["provenance"]["response_hash"]
 
 
 class TestLazyClientImportError:
@@ -258,9 +253,11 @@ class TestLazyClientImportError:
     def test_raises_import_error(self) -> None:
         client = OpenAIClient(api_key="test-key")
         # Do NOT inject _client -- let it try to import openai
-        with patch.dict("sys.modules", {"openai": None}):
-            with pytest.raises(OpenAIClientError, match="openai package not installed"):
-                client.request_json(_make_request())
+        with (
+            patch.dict("sys.modules", {"openai": None}),
+            pytest.raises(OpenAIClientError, match="openai package not installed"),
+        ):
+            client.request_json(_make_request())
 
 
 class TestSeedPassedThrough:

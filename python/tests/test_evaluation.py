@@ -1,4 +1,5 @@
 """Tests for the evaluation module."""
+
 import gymnasium
 import numpy as np
 import pytest
@@ -42,7 +43,10 @@ def test_eval_result_defaults():
 
 def test_evaluate_basic():
     env = _FixedEnv(reward=2.0, max_steps=3)
-    policy = lambda obs: np.zeros(2, dtype=np.float32)
+
+    def policy(obs):
+        return np.zeros(2, dtype=np.float32)
+
     result = evaluate_policy(env, policy, n_episodes=5)
     assert result.mean_reward == pytest.approx(6.0)  # 2.0 * 3 steps
     assert result.mean_length == pytest.approx(3.0)
@@ -52,18 +56,26 @@ def test_evaluate_basic():
 
 def test_evaluate_failure():
     env = _FixedEnv(reward=1.0, max_steps=2, is_success=False)
-    policy = lambda obs: np.zeros(2, dtype=np.float32)
+
+    def policy(obs):
+        return np.zeros(2, dtype=np.float32)
+
     result = evaluate_policy(env, policy, n_episodes=3)
     assert result.success_rate == pytest.approx(0.0)
 
 
 def test_evaluate_with_breakdown():
     env = _FixedEnv(reward=1.0, max_steps=2)
-    policy = lambda obs: np.zeros(2, dtype=np.float32)
-    reward_fn = CompositeReward([
-        (ConstantReward(1.0), 1.0),
-        (ActionPenaltyReward(scale=0.0), 1.0),
-    ])
+
+    def policy(obs):
+        return np.zeros(2, dtype=np.float32)
+
+    reward_fn = CompositeReward(
+        [
+            (ConstantReward(1.0), 1.0),
+            (ActionPenaltyReward(scale=0.0), 1.0),
+        ]
+    )
     result = evaluate_policy(env, policy, n_episodes=2, reward_fn=reward_fn)
     assert "ConstantReward" in result.reward_breakdown
     # 2 episodes * 2 steps = 4 total steps, constant 1.0 per step
@@ -72,20 +84,26 @@ def test_evaluate_with_breakdown():
 
 def test_evaluate_no_success_info():
     """When env doesn't provide is_success, success_rate is NaN."""
+
     class _NoSuccessEnv(gymnasium.Env):
         def __init__(self):
             self.observation_space = gym_spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
             self.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
             self._step = 0
+
         def reset(self, **kwargs):
             self._step = 0
             return np.zeros(4, dtype=np.float32), {}
+
         def step(self, action):
             self._step += 1
             return np.zeros(4, dtype=np.float32), 0.0, self._step >= 2, False, {}
 
     env = _NoSuccessEnv()
-    policy = lambda obs: np.zeros(2, dtype=np.float32)
+
+    def policy(obs):
+        return np.zeros(2, dtype=np.float32)
+
     result = evaluate_policy(env, policy, n_episodes=2)
     assert np.isnan(result.success_rate)
 
@@ -93,6 +111,9 @@ def test_evaluate_no_success_info():
 def test_evaluate_std_reward():
     """Std reward should be 0 for constant reward env."""
     env = _FixedEnv(reward=1.0, max_steps=3)
-    policy = lambda obs: np.zeros(2, dtype=np.float32)
+
+    def policy(obs):
+        return np.zeros(2, dtype=np.float32)
+
     result = evaluate_policy(env, policy, n_episodes=4)
     assert result.std_reward == pytest.approx(0.0)

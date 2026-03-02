@@ -25,12 +25,12 @@ class PromptAssembler:
     SKILL_VOCABULARY_TABLE = """
 | Skill | Params | Description |
 |-------|--------|-------------|
-| move_to | target: {frame, position}, orientation?, speed_fraction, tolerance? | IK solve target, interpolate joints |
-| move_linear | direction: [x,y,z], distance, speed_fraction, guard? | Cartesian straight-line with step-wise IK |
-| move_relative | frame, delta: [dx,dy,dz], speed_fraction | Move EE by delta relative to frame |
-| set_gripper | width, force?, wait_settle_steps? | Set gripper joint target, wait for settle |
-| wait | steps | Hold current positions for N steps |
-| move_joints | targets: {name: rad}, speed_fraction | Direct joint-space interpolation |
+| move_to | target: {frame, position}, orientation?, speed_fraction | IK solve target |
+| move_linear | direction: [x,y,z], distance, speed_fraction | Cartesian line IK |
+| move_relative | frame, delta: [dx,dy,dz], speed_fraction | Move EE by delta |
+| set_gripper | width, force?, wait_settle_steps? | Set gripper target |
+| wait | steps | Hold positions N steps |
+| move_joints | targets: {name: rad}, speed_fraction | Joint-space interp |
 """
 
     def __init__(
@@ -177,10 +177,7 @@ class LLMPlanner:
             max_tokens=self.max_tokens,
         )
         results = self.client.request_json(request, n=n, seed=seed)
-        return [
-            {"plan": r["content"], "provenance": r["provenance"]}
-            for r in results
-        ]
+        return [{"plan": r["content"], "provenance": r["provenance"]} for r in results]
 
     def refine_candidate(
         self,
@@ -196,9 +193,7 @@ class LLMPlanner:
         """
         history_text = ""
         if attempt_history:
-            history_text = "\n## Attempt History\n" + json.dumps(
-                attempt_history, indent=2
-            )
+            history_text = "\n## Attempt History\n" + json.dumps(attempt_history, indent=2)
 
         refinement_context = (
             "\n## Previous Plan Failed\n"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 import pytest
 
@@ -28,16 +30,18 @@ class DummyEnv(gymnasium.Env):
     Observations cycle through a fixed sequence.  No server required.
     """
 
-    metadata: dict = {"render_modes": []}
+    metadata: ClassVar[dict] = {"render_modes": []}
 
-    def __init__(self, obs_shape: tuple[int, ...] = (4,), obs_sequence: list[np.ndarray] | None = None) -> None:
+    def __init__(
+        self,
+        obs_shape: tuple[int, ...] = (4,),
+        obs_sequence: list[np.ndarray] | None = None,
+    ) -> None:
         super().__init__()
         self.observation_space = gym_spaces.Box(
             low=-10.0, high=10.0, shape=obs_shape, dtype=np.float32
         )
-        self.action_space = gym_spaces.Box(
-            low=-1.0, high=1.0, shape=(1,), dtype=np.float32
-        )
+        self.action_space = gym_spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
         if obs_sequence is not None:
             self._obs_sequence = [np.asarray(o, dtype=np.float32) for o in obs_sequence]
         else:
@@ -48,12 +52,20 @@ class DummyEnv(gymnasium.Env):
             ]
         self._idx = 0
 
-    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[np.ndarray, dict]:
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict | None = None,
+    ) -> tuple[np.ndarray, dict]:
         super().reset(seed=seed, options=options)
         self._idx = 0
         return self._obs_sequence[self._idx].copy(), {}
 
-    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(
+        self,
+        action: np.ndarray,
+    ) -> tuple[np.ndarray, float, bool, bool, dict]:
         self._idx = (self._idx + 1) % len(self._obs_sequence)
         obs = self._obs_sequence[self._idx].copy()
         return obs, 0.0, False, False, {}
@@ -86,7 +98,7 @@ class TestNormalizeObservation:
         raw_obs.append(raw_env._obs_sequence[1])
         raw_obs.append(raw_env._obs_sequence[2])
 
-        raw_arr = np.stack(raw_obs[:env._count], axis=0)
+        raw_arr = np.stack(raw_obs[: env._count], axis=0)
         expected_mean = raw_arr.mean(axis=0)
         # Population variance (ddof=0), matching Welford's m2/count.
         expected_var = raw_arr.var(axis=0, ddof=0)
@@ -226,9 +238,7 @@ class TestFrameStack:
 
     def test_2d_observation(self):
         """FrameStack works with 2D observations (e.g., small images)."""
-        seq = [
-            np.ones((3, 3), dtype=np.float32) * i for i in range(4)
-        ]
+        seq = [np.ones((3, 3), dtype=np.float32) * i for i in range(4)]
         raw_env = DummyEnv(obs_shape=(3, 3), obs_sequence=seq)
         env = FrameStack(raw_env, n_frames=2)
         assert env.observation_space.shape == (2, 3, 3)
@@ -272,20 +282,21 @@ class RewardDummyEnv(gymnasium.Env):
     The ``rewards`` list is cycled through on each ``step()`` call.
     """
 
-    metadata: dict = {"render_modes": []}
+    metadata: ClassVar[dict] = {"render_modes": []}
 
     def __init__(self, rewards: list[float] | None = None) -> None:
         super().__init__()
-        self.observation_space = gym_spaces.Box(
-            low=-1.0, high=1.0, shape=(4,), dtype=np.float32
-        )
-        self.action_space = gym_spaces.Box(
-            low=-1.0, high=1.0, shape=(2,), dtype=np.float32
-        )
+        self.observation_space = gym_spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
+        self.action_space = gym_spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         self._rewards = rewards if rewards is not None else [1.0]
         self._step_idx = 0
 
-    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[np.ndarray, dict]:
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict | None = None,
+    ) -> tuple[np.ndarray, dict]:
         super().reset(seed=seed, options=options)
         self._step_idx = 0
         return np.zeros(4, dtype=np.float32), {}
@@ -335,9 +346,7 @@ class TestNormalizeReward:
 
     def test_normalize_reward_parameters(self):
         """Constructor parameters should be stored correctly."""
-        env = NormalizeReward(
-            RewardDummyEnv(), gamma=0.95, epsilon=1e-4, clip=5.0
-        )
+        env = NormalizeReward(RewardDummyEnv(), gamma=0.95, epsilon=1e-4, clip=5.0)
         assert env.gamma == 0.95
         assert env.epsilon == 1e-4
         assert env.clip == 5.0

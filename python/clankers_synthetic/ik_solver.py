@@ -207,9 +207,7 @@ class KinematicChain:
                 xyz = np.array([float(v) for v in xyz_str.split()])
                 rpy = np.array([float(v) for v in rpy_str.split()])
 
-            T_origin = homogeneous_transform(
-                rpy_to_rotation_matrix(rpy[0], rpy[1], rpy[2]), xyz
-            )
+            T_origin = homogeneous_transform(rpy_to_rotation_matrix(rpy[0], rpy[1], rpy[2]), xyz)
 
             if jtype == "fixed":
                 pending_T = pending_T @ T_origin
@@ -295,9 +293,7 @@ def forward_kinematics(chain: KinematicChain, joint_angles: np.ndarray) -> np.nd
         4x4 homogeneous transform from the base frame to the end-effector.
     """
     if len(joint_angles) != len(chain.joints):
-        raise ValueError(
-            f"Expected {len(chain.joints)} joint values, got {len(joint_angles)}."
-        )
+        raise ValueError(f"Expected {len(chain.joints)} joint values, got {len(joint_angles)}.")
 
     T = np.eye(4)
     for i, joint in enumerate(chain.joints):
@@ -492,13 +488,13 @@ class DlsSolver:
         if use_orientation:
             R_target = np.asarray(target_orientation, dtype=float)
 
-        lam2 = self.damping ** 2
+        lam2 = self.damping**2
 
         converged = False
         pos_error = float("inf")
-        iteration = 0
+        _iteration = 0
 
-        for iteration in range(self.max_iterations):
+        for _iteration in range(self.max_iterations):
             T_ee = forward_kinematics(self.chain, q)
             current_pos = T_ee[:3, 3]
             e_pos = target_position - current_pos
@@ -538,5 +534,5 @@ class DlsSolver:
             joint_angles=q,
             position_error=pos_error,
             converged=converged,
-            iterations=min(iteration + 1, self.max_iterations) if self.max_iterations > 0 else 0,
+            iterations=min(_iteration + 1, self.max_iterations) if self.max_iterations > 0 else 0,
         )

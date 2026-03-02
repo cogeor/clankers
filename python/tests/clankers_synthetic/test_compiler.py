@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.compiler -- SkillCompiler with mocked env."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -183,9 +184,11 @@ class TestSkillCompiler:
         """wait(steps=5) calls env.step exactly 5 times."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(name="wait", params={"steps": 5}),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(name="wait", params={"steps": 5}),
+            ]
+        )
 
         compiler.execute(plan, env)
 
@@ -195,9 +198,11 @@ class TestSkillCompiler:
         """Trace has correct number of steps for a wait skill."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(name="wait", params={"steps": 3}),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(name="wait", params={"steps": 3}),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -212,12 +217,14 @@ class TestSkillCompiler:
         """set_gripper with wait_settle_steps=3 steps 3 times."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(
-                name="set_gripper",
-                params={"width": 0.04, "wait_settle_steps": 3},
-            ),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="set_gripper",
+                    params={"width": 0.04, "wait_settle_steps": 3},
+                ),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -234,13 +241,15 @@ class TestSkillCompiler:
 
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler(ik_solver=mock_ik_solver)
-        plan = _make_plan([
-            ResolvedSkill(
-                name="move_to",
-                target_world_position=[0.3, 0.0, 0.8],
-                params={"speed_fraction": 0.5},
-            ),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="move_to",
+                    target_world_position=[0.3, 0.0, 0.8],
+                    params={"speed_fraction": 0.5},
+                ),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -254,13 +263,15 @@ class TestSkillCompiler:
         """No IK solver -> still steps env (holds position)."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler(ik_solver=None)
-        plan = _make_plan([
-            ResolvedSkill(
-                name="move_to",
-                target_world_position=[0.3, 0.0, 0.8],
-                params={"speed_fraction": 0.5},
-            ),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="move_to",
+                    target_world_position=[0.3, 0.0, 0.8],
+                    params={"speed_fraction": 0.5},
+                ),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -272,16 +283,18 @@ class TestSkillCompiler:
         """move_linear takes multiple steps."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(
-                name="move_linear",
-                params={
-                    "direction": [0.0, 0.0, -1.0],
-                    "distance": 0.1,
-                    "speed_fraction": 0.5,
-                },
-            ),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="move_linear",
+                    params={
+                        "direction": [0.0, 0.0, -1.0],
+                        "distance": 0.1,
+                        "speed_fraction": 0.5,
+                    },
+                ),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -294,23 +307,25 @@ class TestSkillCompiler:
         env = ContactMockEnv(n_joints=6, contact_at=3, contact_force=50.0)
         compiler = _make_compiler()
         # Use a wait skill with many steps but a contact guard
-        plan = _make_plan([
-            ResolvedSkill(
-                name="move_linear",
-                params={
-                    "direction": [0.0, 0.0, -1.0],
-                    "distance": 1.0,
-                    "speed_fraction": 0.1,
-                },
-                guard=GuardCondition(
-                    type="contact",
-                    body="end_effector",
-                    min_force=10.0,
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="move_linear",
+                    params={
+                        "direction": [0.0, 0.0, -1.0],
+                        "distance": 1.0,
+                        "speed_fraction": 0.1,
+                    },
+                    guard=GuardCondition(
+                        type="contact",
+                        body="end_effector",
+                        min_force=10.0,
+                    ),
                 ),
-            ),
-        ])
+            ]
+        )
 
-        trace = compiler.execute(plan, env)
+        compiler.execute(plan, env)
 
         # Should stop at step 3 (when contact occurs), not run all steps
         # The exact step count is 3 because contact happens at step 3
@@ -322,23 +337,25 @@ class TestSkillCompiler:
         """Distance guard triggers early stop when EE is near target body."""
         env = DistanceMockEnv(n_joints=6, close_at=3)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(
-                name="move_linear",
-                params={
-                    "direction": [1.0, 0.0, 0.0],
-                    "distance": 1.0,
-                    "speed_fraction": 0.1,
-                },
-                guard=GuardCondition(
-                    type="distance",
-                    from_body="target_object",
-                    threshold=0.05,
+        plan = _make_plan(
+            [
+                ResolvedSkill(
+                    name="move_linear",
+                    params={
+                        "direction": [1.0, 0.0, 0.0],
+                        "distance": 1.0,
+                        "speed_fraction": 0.1,
+                    },
+                    guard=GuardCondition(
+                        type="distance",
+                        from_body="target_object",
+                        threshold=0.05,
+                    ),
                 ),
-            ),
-        ])
+            ]
+        )
 
-        trace = compiler.execute(plan, env)
+        compiler.execute(plan, env)
 
         # Should stop around step 3 when distance guard triggers
         assert env.step_count >= 3
@@ -368,14 +385,16 @@ class TestSkillCompiler:
         """Multi-skill plan executed in sequence."""
         env = MockEnv(n_joints=6, n_steps_before_success=999)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(name="wait", params={"steps": 2}),
-            ResolvedSkill(
-                name="set_gripper",
-                params={"width": 0.08, "wait_settle_steps": 3},
-            ),
-            ResolvedSkill(name="wait", params={"steps": 4}),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(name="wait", params={"steps": 2}),
+                ResolvedSkill(
+                    name="set_gripper",
+                    params={"width": 0.08, "wait_settle_steps": 3},
+                ),
+                ResolvedSkill(name="wait", params={"steps": 4}),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 
@@ -387,10 +406,12 @@ class TestSkillCompiler:
         """Env returns terminated -> remaining skills skipped."""
         env = TerminatingMockEnv(n_joints=6, terminate_at=3)
         compiler = _make_compiler()
-        plan = _make_plan([
-            ResolvedSkill(name="wait", params={"steps": 5}),
-            ResolvedSkill(name="wait", params={"steps": 5}),
-        ])
+        plan = _make_plan(
+            [
+                ResolvedSkill(name="wait", params={"steps": 5}),
+                ResolvedSkill(name="wait", params={"steps": 5}),
+            ]
+        )
 
         trace = compiler.execute(plan, env)
 

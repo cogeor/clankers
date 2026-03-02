@@ -122,9 +122,7 @@ EXPERT_TARGETS = [
 ]
 
 
-def collect_online_data(
-    host: str, port: int, n_episodes: int = 5
-) -> tuple[np.ndarray, np.ndarray]:
+def collect_online_data(host: str, port: int, n_episodes: int = 5) -> tuple[np.ndarray, np.ndarray]:
     """Connect to arm_gym and collect expert demonstrations."""
     from clankers.env import ClankerEnv
 
@@ -251,18 +249,18 @@ def export_onnx(policy: BCPolicy, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_policy_online(
-    onnx_path: str, host: str, port: int, n_episodes: int = 3
-) -> None:
+def evaluate_policy_online(onnx_path: str, host: str, port: int, n_episodes: int = 3) -> None:
     """Run the learned policy on arm_gym and measure tracking error."""
     from clankers.env import ClankerEnv
 
     # Load policy
     policy = BCPolicy()
     # Load from ONNX via torch for evaluation
-    state_dict = torch.load(
-        onnx_path.replace(".onnx", ".pt"), weights_only=True
-    ) if os.path.exists(onnx_path.replace(".onnx", ".pt")) else None
+    state_dict = (
+        torch.load(onnx_path.replace(".onnx", ".pt"), weights_only=True)
+        if os.path.exists(onnx_path.replace(".onnx", ".pt"))
+        else None
+    )
 
     if state_dict is not None:
         policy.load_state_dict(state_dict)

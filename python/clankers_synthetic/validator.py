@@ -1,4 +1,5 @@
 """Simulation validator with hard and soft gates for execution traces."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -82,16 +83,18 @@ class SimValidator:
                 force = contact.get("force_magnitude", 0.0)
                 max_contact_force = max(max_contact_force, force)
                 if force > constraints.max_contact_force:
-                    violations.append(ConstraintViolation(
-                        type="max_force",
-                        step=step_idx,
-                        details=(
-                            f"Contact force {force:.1f}N between "
-                            f"'{contact.get('body_a', '?')}' and "
-                            f"'{contact.get('body_b', '?')}' exceeds "
-                            f"limit {constraints.max_contact_force:.1f}N"
-                        ),
-                    ))
+                    violations.append(
+                        ConstraintViolation(
+                            type="max_force",
+                            step=step_idx,
+                            details=(
+                                f"Contact force {force:.1f}N between "
+                                f"'{contact.get('body_a', '?')}' and "
+                                f"'{contact.get('body_b', '?')}' exceeds "
+                                f"limit {constraints.max_contact_force:.1f}N"
+                            ),
+                        )
+                    )
 
             # --- Hard gate: Workspace bounds ---
             ee_pose = body_poses.get(self.ee_link_name)
@@ -102,23 +105,27 @@ class SimValidator:
 
                 for dim in range(3):
                     if ee_pos[dim] < bounds_min[dim]:
-                        violations.append(ConstraintViolation(
-                            type="workspace_bounds",
-                            step=step_idx,
-                            details=(
-                                f"EE {'XYZ'[dim]}={ee_pos[dim]:.3f} below "
-                                f"min {bounds_min[dim]:.3f}"
-                            ),
-                        ))
+                        violations.append(
+                            ConstraintViolation(
+                                type="workspace_bounds",
+                                step=step_idx,
+                                details=(
+                                    f"EE {'XYZ'[dim]}={ee_pos[dim]:.3f} below "
+                                    f"min {bounds_min[dim]:.3f}"
+                                ),
+                            )
+                        )
                     if ee_pos[dim] > bounds_max[dim]:
-                        violations.append(ConstraintViolation(
-                            type="workspace_bounds",
-                            step=step_idx,
-                            details=(
-                                f"EE {'XYZ'[dim]}={ee_pos[dim]:.3f} above "
-                                f"max {bounds_max[dim]:.3f}"
-                            ),
-                        ))
+                        violations.append(
+                            ConstraintViolation(
+                                type="workspace_bounds",
+                                step=step_idx,
+                                details=(
+                                    f"EE {'XYZ'[dim]}={ee_pos[dim]:.3f} above "
+                                    f"max {bounds_max[dim]:.3f}"
+                                ),
+                            )
+                        )
 
                 # EE speed
                 if prev_ee_pos is not None:
@@ -127,14 +134,16 @@ class SimValidator:
 
                     # Soft gate: EE speed
                     if ee_speed > constraints.max_ee_speed:
-                        violations.append(ConstraintViolation(
-                            type="soft_ee_speed",
-                            step=step_idx,
-                            details=(
-                                f"EE speed {ee_speed:.3f} m/s exceeds "
-                                f"preferred {constraints.max_ee_speed:.3f} m/s"
-                            ),
-                        ))
+                        violations.append(
+                            ConstraintViolation(
+                                type="soft_ee_speed",
+                                step=step_idx,
+                                details=(
+                                    f"EE speed {ee_speed:.3f} m/s exceeds "
+                                    f"preferred {constraints.max_ee_speed:.3f} m/s"
+                                ),
+                            )
+                        )
 
                 prev_ee_pos = ee_pos
 
@@ -145,14 +154,16 @@ class SimValidator:
                     if jname in joint_positions:
                         pos = joint_positions[jname]
                         if pos < limits[0] or pos > limits[1]:
-                            violations.append(ConstraintViolation(
-                                type="joint_limit",
-                                step=step_idx,
-                                details=(
-                                    f"Joint '{jname}' position {pos:.4f} "
-                                    f"outside limits [{limits[0]:.4f}, {limits[1]:.4f}]"
-                                ),
-                            ))
+                            violations.append(
+                                ConstraintViolation(
+                                    type="joint_limit",
+                                    step=step_idx,
+                                    details=(
+                                        f"Joint '{jname}' position {pos:.4f} "
+                                        f"outside limits [{limits[0]:.4f}, {limits[1]:.4f}]"
+                                    ),
+                                )
+                            )
 
             # Joint velocity
             if joint_positions and prev_joint_pos is not None:
@@ -174,8 +185,7 @@ class SimValidator:
             # Store final poses
             if step_idx == len(trace.steps) - 1:
                 final_object_poses = {
-                    k: v if isinstance(v, list) else list(v)
-                    for k, v in body_poses.items()
+                    k: v if isinstance(v, list) else list(v) for k, v in body_poses.items()
                 }
 
         # --- Hard gate: Task success at final step ---
@@ -185,17 +195,16 @@ class SimValidator:
             task_success = bool(final_info.get("is_success", False))
 
         if not task_success:
-            violations.append(ConstraintViolation(
-                type="task_failure",
-                step=len(trace.steps) - 1 if trace.steps else 0,
-                details="Task success criteria not met at final step",
-            ))
+            violations.append(
+                ConstraintViolation(
+                    type="task_failure",
+                    step=len(trace.steps) - 1 if trace.steps else 0,
+                    details="Task success criteria not met at final step",
+                )
+            )
 
         # Determine pass/fail
-        hard_violations = [
-            v for v in violations
-            if not v.type.startswith("soft_")
-        ]
+        hard_violations = [v for v in violations if not v.type.startswith("soft_")]
         passed = len(hard_violations) == 0
 
         # Build failure reason

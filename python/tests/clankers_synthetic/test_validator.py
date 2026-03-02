@@ -1,4 +1,5 @@
 """Tests for clankers_synthetic.validator — SimValidator with hard/soft gates."""
+
 from __future__ import annotations
 
 import pytest
@@ -52,7 +53,7 @@ def _make_step(
 ):
     """Build a TraceStep with info containing body_poses and contacts."""
     info = {
-        "body_poses": {"end_effector": list(ee_pos) + [0, 0, 0, 1]},
+        "body_poses": {"end_effector": [*list(ee_pos), 0, 0, 0, 1]},
         "contact_events": contacts or [],
         "is_success": is_success,
     }
@@ -171,9 +172,7 @@ class TestSimValidator:
 
     def test_contact_force_violation(self):
         """Contact force 150 > limit 100."""
-        contacts = [
-            {"body_a": "end_effector", "body_b": "table", "force_magnitude": 150.0}
-        ]
+        contacts = [{"body_a": "end_effector", "body_b": "table", "force_magnitude": 150.0}]
         steps = [
             _make_step(ee_pos=(0.0, 0.0, 0.5)),
             _make_step(ee_pos=(0.1, 0.0, 0.6), contacts=contacts),
@@ -248,9 +247,7 @@ class TestSimValidator:
 
     def test_multiple_violations_collected(self):
         """Trace with force + bounds violations: both should be collected."""
-        contacts = [
-            {"body_a": "end_effector", "body_b": "table", "force_magnitude": 200.0}
-        ]
+        contacts = [{"body_a": "end_effector", "body_b": "table", "force_magnitude": 200.0}]
         steps = [
             _make_step(ee_pos=(0.0, 0.0, 0.5)),
             _make_step(ee_pos=(0.6, 0.0, 0.9), contacts=contacts),  # OOB + force
@@ -285,12 +282,8 @@ class TestSimValidator:
 
     def test_metrics_computed_correctly(self):
         """Verify max_contact_force, max_ee_speed, total_steps, success_at_step."""
-        contacts_step1 = [
-            {"body_a": "ee", "body_b": "obj", "force_magnitude": 30.0}
-        ]
-        contacts_step2 = [
-            {"body_a": "ee", "body_b": "obj", "force_magnitude": 50.0}
-        ]
+        contacts_step1 = [{"body_a": "ee", "body_b": "obj", "force_magnitude": 30.0}]
+        contacts_step2 = [{"body_a": "ee", "body_b": "obj", "force_magnitude": 50.0}]
         steps = [
             _make_step(ee_pos=(0.0, 0.0, 0.5), contacts=contacts_step1),
             _make_step(ee_pos=(0.01, 0.0, 0.5), contacts=contacts_step2),

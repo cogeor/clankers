@@ -113,7 +113,7 @@ class ClankerGoalEnv(gymnasium.Env):  # type: ignore[misc]
         Distance threshold for is_success (default 0.05).
     """
 
-    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
+    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}  # type: ignore[misc]
 
     def __init__(
         self,
@@ -186,7 +186,7 @@ class ClankerGoalEnv(gymnasium.Env):  # type: ignore[misc]
         info : dict
         """
         flat_obs, info = self._env.reset(seed=seed, options=options)
-        obs_dict = self._get_obs_dict(flat_obs)
+        obs_dict = self._get_obs_dict(flat_obs)  # type: ignore[arg-type]
         return obs_dict, info
 
     def step(
@@ -206,7 +206,7 @@ class ClankerGoalEnv(gymnasium.Env):  # type: ignore[misc]
             Includes "is_success" key.
         """
         flat_obs, _, terminated, truncated, info = self._env.step(action)
-        obs_dict = self._get_obs_dict(flat_obs)
+        obs_dict = self._get_obs_dict(flat_obs)  # type: ignore[arg-type]
 
         achieved = obs_dict["achieved_goal"]
         reward = self.compute_reward(achieved, self._desired_goal, info)

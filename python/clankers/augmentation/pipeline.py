@@ -100,13 +100,15 @@ class Sim2RealPipeline:
         )
 
         # Use efficient scheduler
-        self._pipe.scheduler = UniPCMultistepScheduler.from_config(self._pipe.scheduler.config)
+        self._pipe.scheduler = UniPCMultistepScheduler.from_config(  # type: ignore[attr-defined]
+            self._pipe.scheduler.config  # type: ignore[attr-defined]
+        )
 
-        self._pipe = self._pipe.to(self.device)
+        self._pipe = self._pipe.to(self.device)  # type: ignore[attr-defined]
 
         # Enable memory-efficient attention if available
         with contextlib.suppress(ImportError, ModuleNotFoundError):
-            self._pipe.enable_xformers_memory_efficient_attention()
+            self._pipe.enable_xformers_memory_efficient_attention()  # type: ignore[attr-defined]
 
     def generate(
         self,

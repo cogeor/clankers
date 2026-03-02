@@ -116,7 +116,9 @@ class McapEpisodeLoader:
         with open(self.path, "rb") as f:
             reader = make_reader(f)  # type: ignore[possibly-undefined]
             # Collect channel metadata first.
-            for channel in reader.get_summary().channels.values():
+            summary = reader.get_summary()
+            assert summary is not None, "MCAP file has no summary"
+            for channel in summary.channels.values():
                 topic = channel.topic
                 if topic == self.CHANNEL_IMAGE and channel.metadata:
                     try:

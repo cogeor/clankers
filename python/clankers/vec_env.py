@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from clankers.client import GymClient
-from clankers.spaces import Box, Discrete, space_from_dict
+from clankers.spaces import Box, Dict, Discrete, space_from_dict
 
 
 class ClankerVecEnv:
@@ -33,8 +33,8 @@ class ClankerVecEnv:
     def __init__(self, host: str = "127.0.0.1", port: int = 9876) -> None:
         self._client = GymClient(host=host, port=port, capabilities={"batch_step": True})
         self.num_envs: int = 0
-        self.observation_space: Box | Discrete | None = None
-        self.action_space: Box | Discrete | None = None
+        self.observation_space: Box | Discrete | Dict | None = None
+        self.action_space: Box | Discrete | Dict | None = None
 
     def connect(self, seed: int | None = None) -> dict[str, Any]:
         """Connect and perform handshake. Returns InitResponse."""

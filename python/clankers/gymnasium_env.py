@@ -100,7 +100,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         channel-first ``(C, H, W)`` layout expected by SB3.
     """
 
-    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
+    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}  # type: ignore[misc]
 
     def __init__(
         self,
@@ -149,10 +149,10 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
                 self.observation_space = img_space
                 self._image_obs_mode = True
             else:
-                self.observation_space = _to_gymnasium_space(space_from_dict(obs_data))
+                self.observation_space = _to_gymnasium_space(space_from_dict(obs_data))  # type: ignore[assignment]
                 self._image_obs_mode = False
         if act_data:
-            self.action_space = _to_gymnasium_space(space_from_dict(act_data))
+            self.action_space = _to_gymnasium_space(space_from_dict(act_data))  # type: ignore[assignment]
 
     def _obs_from_resp(self, resp: dict[str, Any]) -> _FlatObs | _ImageObs:
         """Extract the observation array from a step/reset response dict."""
@@ -163,7 +163,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
                 # image is (H, W, C); transpose to (C, H, W) unless channel_last.
                 if not self._channel_last:
                     image = image.transpose(2, 0, 1)
-                return image  # type: ignore[return-value]
+                return image  # type: ignore[return-value, no-any-return]
             # Fallback: server sent JSON observation despite Image space (should not happen
             # in normal operation, but handle gracefully).
             data = resp.get("observation", {}).get("data", [])
@@ -237,9 +237,9 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
         # Compute reward via pluggable function.
         if self._reward_fn is not None and self._last_obs is not None:
             reward = self._reward_fn.compute(
-                obs=self._last_obs,
-                action=action,
-                next_obs=obs,
+                obs=self._last_obs,  # type: ignore[arg-type]
+                action=action,  # type: ignore[arg-type]
+                next_obs=obs,  # type: ignore[arg-type]
                 info=info,
             )
         else:
@@ -247,7 +247,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
 
         # Python-side termination override
         if self._termination_fn is not None and not terminated:
-            terminated = self._termination_fn.is_terminated(obs, self._step_count)
+            terminated = self._termination_fn.is_terminated(obs, self._step_count)  # type: ignore[arg-type]
 
         self._last_obs = obs
         return obs, reward, terminated, truncated, info

@@ -45,7 +45,8 @@ def _load_trace_steps(path: Path) -> list[dict]:
     """Load steps from a trace JSON file (both single-trace and episode formats)."""
     data = json.loads(path.read_text())
     if "steps" in data:
-        return data["steps"]
+        steps: list[dict] = data["steps"]
+        return steps
     raise ValueError(f"Unrecognized trace format in {path}")
 
 
@@ -89,18 +90,20 @@ class TrajectoryDataset(Dataset):
     @property
     def input_dim(self) -> int:
         """Dimension of input (position) vectors."""
-        return self._positions.shape[1]
+        return int(self._positions.shape[1])
 
     @property
     def target_dim(self) -> int:
         """Dimension of target vectors."""
-        return self._targets.shape[1]
+        return int(self._targets.shape[1])
 
     def __len__(self) -> int:
         return len(self._positions)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        return self._positions[idx], self._targets[idx]
+        pos: torch.Tensor = self._positions[idx]
+        tgt: torch.Tensor = self._targets[idx]
+        return pos, tgt
 
     # -- Factory methods -----------------------------------------------------
 

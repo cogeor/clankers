@@ -66,7 +66,8 @@ class NormalizeObservation(gymnasium.ObservationWrapper):  # type: ignore[misc]
     def _normalize(self, obs: np.ndarray) -> np.ndarray:
         """Normalize using current running stats."""
         normalized = (obs - self._mean) / np.sqrt(self._var + self.epsilon)
-        return np.clip(normalized, -self.clip, self.clip).astype(np.float32)
+        result: np.ndarray = np.clip(normalized, -self.clip, self.clip).astype(np.float32)
+        return result
 
 
 class FrameStack(gymnasium.ObservationWrapper):  # type: ignore[misc]
@@ -106,7 +107,7 @@ class FrameStack(gymnasium.ObservationWrapper):  # type: ignore[misc]
 
     def reset(self, **kwargs: object) -> tuple[np.ndarray, dict]:
         """Reset the environment and fill the frame buffer with the initial obs."""
-        obs, info = self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)  # type: ignore[arg-type]
         for _ in range(self.n_frames):
             self._frames.append(obs)
         return self._get_obs(), info
@@ -177,7 +178,7 @@ class NormalizeReward(gymnasium.RewardWrapper):  # type: ignore[misc]
     def reset(self, **kwargs: object) -> tuple[np.ndarray, dict]:
         """Reset the environment and clear the discounted return."""
         self._return = 0.0  # reset discounted return on episode boundary
-        return self.env.reset(**kwargs)
+        return self.env.reset(**kwargs)  # type: ignore[arg-type]
 
 
 class ClipReward(gymnasium.RewardWrapper):  # type: ignore[misc]

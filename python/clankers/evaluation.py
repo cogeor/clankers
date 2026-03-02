@@ -99,7 +99,7 @@ def evaluate_policy(
         while not done:
             action = policy(obs)
             obs, reward, terminated, truncated, info = env.step(action)
-            ep_reward += reward
+            ep_reward += float(reward)
             ep_length += 1
             done = terminated or truncated
 

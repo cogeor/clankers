@@ -33,9 +33,11 @@ class SimValidator:
         self,
         ee_link_name: str = "end_effector",
         joint_limits: dict[str, list[float]] | None = None,
+        control_dt: float = 0.02,
     ) -> None:
         self.ee_link_name = ee_link_name
         self.joint_limits = joint_limits or {}
+        self.control_dt = control_dt
 
     def validate(
         self,
@@ -122,8 +124,7 @@ class SimValidator:
 
                 # EE speed
                 if prev_ee_pos is not None:
-                    dt = 0.02  # control_dt default
-                    ee_speed = float(np.linalg.norm(ee_pos - prev_ee_pos) / dt)
+                    ee_speed = float(np.linalg.norm(ee_pos - prev_ee_pos) / self.control_dt)
                     max_ee_speed = max(max_ee_speed, ee_speed)
 
                     # Soft gate: EE speed
@@ -157,13 +158,12 @@ class SimValidator:
 
             # Joint velocity
             if joint_positions and prev_joint_pos is not None:
-                dt = 0.02
                 curr = np.array(
                     list(joint_positions.values())
                     if isinstance(joint_positions, dict)
                     else joint_positions
                 )
-                vel = np.abs(curr - prev_joint_pos) / dt
+                vel = np.abs(curr - prev_joint_pos) / self.control_dt
                 max_joint_velocity = max(max_joint_velocity, float(np.max(vel)))
 
             if joint_positions:

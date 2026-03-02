@@ -82,6 +82,7 @@ def generate_dataset(
     validator = SimValidator(
         ee_link_name=scene.robot.ee_link_name,
         joint_limits=scene.robot.joint_limits,
+        control_dt=scene.simulation.control_dt,
     )
     refiner = PVCBRefiner(
         planner=planner,
@@ -153,6 +154,9 @@ def generate_dataset(
         except Exception as e:
             logger.warning(f"Plan {plan_idx}: execution failed: {e}")
             continue
+        finally:
+            if hasattr(env, "close"):
+                env.close()
 
         # 4. Validate
         report = validator.validate(trace, task, scene.constraints)
@@ -181,6 +185,9 @@ def generate_dataset(
                         all_prompts.append(provenance)
                 except Exception as e:
                     logger.warning(f"Plan {plan_idx}: refined execution failed: {e}")
+                finally:
+                    if hasattr(env2, "close"):
+                        env2.close()
 
     logger.info(
         f"Pipeline complete: {n_proposed} proposed, {n_parsed} parsed, "

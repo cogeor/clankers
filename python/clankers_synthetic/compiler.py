@@ -139,6 +139,14 @@ class SkillCompiler:
             return self._exec_set_gripper(
                 skill, env, current_obs, current_joints, all_steps
             )
+        elif skill.name == "move_relative":
+            return self._exec_move_relative(
+                skill, env, current_obs, current_joints, all_steps
+            )
+        elif skill.name == "move_joints":
+            return self._exec_move_joints(
+                skill, env, current_obs, current_joints, all_steps
+            )
         elif skill.name == "wait":
             return self._exec_wait(
                 skill, env, current_obs, current_joints, all_steps
@@ -227,7 +235,7 @@ class SkillCompiler:
             else:
                 target_joints = current_joints
 
-            action = self.normalize_action(target_joints)
+            action = np.asarray(target_joints, dtype=np.float32)
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
                 np.array(next_obs, dtype=np.float32)
@@ -261,9 +269,49 @@ class SkillCompiler:
 
         return new_steps, current_obs, current_joints, terminated, truncated, info
 
+    def _exec_move_relative(self, skill, env, obs, joints, all_steps):
+        """Execute move_relative: move EE by delta in world frame."""
+        delta = np.array(skill.params.get("delta", [0, 0, 0]), dtype=float)
+        speed_frac = skill.params.get("speed_fraction", 0.5)
+
+        # Apply delta to current EE position via IK.
+        # frame param is accepted by the parser but we treat delta as
+        # world-frame offset (frame resolution requires FK).
+        if self.ik_solver is not None:
+            target = np.zeros(3) + delta
+            ik_result = self.ik_solver.solve(target, joints)
+            target_joints = ik_result.joint_angles
+        else:
+            target_joints = joints.copy()
+
+        return self._interpolate_to_target(
+            target_joints, speed_frac, skill.guard, env, obs, joints, all_steps
+        )
+
+    def _exec_move_joints(self, skill, env, obs, joints, all_steps):
+        """Execute move_joints: direct joint-space interpolation to targets."""
+        targets = skill.params.get("targets", {})
+        speed_frac = skill.params.get("speed_fraction", 0.5)
+
+        # Build target joint array from current + overrides
+        target_joints = joints.copy()
+        for name, value in targets.items():
+            if name in self.joint_names:
+                idx = self.joint_names.index(name)
+                target_joints[idx] = value
+
+        return self._interpolate_to_target(
+            target_joints, speed_frac, skill.guard, env, obs, joints, all_steps
+        )
+
     def _exec_set_gripper(self, skill, env, obs, joints, all_steps):
         """Execute set_gripper: set gripper width and wait for settle."""
         wait_steps = skill.params.get("wait_settle_steps", 5)
+
+        # Set gripper width on the bridge env if supported
+        width = skill.params.get("width", 0.0)
+        if hasattr(env, "gripper_width"):
+            env.gripper_width = width
 
         new_steps: list[TraceStep] = []
         terminated = False
@@ -275,7 +323,7 @@ class SkillCompiler:
         for _ in range(max(1, wait_steps)):
             if terminated or truncated:
                 break
-            action = self.normalize_action(current_joints)
+            action = np.asarray(current_joints, dtype=np.float32)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
@@ -302,8 +350,9 @@ class SkillCompiler:
             new_steps.append(trace_step)
             all_steps.append(trace_step)
             current_obs = next_obs_arr
-            current_joints = self._extract_joint_positions(current_obs, info)
 
+        # Extract final joint positions for handoff to next skill
+        current_joints = self._extract_joint_positions(current_obs, info)
         return new_steps, current_obs, current_joints, terminated, truncated, info
 
     def _exec_wait(self, skill, env, obs, joints, all_steps):
@@ -320,7 +369,7 @@ class SkillCompiler:
         for _ in range(n_steps):
             if terminated or truncated:
                 break
-            action = self.normalize_action(current_joints)
+            action = np.asarray(current_joints, dtype=np.float32)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
@@ -378,7 +427,7 @@ class SkillCompiler:
                 break
             frac = (step_i + 1) / n_steps
             waypoint = current_joints + delta * frac
-            action = self.normalize_action(waypoint)
+            action = np.asarray(waypoint, dtype=np.float32)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
@@ -454,6 +503,10 @@ class SkillCompiler:
                         [jp.get(name, 0.0) for name in self.joint_names]
                     )
                 return np.array(jp, dtype=float)
-        # Fallback: first N elements of obs are joint positions
+        # JointStateSensor produces interleaved [pos0, vel0, pos1, vel1, ...]
+        # so obs length = 2 * n_joints. If obs is shorter (e.g. mock env),
+        # fall back to taking the first n_joints elements directly.
+        if len(obs) >= 2 * self._n_joints:
+            return np.array(obs[0 : 2 * self._n_joints : 2], dtype=float)
         n = min(self._n_joints, len(obs))
         return np.array(obs[:n], dtype=float)

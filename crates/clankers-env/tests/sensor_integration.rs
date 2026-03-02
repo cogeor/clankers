@@ -43,7 +43,7 @@ fn lidar_sensor_no_rapier_context_returns_nan() {
         num_channels: 2,
         ..LidarConfig::default()
     };
-    let sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
+    let mut sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
     let obs = sensor.read(&mut world);
     assert_eq!(obs.len(), 16);
     for v in obs.as_slice() {

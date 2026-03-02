@@ -11,6 +11,8 @@ use clankers_core::{
 };
 use clankers_noise::prelude::NoiseModel;
 use clankers_physics::rapier::RapierContext;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
 use bevy::prelude::*;
 
@@ -38,7 +40,7 @@ impl JointStateSensor {
 impl Sensor for JointStateSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints * 2);
         let mut query = world.query::<&JointState>();
         for state in query.iter(world) {
@@ -80,7 +82,7 @@ impl JointCommandSensor {
 impl Sensor for JointCommandSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints);
         let mut query = world.query::<&JointCommand>();
         for cmd in query.iter(world) {
@@ -121,7 +123,7 @@ impl JointTorqueSensor {
 impl Sensor for JointTorqueSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints);
         let mut query = world.query::<&JointTorque>();
         for torque in query.iter(world) {
@@ -164,7 +166,7 @@ impl RobotJointStateSensor {
 impl Sensor for RobotJointStateSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints * 2);
         let mut query = world.query::<(&JointState, &RobotId)>();
         for (state, &id) in query.iter(world) {
@@ -203,7 +205,7 @@ impl RobotJointCommandSensor {
 impl Sensor for RobotJointCommandSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints);
         let mut query = world.query::<(&JointCommand, &RobotId)>();
         for (cmd, &id) in query.iter(world) {
@@ -241,7 +243,7 @@ impl RobotJointTorqueSensor {
 impl Sensor for RobotJointTorqueSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_joints);
         let mut query = world.query::<(&JointTorque, &RobotId)>();
         for (torque, &id) in query.iter(world) {
@@ -286,7 +288,7 @@ impl ImuSensor {
 impl Sensor for ImuSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_imus * 6);
         let mut query = world.query::<&ImuData>();
         for imu in query.iter(world) {
@@ -333,7 +335,7 @@ impl RobotImuSensor {
 impl Sensor for RobotImuSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_imus * 6);
         let mut query = world.query::<(&ImuData, &RobotId)>();
         for (imu, &id) in query.iter(world) {
@@ -383,7 +385,7 @@ impl ContactSensor {
 impl Sensor for ContactSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_contacts * 3);
         let mut query = world.query::<&ContactData>();
         for contact in query.iter(world) {
@@ -430,7 +432,7 @@ impl RobotContactSensor {
 impl Sensor for RobotContactSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_contacts * 3);
         let mut query = world.query::<(&ContactData, &RobotId)>();
         for (contact, &id) in query.iter(world) {
@@ -477,7 +479,7 @@ impl RaycastSensor {
 impl Sensor for RaycastSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_rays);
         let mut query = world.query::<&RaycastResult>();
         for result in query.iter(world) {
@@ -519,7 +521,7 @@ impl RobotRaycastSensor {
 impl Sensor for RobotRaycastSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_rays);
         let mut query = world.query::<(&RaycastResult, &RobotId)>();
         for (result, &id) in query.iter(world) {
@@ -564,7 +566,7 @@ impl EndEffectorPoseSensor {
 impl Sensor for EndEffectorPoseSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_effectors * 7);
         let mut query = world.query::<&EndEffectorState>();
         for ee in query.iter(world) {
@@ -615,7 +617,7 @@ impl RobotEndEffectorPoseSensor {
 impl Sensor for RobotEndEffectorPoseSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let mut data = Vec::with_capacity(self.n_effectors * 7);
         let mut query = world.query::<(&EndEffectorState, &RobotId)>();
         for (ee, &id) in query.iter(world) {
@@ -703,7 +705,7 @@ impl LidarSensor {
 impl Sensor for LidarSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
+    fn read(&mut self, world: &mut World) -> Observation {
         let total = self.config.num_rays * self.config.num_channels;
         let mut data = vec![f32::NAN; total];
 
@@ -766,29 +768,52 @@ impl ObservationSensor for LidarSensor {
 
 /// Wraps any [`ObservationSensor`] and adds noise to its output.
 ///
-/// Uses a [`NoiseModel`] applied element-wise.  The RNG must be provided
-/// externally for determinism.
+/// Uses a [`NoiseModel`] applied element-wise. An internal RNG ensures
+/// noise is applied automatically through the standard `read()` path.
 pub struct NoisySensor<S: ObservationSensor> {
     inner: S,
     noise: NoiseModel,
+    rng: ChaCha8Rng,
 }
 
 impl<S: ObservationSensor> NoisySensor<S> {
-    pub const fn new(inner: S, noise: NoiseModel) -> Self {
-        Self { inner, noise }
+    /// Create a noisy sensor with a random seed.
+    pub fn new(inner: S, noise: NoiseModel) -> Self {
+        Self {
+            inner,
+            noise,
+            rng: ChaCha8Rng::from_entropy(),
+        }
+    }
+
+    /// Create a noisy sensor with a deterministic seed.
+    pub fn with_seed(inner: S, noise: NoiseModel, seed: u64) -> Self {
+        Self {
+            inner,
+            noise,
+            rng: ChaCha8Rng::seed_from_u64(seed),
+        }
     }
 }
 
 impl<S: ObservationSensor> Sensor for NoisySensor<S> {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Observation {
-        // Read the clean observation; noise is applied via `read_noisy`.
-        self.inner.read(world)
+    fn read(&mut self, world: &mut World) -> Observation {
+        let mut obs = self.inner.read(world);
+        // Apply noise through the standard read path.
+        for val in obs.as_mut_slice() {
+            *val = self.noise.apply(*val, &mut self.rng);
+        }
+        obs
     }
 
     fn name(&self) -> &str {
         self.inner.name()
+    }
+
+    fn episode_reset(&mut self) {
+        self.noise.reset(&mut self.rng);
     }
 }
 
@@ -851,7 +876,7 @@ mod tests {
         spawn_joint(&mut world, 1.0, 2.0, 0.0);
         spawn_joint(&mut world, 3.0, 4.0, 0.0);
 
-        let sensor = JointStateSensor::new(2);
+        let mut sensor = JointStateSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         let vals: Vec<f32> = obs.as_slice().to_vec();
@@ -864,7 +889,7 @@ mod tests {
     #[test]
     fn joint_state_sensor_empty_world() {
         let mut world = World::new();
-        let sensor = JointStateSensor::new(0);
+        let mut sensor = JointStateSensor::new(0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -889,7 +914,7 @@ mod tests {
         spawn_joint(&mut world, 0.0, 0.0, 5.0);
         spawn_joint(&mut world, 0.0, 0.0, 10.0);
 
-        let sensor = JointCommandSensor::new(2);
+        let mut sensor = JointCommandSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2);
         let vals: Vec<f32> = obs.as_slice().to_vec();
@@ -911,7 +936,7 @@ mod tests {
         world.spawn(JointTorque { value: 7.5 });
         world.spawn(JointTorque { value: -3.0 });
 
-        let sensor = JointTorqueSensor::new(2);
+        let mut sensor = JointTorqueSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2);
         let vals: Vec<f32> = obs.as_slice().to_vec();
@@ -934,7 +959,7 @@ mod tests {
             Vec3::new(0.1, 0.2, 0.3),
         );
 
-        let sensor = ImuSensor::new(1);
+        let mut sensor = ImuSensor::new(1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 6);
         let vals = obs.as_slice();
@@ -952,7 +977,7 @@ mod tests {
         spawn_imu(&mut world, Vec3::X, Vec3::Y);
         spawn_imu(&mut world, Vec3::Z, Vec3::NEG_X);
 
-        let sensor = ImuSensor::new(2);
+        let mut sensor = ImuSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 12);
     }
@@ -960,7 +985,7 @@ mod tests {
     #[test]
     fn imu_sensor_empty_world() {
         let mut world = World::new();
-        let sensor = ImuSensor::new(0);
+        let mut sensor = ImuSensor::new(0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -986,7 +1011,7 @@ mod tests {
         world.spawn((ImuData::new(Vec3::Z, Vec3::NEG_X), RobotId(1)));
         world.spawn((ImuData::new(Vec3::NEG_Y, Vec3::NEG_Z), RobotId(0)));
 
-        let sensor = RobotImuSensor::new(RobotId(0), 2);
+        let mut sensor = RobotImuSensor::new(RobotId(0), 2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 12);
         // Robot 1's data (Z, NEG_X) should not appear
@@ -1002,7 +1027,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((ImuData::default(), RobotId(0)));
 
-        let sensor = RobotImuSensor::new(RobotId(99), 0);
+        let mut sensor = RobotImuSensor::new(RobotId(99), 0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1021,7 +1046,7 @@ mod tests {
         let mut world = World::new();
         world.spawn(ContactData::new(Vec3::new(0.0, 50.0, 0.0)));
 
-        let sensor = ContactSensor::new(1);
+        let mut sensor = ContactSensor::new(1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 3);
         assert!((obs[0] - 0.0).abs() < f32::EPSILON);
@@ -1035,7 +1060,7 @@ mod tests {
         world.spawn(ContactData::new(Vec3::X));
         world.spawn(ContactData::new(Vec3::Y));
 
-        let sensor = ContactSensor::new(2);
+        let mut sensor = ContactSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 6);
     }
@@ -1043,7 +1068,7 @@ mod tests {
     #[test]
     fn contact_sensor_empty_world() {
         let mut world = World::new();
-        let sensor = ContactSensor::new(0);
+        let mut sensor = ContactSensor::new(0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1063,7 +1088,7 @@ mod tests {
         world.spawn((ContactData::new(Vec3::new(0.0, 10.0, 0.0)), RobotId(0)));
         world.spawn((ContactData::new(Vec3::new(0.0, 20.0, 0.0)), RobotId(1)));
 
-        let sensor = RobotContactSensor::new(RobotId(0), 1);
+        let mut sensor = RobotContactSensor::new(RobotId(0), 1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 3);
         assert!((obs[1] - 10.0).abs() < f32::EPSILON);
@@ -1074,7 +1099,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((ContactData::default(), RobotId(0)));
 
-        let sensor = RobotContactSensor::new(RobotId(99), 0);
+        let mut sensor = RobotContactSensor::new(RobotId(99), 0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1093,7 +1118,7 @@ mod tests {
         let mut world = World::new();
         world.spawn(RaycastResult::new(vec![1.5, 3.0, 10.0], 10.0));
 
-        let sensor = RaycastSensor::new(3);
+        let mut sensor = RaycastSensor::new(3);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 3);
         assert!((obs[0] - 1.5).abs() < f32::EPSILON);
@@ -1107,7 +1132,7 @@ mod tests {
         world.spawn(RaycastResult::new(vec![1.0, 2.0], 5.0));
         world.spawn(RaycastResult::new(vec![3.0], 5.0));
 
-        let sensor = RaycastSensor::new(3);
+        let mut sensor = RaycastSensor::new(3);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 3);
     }
@@ -1117,7 +1142,7 @@ mod tests {
         let mut world = World::new();
         world.spawn(RaycastResult::no_hits(4, 10.0));
 
-        let sensor = RaycastSensor::new(4);
+        let mut sensor = RaycastSensor::new(4);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         for i in 0..4 {
@@ -1128,7 +1153,7 @@ mod tests {
     #[test]
     fn raycast_sensor_empty_world() {
         let mut world = World::new();
-        let sensor = RaycastSensor::new(0);
+        let mut sensor = RaycastSensor::new(0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1148,7 +1173,7 @@ mod tests {
         world.spawn((RaycastResult::new(vec![1.0, 2.0], 5.0), RobotId(0)));
         world.spawn((RaycastResult::new(vec![3.0, 4.0], 5.0), RobotId(1)));
 
-        let sensor = RobotRaycastSensor::new(RobotId(0), 2);
+        let mut sensor = RobotRaycastSensor::new(RobotId(0), 2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2);
         assert!((obs[0] - 1.0).abs() < f32::EPSILON);
@@ -1160,7 +1185,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((RaycastResult::no_hits(3, 10.0), RobotId(0)));
 
-        let sensor = RobotRaycastSensor::new(RobotId(99), 0);
+        let mut sensor = RobotRaycastSensor::new(RobotId(99), 0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1180,7 +1205,7 @@ mod tests {
         let ee = EndEffectorState::new(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
         world.spawn(ee);
 
-        let sensor = EndEffectorPoseSensor::new(1);
+        let mut sensor = EndEffectorPoseSensor::new(1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 7);
         assert!((obs[0] - 1.0).abs() < f32::EPSILON);
@@ -1197,7 +1222,7 @@ mod tests {
         world.spawn(EndEffectorState::default());
         world.spawn(EndEffectorState::default());
 
-        let sensor = EndEffectorPoseSensor::new(2);
+        let mut sensor = EndEffectorPoseSensor::new(2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 14);
     }
@@ -1205,7 +1230,7 @@ mod tests {
     #[test]
     fn end_effector_pose_sensor_empty_world() {
         let mut world = World::new();
-        let sensor = EndEffectorPoseSensor::new(0);
+        let mut sensor = EndEffectorPoseSensor::new(0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1231,7 +1256,7 @@ mod tests {
             RobotId(1),
         ));
 
-        let sensor = RobotEndEffectorPoseSensor::new(RobotId(0), 1);
+        let mut sensor = RobotEndEffectorPoseSensor::new(RobotId(0), 1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 7);
         assert!((obs[0] - 1.0).abs() < f32::EPSILON);
@@ -1242,7 +1267,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((EndEffectorState::default(), RobotId(0)));
 
-        let sensor = RobotEndEffectorPoseSensor::new(RobotId(99), 0);
+        let mut sensor = RobotEndEffectorPoseSensor::new(RobotId(99), 0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1328,7 +1353,7 @@ mod tests {
         spawn_robot_joint(&mut world, RobotId(1), 3.0, 4.0, 0.0);
         spawn_robot_joint(&mut world, RobotId(0), 5.0, 6.0, 0.0);
 
-        let sensor = RobotJointStateSensor::new(RobotId(0), 2);
+        let mut sensor = RobotJointStateSensor::new(RobotId(0), 2);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         let vals: Vec<f32> = obs.as_slice().to_vec();
@@ -1346,7 +1371,7 @@ mod tests {
         spawn_robot_joint(&mut world, RobotId(0), 0.0, 0.0, 10.0);
         spawn_robot_joint(&mut world, RobotId(1), 0.0, 0.0, 20.0);
 
-        let sensor = RobotJointCommandSensor::new(RobotId(0), 1);
+        let mut sensor = RobotJointCommandSensor::new(RobotId(0), 1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 1);
         assert!((obs[0] - 10.0).abs() < f32::EPSILON);
@@ -1358,7 +1383,7 @@ mod tests {
         spawn_robot_joint(&mut world, RobotId(0), 5.0, 0.0, 0.0); // torque = 10.0
         spawn_robot_joint(&mut world, RobotId(1), 3.0, 0.0, 0.0); // torque = 6.0
 
-        let sensor = RobotJointTorqueSensor::new(RobotId(1), 1);
+        let mut sensor = RobotJointTorqueSensor::new(RobotId(1), 1);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 1);
         assert!((obs[0] - 6.0).abs() < f32::EPSILON);
@@ -1369,7 +1394,7 @@ mod tests {
         let mut world = World::new();
         spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 3.0);
 
-        let sensor = RobotJointStateSensor::new(RobotId(99), 0);
+        let mut sensor = RobotJointStateSensor::new(RobotId(99), 0);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
@@ -1428,7 +1453,7 @@ mod tests {
             num_channels: 1,
             ..LidarConfig::default()
         };
-        let sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
+        let mut sensor = LidarSensor::new(cfg, Vec3::ZERO, Quat::IDENTITY);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         for v in obs.as_slice() {

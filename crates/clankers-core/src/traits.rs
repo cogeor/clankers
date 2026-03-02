@@ -41,7 +41,7 @@ pub trait Sensor: Send + Sync + 'static {
     type Output;
 
     /// Read sensor data from the world.
-    fn read(&self, world: &mut World) -> Self::Output;
+    fn read(&mut self, world: &mut World) -> Self::Output;
 
     /// Human-readable name for this sensor.
     fn name(&self) -> &str;
@@ -50,6 +50,11 @@ pub trait Sensor: Send + Sync + 'static {
     fn rate_hz(&self) -> Option<f64> {
         None
     }
+
+    /// Called at episode boundaries to reset any internal state (e.g. noise).
+    ///
+    /// Default is a no-op. Override in sensors with stateful noise models.
+    fn episode_reset(&mut self) {}
 }
 
 /// A sensor whose output is an [`Observation`] vector.

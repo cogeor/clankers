@@ -24,6 +24,16 @@ pub fn observe_system(world: &mut World) {
         return;
     };
 
+    // Reset sensor noise state at the start of each episode.
+    let episode_just_reset = world
+        .get_resource::<Episode>()
+        .is_some_and(|ep| ep.step_count == 0 && ep.is_running());
+    if episode_just_reset {
+        for entry in &mut registry.entries {
+            entry.sensor.episode_reset();
+        }
+    }
+
     for entry in &mut registry.entries {
         let obs = entry.sensor.read(world);
         buffer.write(entry.slot_index, obs.as_slice());

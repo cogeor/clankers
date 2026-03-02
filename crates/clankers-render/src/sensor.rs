@@ -88,7 +88,7 @@ impl ImageSensor {
 impl Sensor for ImageSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Self::Output {
+    fn read(&mut self, world: &mut World) -> Self::Output {
         // Look up the named camera in CameraFrameBuffers first.
         if let Some(bufs) = world.get_resource::<CameraFrameBuffers>()
             && let Some(buf) = bufs.get(&self.label)
@@ -175,7 +175,7 @@ impl DepthSensor {
 impl Sensor for DepthSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Self::Output {
+    fn read(&mut self, world: &mut World) -> Self::Output {
         if let Some(buf) = world.get_resource::<DepthFrameBuffer>() {
             let depth: Vec<f32> = buf.data().iter().map(|&raw| self.linearise(raw)).collect();
             return Observation::new(depth);
@@ -238,7 +238,7 @@ pub struct SegmentationSensor {
 impl Sensor for SegmentationSensor {
     type Output = Observation;
 
-    fn read(&self, world: &mut World) -> Self::Output {
+    fn read(&mut self, world: &mut World) -> Self::Output {
         if let Some(buf) = world.get_resource::<SegmentationFrameBuffer>() {
             let data: Vec<f32> = buf.data().iter().map(|&b| f32::from(b) / 255.0).collect();
             return Observation::new(data);

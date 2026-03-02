@@ -40,12 +40,12 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets 2>&1 | tee /tmp/clippy_output.txt
           exit ${PIPESTATUS[0]}
-      - name: Upload clippy output
+      - name: Show clippy errors in summary
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy-errors
-          path: /tmp/clippy_output.txt
+        run: |
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -80 /tmp/clippy_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   test:
     name: Test

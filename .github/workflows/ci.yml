@@ -36,7 +36,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1"
-      - run: cargo clippy --workspace --all-targets
+      - name: Run clippy
+        run: |
+          cargo clippy --workspace --all-targets 2>&1 | tee /tmp/clippy_output.txt
+          exit ${PIPESTATUS[0]}
+      - name: Show clippy errors
+        if: failure()
+        run: cat /tmp/clippy_output.txt | tail -100
 
   test:
     name: Test

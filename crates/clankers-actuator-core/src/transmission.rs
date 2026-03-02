@@ -22,8 +22,9 @@ pub struct Transmission {
     pub backlash: f32,
     // Last known joint-side position (rad).
     last_position: f32,
-    // Whether currently in the backlash dead zone.
-    in_dead_zone: bool,
+    // Cumulative travel since last direction reversal (rad).
+    // Positive while in the dead zone; set to backlash+1 (sentinel) when engaged.
+    dead_zone_travel: f32,
 }
 
 impl Default for Transmission {
@@ -40,7 +41,7 @@ impl Transmission {
             efficiency: 1.0,
             backlash: 0.0,
             last_position: 0.0,
-            in_dead_zone: false,
+            dead_zone_travel: f32::MAX,
         }
     }
 
@@ -90,8 +91,8 @@ impl Transmission {
 
     /// Apply backlash model.  Returns effective torque after dead zone.
     ///
-    /// When direction reverses, torque is zeroed until the joint travels
-    /// through the backlash dead zone.
+    /// When direction reverses, torque is zeroed until the joint has
+    /// accumulated enough displacement to cross the full backlash dead zone.
     pub fn apply_backlash(&mut self, position: f32, torque: f32) -> f32 {
         if self.backlash <= 0.0 {
             return torque;
@@ -100,16 +101,20 @@ impl Transmission {
         let delta = position - self.last_position;
         self.last_position = position;
 
-        if self.in_dead_zone {
-            if delta.abs() > self.backlash {
-                self.in_dead_zone = false;
+        let in_dead_zone = self.dead_zone_travel < self.backlash;
+
+        if in_dead_zone {
+            // Accumulate travel through the dead zone.
+            self.dead_zone_travel += delta.abs();
+            if self.dead_zone_travel >= self.backlash {
+                // Exited dead zone — gears re-engaged.
                 torque
             } else {
                 0.0
             }
         } else if torque * delta < 0.0 {
-            // Direction reversal detected.
-            self.in_dead_zone = true;
+            // Direction reversal detected — enter dead zone.
+            self.dead_zone_travel = 0.0;
             0.0
         } else {
             torque
@@ -119,7 +124,7 @@ impl Transmission {
     /// Reset internal backlash state.
     pub const fn reset(&mut self) {
         self.last_position = 0.0;
-        self.in_dead_zone = false;
+        self.dead_zone_travel = f32::MAX;
     }
 }
 
@@ -183,15 +188,29 @@ mod tests {
 
     #[test]
     fn backlash_dead_zone_on_reversal() {
-        let mut t = Transmission::new(1.0).with_backlash(0.01);
+        let mut t = Transmission::new(1.0).with_backlash(0.02);
         // Moving forward: delta > 0, torque > 0 → same direction, no backlash.
         t.set_position(0.0);
         let torque = t.apply_backlash(0.1, 5.0);
         assert!((torque - 5.0).abs() < f32::EPSILON);
-        // Reverse torque while position still drifts forward slightly:
-        // delta = +0.01 (forward), torque = -5.0 (reverse) → reversal detected.
+        // Reverse torque: delta = +0.01 (forward), torque = -5.0 → reversal.
         let torque = t.apply_backlash(0.11, -5.0);
-        assert!((torque).abs() < f32::EPSILON);
+        assert!((torque).abs() < f32::EPSILON, "should be zero in dead zone");
+    }
+
+    #[test]
+    fn backlash_accumulates_through_dead_zone() {
+        let mut t = Transmission::new(1.0).with_backlash(0.02);
+        t.set_position(0.0);
+        t.apply_backlash(0.1, 5.0); // forward, engaged (delta=+0.1, torque=+5)
+        // Reversal: torque reverses but joint still drifts forward (momentum)
+        t.apply_backlash(0.11, -5.0); // delta=+0.01, torque=-5 → reversal detected
+        // Now in dead zone (travel=0). Moving backward slowly:
+        let torque = t.apply_backlash(0.105, -5.0); // travel += 0.005
+        assert!((torque).abs() < f32::EPSILON, "still in dead zone");
+        // More backward travel (well past threshold to avoid float precision):
+        let torque = t.apply_backlash(0.08, -5.0); // travel += 0.025, total > 0.02
+        assert!((torque - (-5.0)).abs() < f32::EPSILON, "should re-engage");
     }
 
     #[test]
@@ -199,8 +218,8 @@ mod tests {
         let mut t = Transmission::new(1.0).with_backlash(0.005);
         t.set_position(0.0);
         t.apply_backlash(0.1, 5.0); // forward
-        t.apply_backlash(0.09, -5.0); // reverse → dead zone
-        // Move enough to exit dead zone
+        t.apply_backlash(0.09, -5.0); // reverse → dead zone, travel=0.01 >= 0.005
+        // Already crossed backlash (0.01 >= 0.005), so should re-engage
         let torque = t.apply_backlash(0.08, -5.0);
         assert!((torque - (-5.0)).abs() < f32::EPSILON);
     }
@@ -211,7 +230,7 @@ mod tests {
         t.set_position(1.0);
         t.reset();
         assert!((t.last_position).abs() < f32::EPSILON);
-        assert!(!t.in_dead_zone);
+        assert!(t.dead_zone_travel >= t.backlash, "should be engaged after reset");
     }
 
     #[test]

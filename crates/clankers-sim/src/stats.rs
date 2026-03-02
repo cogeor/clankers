@@ -3,12 +3,17 @@
 //! [`EpisodeStats`] records cumulative statistics across episodes:
 //! total episodes, total steps, and per-episode step-count history.
 
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 use clankers_env::episode::{Episode, EpisodeState};
 
 // ---------------------------------------------------------------------------
 // EpisodeStats
 // ---------------------------------------------------------------------------
+
+/// Maximum number of episode lengths retained in the ring buffer.
+const DEFAULT_HISTORY_CAPACITY: usize = 10_000;
 
 /// Bevy resource that tracks cumulative statistics across episodes.
 #[derive(Resource, Clone, Debug)]
@@ -17,8 +22,10 @@ pub struct EpisodeStats {
     pub episodes_completed: u32,
     /// Total steps across all episodes.
     pub total_steps: u64,
-    /// Step-count history (steps per completed episode).
-    pub step_history: Vec<u32>,
+    /// Step-count history (steps per completed episode, ring buffer).
+    pub step_history: VecDeque<u32>,
+    /// Max entries retained in `step_history`.
+    history_capacity: usize,
     /// Whether we saw the episode running last frame (for edge detection).
     was_running: bool,
 }
@@ -30,17 +37,29 @@ impl Default for EpisodeStats {
 }
 
 impl EpisodeStats {
-    /// Create empty stats.
+    /// Create empty stats with default history capacity.
     pub const fn new() -> Self {
         Self {
             episodes_completed: 0,
             total_steps: 0,
-            step_history: Vec::new(),
+            step_history: VecDeque::new(),
+            history_capacity: DEFAULT_HISTORY_CAPACITY,
             was_running: false,
         }
     }
 
-    /// Average episode length (steps) across all completed episodes.
+    /// Create empty stats with a custom history capacity.
+    pub const fn with_capacity(capacity: usize) -> Self {
+        Self {
+            episodes_completed: 0,
+            total_steps: 0,
+            step_history: VecDeque::new(),
+            history_capacity: capacity,
+            was_running: false,
+        }
+    }
+
+    /// Average episode length (steps) across retained history.
     pub fn mean_episode_length(&self) -> Option<f32> {
         if self.step_history.is_empty() {
             return None;
@@ -51,9 +70,18 @@ impl EpisodeStats {
         Some(sum / self.step_history.len() as f32)
     }
 
+    /// Record a completed episode's step count.
+    fn record_episode(&mut self, steps: u32) {
+        if self.step_history.len() >= self.history_capacity {
+            self.step_history.pop_front();
+        }
+        self.step_history.push_back(steps);
+    }
+
     /// Reset all statistics.
     pub fn reset(&mut self) {
-        *self = Self::new();
+        let cap = self.history_capacity;
+        *self = Self::with_capacity(cap);
     }
 }
 
@@ -71,7 +99,7 @@ pub fn episode_stats_system(episode: Res<Episode>, mut stats: ResMut<EpisodeStat
     if just_finished {
         stats.episodes_completed += 1;
         stats.total_steps += u64::from(episode.step_count);
-        stats.step_history.push(episode.step_count);
+        stats.record_episode(episode.step_count);
     }
 
     stats.was_running = episode.state == EpisodeState::Running;
@@ -83,6 +111,8 @@ pub fn episode_stats_system(episode: Res<Episode>, mut stats: ResMut<EpisodeStat
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     #[test]
@@ -97,7 +127,7 @@ mod tests {
     #[test]
     fn mean_episode_length_computes() {
         let mut stats = EpisodeStats::new();
-        stats.step_history = vec![100, 200, 300];
+        stats.step_history = VecDeque::from([100, 200, 300]);
         assert!((stats.mean_episode_length().unwrap() - 200.0).abs() < f32::EPSILON);
     }
 
@@ -106,10 +136,22 @@ mod tests {
         let mut stats = EpisodeStats::new();
         stats.episodes_completed = 5;
         stats.total_steps = 500;
-        stats.step_history = vec![10, 20];
+        stats.step_history = VecDeque::from([10, 20]);
         stats.reset();
         assert_eq!(stats.episodes_completed, 0);
         assert!(stats.step_history.is_empty());
+    }
+
+    #[test]
+    fn step_history_bounded() {
+        let mut stats = EpisodeStats::with_capacity(3);
+        stats.record_episode(10);
+        stats.record_episode(20);
+        stats.record_episode(30);
+        stats.record_episode(40);
+        assert_eq!(stats.step_history.len(), 3);
+        assert_eq!(stats.step_history[0], 20); // oldest was evicted
+        assert_eq!(stats.step_history[2], 40);
     }
 
     #[test]
@@ -132,7 +174,7 @@ mod tests {
         let stats = app.world().resource::<EpisodeStats>();
         assert_eq!(stats.episodes_completed, 1);
         assert_eq!(stats.total_steps, 3);
-        assert_eq!(stats.step_history, vec![3]);
+        assert_eq!(stats.step_history, VecDeque::from([3]));
     }
 
     #[test]

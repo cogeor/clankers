@@ -221,8 +221,9 @@ impl Recorder {
 
 impl Drop for Recorder {
     fn drop(&mut self) {
-        // Best-effort finish; errors are silently ignored on drop.
-        let _ = self.finish();
+        if let Err(e) = self.finish() {
+            eprintln!("clankers-record: MCAP finalization failed in Drop: {e}");
+        }
     }
 }
 

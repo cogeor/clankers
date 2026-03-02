@@ -188,14 +188,14 @@ fn randomize_on_reset_system(
         config.surface_friction.randomize(&mut sf, &mut rng);
     }
 
-    for mut transform in &mut geometry_transforms {
-        config.geometry.randomize(&mut transform, &mut rng);
-    }
-
-    // Also scale Rapier collider shapes to match the visual geometry change.
+    // Sample geometry scale ONCE and apply uniformly to both visual
+    // transforms and Rapier collider shapes (Bug 7: double-sample fix).
     if let Some(ref range) = config.geometry.scale {
+        let scale = range.sample(&mut rng).max(0.01);
+        for mut transform in &mut geometry_transforms {
+            transform.scale = Vec3::splat(scale);
+        }
         if let Some(ref mut ctx) = rapier_context {
-            let scale = range.sample(&mut rng).max(0.01);
             scale_colliders(ctx, scale);
         }
     }

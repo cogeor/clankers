@@ -15,7 +15,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "python")
-from clanker_gym.env import ClankerEnv
+from clankers.env import ClankerEnv
 
 
 def main() -> None:

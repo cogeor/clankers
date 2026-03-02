@@ -9,7 +9,7 @@ Usage
 1. Start a Clankers server:  ``cargo run``
 2. Train the agent:          ``python examples/train_ppo.py``
 
-Requirements: ``pip install clanker-gym[sb3]``
+Requirements: ``pip install clankers[sb3]``
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ def make_env(
     ClankerGymnasiumEnv
         Gymnasium-compatible environment.
     """
-    from clanker_gym.gymnasium_env import ClankerGymnasiumEnv
-    from clanker_gym.rewards import (
+    from clankers.gymnasium_env import ClankerGymnasiumEnv
+    from clankers.rewards import (
         ActionPenaltyReward,
         CompositeReward,
         DistanceReward,
@@ -121,7 +121,7 @@ def train(
         from stable_baselines3 import PPO
     except ImportError:
         print(
-            "stable-baselines3 is required. Install with: pip install clanker-gym[sb3]",
+            "stable-baselines3 is required. Install with: pip install clankers[sb3]",
             file=sys.stderr,
         )
         sys.exit(1)

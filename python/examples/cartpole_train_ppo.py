@@ -25,7 +25,7 @@ sys.path.insert(0, "python")
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
-from clanker_gym.gymnasium_env import make_cartpole_gymnasium_env
+from clankers.gymnasium_env import make_cartpole_gymnasium_env
 
 
 class ProgressCallback(BaseCallback):

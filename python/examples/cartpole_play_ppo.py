@@ -20,7 +20,7 @@ sys.path.insert(0, "python")
 
 from stable_baselines3 import PPO
 
-from clanker_gym.gymnasium_env import make_cartpole_gymnasium_env
+from clankers.gymnasium_env import make_cartpole_gymnasium_env
 
 
 def render_bar(value: float, width: int = 40, lo: float = -1.0, hi: float = 1.0) -> str:

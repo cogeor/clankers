@@ -20,9 +20,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "python")
-from clanker_gym.env import ClankerEnv
-from clanker_gym.rewards import ConstantReward
-from clanker_gym.terminations import cartpole_termination
+from clankers.env import ClankerEnv
+from clankers.rewards import ConstantReward
+from clankers.terminations import cartpole_termination
 
 
 def pd_controller(obs: np.ndarray) -> float:

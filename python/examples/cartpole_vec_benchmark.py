@@ -17,9 +17,9 @@ import time
 import numpy as np
 
 sys.path.insert(0, "python")
-from clanker_gym.rewards import ConstantReward
-from clanker_gym.terminations import cartpole_termination
-from clanker_gym.vec_env import ClankerVecEnv
+from clankers.rewards import ConstantReward
+from clankers.terminations import cartpole_termination
+from clankers.vec_env import ClankerVecEnv
 
 
 def main() -> None:

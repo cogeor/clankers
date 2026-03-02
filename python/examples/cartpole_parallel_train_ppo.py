@@ -25,8 +25,8 @@ sys.path.insert(0, "python")
 
 from stable_baselines3 import PPO
 
-from clanker_gym.gymnasium_env import make_cartpole_gymnasium_env
-from clanker_gym.sb3_vec_env import make_cartpole_sb3_vec_env
+from clankers.gymnasium_env import make_cartpole_gymnasium_env
+from clankers.sb3_vec_env import make_cartpole_sb3_vec_env
 
 
 def evaluate_with_single_env(model, port: int = 9877, n_episodes: int = 20) -> dict:

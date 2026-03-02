@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gymnasium
-import pytest
 
 import clankers.registration  # triggers register_envs()
 

@@ -6,10 +6,7 @@ This module is self-contained and does not import from the ``clankers`` package.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Scene models (spec section 4.1)
@@ -126,11 +123,11 @@ class GuardCondition(BaseModel):
     """Optional early-termination condition for a skill."""
 
     type: str
-    body: Optional[str] = None
-    min_force: Optional[float] = None
-    from_body: Optional[str] = None
-    threshold: Optional[float] = None
-    steps: Optional[int] = None
+    body: str | None = None
+    min_force: float | None = None
+    from_body: str | None = None
+    threshold: float | None = None
+    steps: int | None = None
 
 
 class SkillParams(BaseModel):
@@ -139,20 +136,20 @@ class SkillParams(BaseModel):
     Each field is optional because different skills use different subsets.
     """
 
-    target: Optional[dict] = None
-    orientation: Optional[dict] = None
-    speed_fraction: Optional[float] = None
-    tolerance: Optional[float] = None
-    direction: Optional[list[float]] = None
-    distance: Optional[float] = None
-    guard: Optional[dict] = None
-    frame: Optional[str] = None
-    delta: Optional[list[float]] = None
-    width: Optional[float] = None
-    force: Optional[float] = None
-    wait_settle_steps: Optional[int] = None
-    steps: Optional[int] = None
-    targets: Optional[dict[str, float]] = None
+    target: dict | None = None
+    orientation: dict | None = None
+    speed_fraction: float | None = None
+    tolerance: float | None = None
+    direction: list[float] | None = None
+    distance: float | None = None
+    guard: dict | None = None
+    frame: str | None = None
+    delta: list[float] | None = None
+    width: float | None = None
+    force: float | None = None
+    wait_settle_steps: int | None = None
+    steps: int | None = None
+    targets: dict[str, float] | None = None
 
 
 class ProposedSkill(BaseModel):
@@ -160,7 +157,7 @@ class ProposedSkill(BaseModel):
 
     name: str
     params: dict = Field(default_factory=dict)
-    comment: Optional[str] = None
+    comment: str | None = None
 
 
 class LLMProposedPlan(BaseModel):
@@ -178,10 +175,10 @@ class ResolvedSkill(BaseModel):
     """A skill with all references resolved to world-frame coordinates."""
 
     name: str
-    target_world_position: Optional[list[float]] = None
-    target_orientation: Optional[list[float]] = None
+    target_world_position: list[float] | None = None
+    target_orientation: list[float] | None = None
     params: dict = Field(default_factory=dict)
-    guard: Optional[GuardCondition] = None
+    guard: GuardCondition | None = None
 
 
 class CanonicalPlan(BaseModel):
@@ -250,7 +247,7 @@ class ValidationMetrics(BaseModel):
     max_joint_velocity: float
     max_ee_speed: float
     final_object_poses: dict[str, list[float]] = Field(default_factory=dict)
-    success_at_step: Optional[int] = None
+    success_at_step: int | None = None
 
 
 class ValidationReport(BaseModel):
@@ -260,7 +257,7 @@ class ValidationReport(BaseModel):
     task_success: bool
     constraint_violations: list[ConstraintViolation] = Field(default_factory=list)
     metrics: ValidationMetrics
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------

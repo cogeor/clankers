@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from typing import Any, Optional
+from typing import Any
 
 
 class OpenAIClientError(Exception):
@@ -23,10 +23,10 @@ class OpenAIClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         max_retries: int = 3,
         timeout: float = 60.0,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
     ) -> None:
         self.api_key = api_key
         self.max_retries = max_retries
@@ -38,7 +38,7 @@ class OpenAIClient:
         """Lazy-initialize the OpenAI client."""
         if self._client is None:
             try:
-                import openai  # noqa: F811
+                import openai
             except ImportError as e:
                 raise OpenAIClientError(
                     "openai package not installed. Install with: pip install openai"
@@ -58,7 +58,7 @@ class OpenAIClient:
         request: Any,
         *,
         n: int = 1,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> list[dict[str, Any]]:
         """Send a structured JSON request to the OpenAI API.
 
@@ -87,7 +87,7 @@ class OpenAIClient:
             {"role": "user", "content": request.user_message},
         ]
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 kwargs: dict[str, Any] = {

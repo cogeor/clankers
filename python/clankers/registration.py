@@ -11,7 +11,7 @@ _registered = False
 
 def register_envs() -> None:
     """Register all Clanker task presets with gymnasium."""
-    global _registered  # noqa: PLW0603
+    global _registered
     if _registered:
         return
 

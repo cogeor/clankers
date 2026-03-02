@@ -1,8 +1,6 @@
 """Strict plan parser and canonicalization for LLM-proposed skill plans."""
 from __future__ import annotations
 
-from typing import Union
-
 import numpy as np
 
 from clankers_synthetic.specs import (
@@ -55,7 +53,7 @@ class PlanParser:
 
     def parse(
         self, raw: dict, scene: SceneSpec
-    ) -> Union[CanonicalPlan, PlanRejection]:
+    ) -> CanonicalPlan | PlanRejection:
         """Parse and validate a raw LLM plan dict against the scene.
 
         Args:

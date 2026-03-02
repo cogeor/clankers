@@ -120,8 +120,8 @@ except ImportError:
 
 # Task preset environments (requires `pip install clankers[sb3]`).
 try:
-    from clankers.envs.arm_reach import make_arm_reach_env  # noqa: F401
     from clankers.envs.arm_pick import make_arm_pick_env  # noqa: F401
+    from clankers.envs.arm_reach import make_arm_reach_env  # noqa: F401
 
     __all__.extend(["make_arm_reach_env", "make_arm_pick_env"])
 except ImportError:

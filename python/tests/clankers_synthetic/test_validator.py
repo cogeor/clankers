@@ -12,7 +12,6 @@ from clankers_synthetic.specs import (
 )
 from clankers_synthetic.validator import SimValidator
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

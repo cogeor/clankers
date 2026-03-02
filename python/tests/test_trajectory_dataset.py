@@ -10,7 +10,6 @@ import torch
 
 from clankers.trajectory_dataset import TrajectoryDataset
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -22,18 +21,20 @@ def _make_trace(n_steps: int = 5, n_joints: int = 3) -> dict:
     for t in range(n_steps):
         obs = []
         for j in range(n_joints):
-            obs.append(float(t * n_joints + j))       # position
+            obs.append(float(t * n_joints + j))  # position
             obs.append(float((t * n_joints + j) * 0.1))  # velocity
         action = [float(j + 0.5) for j in range(n_joints)]
-        steps.append({
-            "obs": obs,
-            "action": action,
-            "next_obs": obs,  # simplified
-            "reward": 0.0,
-            "terminated": False,
-            "truncated": False,
-            "info": {},
-        })
+        steps.append(
+            {
+                "obs": obs,
+                "action": action,
+                "next_obs": obs,  # simplified
+                "reward": 0.0,
+                "terminated": False,
+                "truncated": False,
+                "info": {},
+            }
+        )
     return {"plan_id": "test", "steps": steps}
 
 
@@ -67,9 +68,7 @@ def test_from_trace_file_with_actions(tmp_path):
     p = tmp_path / "trace.json"
     p.write_text(json.dumps(trace))
 
-    ds = TrajectoryDataset.from_trace_file(
-        p, joint_names=["x", "y"], include_actions=True
-    )
+    ds = TrajectoryDataset.from_trace_file(p, joint_names=["x", "y"], include_actions=True)
 
     # With actions: one sample per step (3 steps)
     assert len(ds) == 3
@@ -120,11 +119,9 @@ def test_from_dataset_dir(tmp_path):
         trace["plan_id"] = f"ep_{i}"
         (ep_dir / f"ep_{i:06d}.json").write_text(json.dumps(trace))
 
-    ds = TrajectoryDataset.from_dataset_dir(
-        tmp_path, joint_names=["a", "b"]
-    )
+    ds = TrajectoryDataset.from_dataset_dir(tmp_path, joint_names=["a", "b"])
 
-    # 2 episodes × 3 steps = 6 total steps → 5 consecutive pairs
+    # 2 episodes x 3 steps = 6 total steps -> 5 consecutive pairs
     # (pairs cross episode boundaries — this is by design for simple BC)
     assert len(ds) == 5
 
@@ -144,9 +141,7 @@ def test_input_target_dim(tmp_path):
     p = tmp_path / "trace.json"
     p.write_text(json.dumps(trace))
 
-    ds = TrajectoryDataset.from_trace_file(
-        p, joint_names=["a", "b", "c", "d"]
-    )
+    ds = TrajectoryDataset.from_trace_file(p, joint_names=["a", "b", "c", "d"])
     assert ds.input_dim == 4
     assert ds.target_dim == 4
 
@@ -160,9 +155,7 @@ def test_target_dim_with_actions(tmp_path):
     p = tmp_path / "trace.json"
     p.write_text(json.dumps(trace))
 
-    ds = TrajectoryDataset.from_trace_file(
-        p, joint_names=["a", "b", "c"], include_actions=True
-    )
+    ds = TrajectoryDataset.from_trace_file(p, joint_names=["a", "b", "c"], include_actions=True)
     assert ds.input_dim == 3
     assert ds.target_dim == 5
 

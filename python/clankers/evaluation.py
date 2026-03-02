@@ -6,8 +6,8 @@ and optional per-component reward breakdowns using ``CompositeReward``.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
 
 import numpy as np
 

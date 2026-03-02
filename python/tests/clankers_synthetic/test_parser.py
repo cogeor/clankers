@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from clankers_synthetic.parser import VALID_SKILLS, PlanParser
+from clankers_synthetic.parser import PlanParser
 from clankers_synthetic.specs import (
     CanonicalPlan,
     ConstraintSpec,
@@ -17,7 +17,6 @@ from clankers_synthetic.specs import (
     SceneSpec,
     SimulationSpec,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixture: minimal SceneSpec

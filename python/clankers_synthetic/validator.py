@@ -1,8 +1,6 @@
 """Simulation validator with hard and soft gates for execution traces."""
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from clankers_synthetic.specs import (
@@ -62,10 +60,10 @@ class SimValidator:
         max_joint_velocity = 0.0
         max_ee_speed = 0.0
         final_object_poses: dict[str, list[float]] = {}
-        success_at_step: Optional[int] = None
+        success_at_step: int | None = None
 
-        prev_ee_pos: Optional[np.ndarray] = None
-        prev_joint_pos: Optional[np.ndarray] = None
+        prev_ee_pos: np.ndarray | None = None
+        prev_joint_pos: np.ndarray | None = None
 
         for step_idx, step in enumerate(trace.steps):
             info = step.info

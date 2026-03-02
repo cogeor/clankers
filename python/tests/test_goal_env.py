@@ -22,7 +22,6 @@ from clankers.goal_env import (  # noqa: E402
 )
 from clankers.gymnasium_env import ClankerGymnasiumEnv  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # GoalRewardFn tests
 # ---------------------------------------------------------------------------

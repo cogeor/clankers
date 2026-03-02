@@ -3,15 +3,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from clankers_synthetic.pvcb_refiner import PVCBRefiner
 from clankers_synthetic.specs import (
     CanonicalPlan,
     ConstraintSpec,
     ConstraintViolation,
     ObservationSpec,
-    PlanRejection,
     ResolvedSkill,
     RobotSpec,
     SceneSpec,
@@ -20,7 +17,6 @@ from clankers_synthetic.specs import (
     ValidationMetrics,
     ValidationReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

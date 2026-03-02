@@ -9,7 +9,6 @@ import pytest
 
 from clankers.joint_encoder import JointEncoder
 
-
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
@@ -55,7 +54,7 @@ def test_from_scene_spec(tmp_path):
 def test_from_scene_spec_missing_names(tmp_path):
     p = tmp_path / "scene.json"
     p.write_text(json.dumps({"robot": {}}))
-    with pytest.raises(ValueError, match="No robot.joint_names"):
+    with pytest.raises(ValueError, match=r"No robot\.joint_names"):
         JointEncoder.from_scene_spec(p)
 
 
@@ -84,7 +83,7 @@ def test_encode_ignores_extra_keys():
 
 def test_encode_missing_key_raises():
     enc = JointEncoder(["a", "b"])
-    with pytest.raises(KeyError, match="Missing joint.*'b'"):
+    with pytest.raises(KeyError, match=r"Missing joint.*'b'"):
         enc.encode({"a": 1.0})
 
 

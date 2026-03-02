@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -109,7 +107,7 @@ class KinematicChain:
     ``ee_offset`` 4x4 transform can be appended after the last joint.
     """
 
-    joints: List[JointInfo] = field(default_factory=list)
+    joints: list[JointInfo] = field(default_factory=list)
     ee_offset: np.ndarray = field(default_factory=lambda: np.eye(4))
 
     # -- constructors -------------------------------------------------------
@@ -117,9 +115,9 @@ class KinematicChain:
     @classmethod
     def from_joint_info(
         cls,
-        joints: List[JointInfo],
-        ee_offset: Optional[np.ndarray] = None,
-    ) -> "KinematicChain":
+        joints: list[JointInfo],
+        ee_offset: np.ndarray | None = None,
+    ) -> KinematicChain:
         """Build a chain from a list of ``JointInfo`` objects.
 
         Parameters
@@ -148,7 +146,7 @@ class KinematicChain:
         urdf_path: str,
         base_link: str,
         ee_link: str,
-    ) -> "KinematicChain":
+    ) -> KinematicChain:
         """Parse a URDF file and extract the serial chain between two links.
 
         Only **revolute** and **prismatic** joints are treated as active; fixed
@@ -462,7 +460,7 @@ class DlsSolver:
         self,
         target_position: np.ndarray,
         initial_angles: np.ndarray,
-        target_orientation: Optional[np.ndarray] = None,
+        target_orientation: np.ndarray | None = None,
     ) -> IKResult:
         """Solve for joint angles that place the end-effector at the target.
 

@@ -9,7 +9,6 @@ import pytest
 from clankers_synthetic.openai_client import OpenAIClient, OpenAIClientError
 from clankers_synthetic.specs import LLMRequest
 
-
 # ---------------------------------------------------------------------------
 # Mock helpers
 # ---------------------------------------------------------------------------

@@ -88,18 +88,14 @@ class JointEncoder:
         Extra keys in *joint_dict* are ignored.
         """
         try:
-            return np.array(
-                [joint_dict[n] for n in self._names], dtype=np.float32
-            )
+            return np.array([joint_dict[n] for n in self._names], dtype=np.float32)
         except KeyError as e:
             raise KeyError(f"Missing joint {e} in input dict") from None
 
     def decode(self, vec: np.ndarray) -> dict[str, float]:
         """Decode a vector back to a named joint dictionary."""
         if len(vec) != self.dof:
-            raise ValueError(
-                f"Expected vector of length {self.dof}, got {len(vec)}"
-            )
+            raise ValueError(f"Expected vector of length {self.dof}, got {len(vec)}")
         return {n: float(vec[i]) for i, n in enumerate(self._names)}
 
     def encode_batch(self, dicts: list[dict[str, float]]) -> np.ndarray:

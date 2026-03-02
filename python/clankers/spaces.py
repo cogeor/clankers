@@ -109,7 +109,7 @@ class Dict:
         Named sub-spaces.
     """
 
-    def __init__(self, spaces: dict[str, "Box | Discrete | Dict"]) -> None:
+    def __init__(self, spaces: dict[str, Box | Discrete | Dict]) -> None:
         self.spaces = dict(spaces)
 
     def sample(self, rng: np.random.Generator | None = None) -> dict[str, Any]:
@@ -127,7 +127,7 @@ class Dict:
         return all(self.spaces[k].contains(x[k]) for k in x)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Dict":
+    def from_dict(cls, data: dict[str, Any]) -> Dict:
         """Deserialize from ``{"spaces": {"key": <space_dict>, ...}}``."""
         sub = data["spaces"]
         return cls({k: space_from_dict(v) for k, v in sub.items()})

@@ -1,12 +1,11 @@
 """Tests for the evaluation module."""
+import gymnasium
 import numpy as np
 import pytest
-
-import gymnasium
 from gymnasium import spaces as gym_spaces
 
 from clankers.evaluation import EvalResult, evaluate_policy
-from clankers.rewards import CompositeReward, ConstantReward, ActionPenaltyReward
+from clankers.rewards import ActionPenaltyReward, CompositeReward, ConstantReward
 
 
 class _FixedEnv(gymnasium.Env):

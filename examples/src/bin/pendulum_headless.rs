@@ -93,7 +93,7 @@ fn main() {
         }
 
         // Also test the sensor read path
-        let sensor = JointStateSensor::new(1);
+        let mut sensor = JointStateSensor::new(1);
         let obs = sensor.read(scene.app.world_mut());
         println!("  Sensor read: [pos={:.3}, vel={:.3}]", obs[0], obs[1]);
     }

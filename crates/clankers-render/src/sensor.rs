@@ -313,7 +313,7 @@ mod tests {
         bufs.insert("test".to_string(), buf);
         world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test", 2, 1, 3);
+        let mut sensor = ImageSensor::new("test", 2, 1, 3);
         let obs = sensor.read(&mut world);
 
         assert_eq!(obs.len(), 6);
@@ -331,7 +331,7 @@ mod tests {
         bufs.insert("test".to_string(), buf);
         world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test", 1, 1, 3);
+        let mut sensor = ImageSensor::new("test", 1, 1, 3);
         let obs = sensor.read(&mut world);
 
         for val in obs.as_slice() {
@@ -349,7 +349,7 @@ mod tests {
         bufs.insert("test".to_string(), buf);
         world.insert_resource(bufs);
 
-        let sensor = ImageSensor::new("test", 1, 1, 4);
+        let mut sensor = ImageSensor::new("test", 1, 1, 4);
         let obs = sensor.read(&mut world);
 
         assert_eq!(obs.len(), 4);
@@ -365,7 +365,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(CameraFrameBuffers::default());
 
-        let sensor = ImageSensor::new("missing_cam", 4, 4, 3);
+        let mut sensor = ImageSensor::new("missing_cam", 4, 4, 3);
         let obs = sensor.read(&mut world);
 
         assert_eq!(obs.len(), 4 * 4 * 3);
@@ -376,7 +376,7 @@ mod tests {
     fn image_sensor_fallback_when_no_resource() {
         // When CameraFrameBuffers is absent altogether, return zero obs.
         let mut world = World::new();
-        let sensor = ImageSensor::new("cam", 2, 2, 3);
+        let mut sensor = ImageSensor::new("cam", 2, 2, 3);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2 * 2 * 3);
         assert!(obs.as_slice().iter().all(|&v| v == 0.0));
@@ -471,7 +471,7 @@ mod tests {
         buf.write_depth_frame(vec![0.0, 1.0]);
         world.insert_resource(buf);
 
-        let sensor = DepthSensor {
+        let mut sensor = DepthSensor {
             label: "depth".to_string(),
             width: 2,
             height: 1,
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn depth_sensor_fallback_when_no_buffer() {
         let mut world = World::new();
-        let sensor = DepthSensor {
+        let mut sensor = DepthSensor {
             label: "d".to_string(),
             width: 4,
             height: 4,
@@ -548,7 +548,7 @@ mod tests {
         buf.write_frame(vec![0_u8, 128, 255, 255, 0, 64]);
         world.insert_resource(buf);
 
-        let sensor = SegmentationSensor {
+        let mut sensor = SegmentationSensor {
             label: "seg".to_string(),
             width: 2,
             height: 1,
@@ -573,7 +573,7 @@ mod tests {
         buf.write_frame(vec![0_u8, 127, 255]);
         world.insert_resource(buf);
 
-        let sensor = SegmentationSensor {
+        let mut sensor = SegmentationSensor {
             label: "seg".to_string(),
             width: 1,
             height: 1,
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn segmentation_sensor_fallback_when_no_buffer() {
         let mut world = World::new();
-        let sensor = SegmentationSensor {
+        let mut sensor = SegmentationSensor {
             label: "seg".to_string(),
             width: 4,
             height: 4,

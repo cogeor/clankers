@@ -133,7 +133,7 @@ fn main() {
     println!("\n--- Robot-scoped sensor reads ---");
 
     // Pendulum (RobotId 0): 1 joint -> 2 state values
-    let pend_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(0), 1);
+    let mut pend_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(0), 1);
     let pend_obs = pend_sensor.read(scene.app.world_mut());
     println!(
         "Pendulum state sensor:  {} values — pos={:.3} vel={:.3}",
@@ -143,7 +143,7 @@ fn main() {
     );
 
     // 2-link arm (RobotId 1): 2 joints -> 4 state values
-    let arm_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(1), 2);
+    let mut arm_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(1), 2);
     let arm_obs = arm_sensor.read(scene.app.world_mut());
     println!(
         "Arm state sensor:       {} values — {:?}",
@@ -152,12 +152,12 @@ fn main() {
     );
 
     // 6-DOF arm (RobotId 2): 6 joints -> 12 state values
-    let six_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(2), 6);
+    let mut six_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(2), 6);
     let six_obs = six_sensor.read(scene.app.world_mut());
     println!("6-DOF arm state sensor: {} values", six_obs.len(),);
 
     // Robot-scoped command sensors
-    let pend_cmd_sensor = RobotJointCommandSensor::new(clankers_core::types::RobotId(0), 1);
+    let mut pend_cmd_sensor = RobotJointCommandSensor::new(clankers_core::types::RobotId(0), 1);
     let pend_cmd = pend_cmd_sensor.read(scene.app.world_mut());
     println!(
         "Pendulum cmd sensor:    {} values — cmd={:.2}",
@@ -166,7 +166,7 @@ fn main() {
     );
 
     // Robot-scoped torque sensors
-    let arm_torque_sensor = RobotJointTorqueSensor::new(clankers_core::types::RobotId(1), 2);
+    let mut arm_torque_sensor = RobotJointTorqueSensor::new(clankers_core::types::RobotId(1), 2);
     let arm_torques = arm_torque_sensor.read(scene.app.world_mut());
     println!(
         "Arm torque sensor:      {} values — {:?}",

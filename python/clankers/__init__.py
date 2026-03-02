@@ -133,4 +133,12 @@ try:
 except ImportError:
     pass
 
+# Joint encoder for DL applications (requires numpy).
+try:
+    from clankers.joint_encoder import JointEncoder  # noqa: F401
+
+    __all__.append("JointEncoder")
+except ImportError:
+    pass
+
 __version__ = "0.1.0"

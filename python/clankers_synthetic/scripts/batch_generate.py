@@ -150,8 +150,9 @@ def main():
             skills=plan.skills,
         )
 
-        env = env_factory()
+        env = None
         try:
+            env = env_factory()
             trace = compiler.execute(plan_copy, env)
         except Exception as e:
             logger.warning(f"  Episode {ep}: execution failed: {e}")
@@ -160,7 +161,8 @@ def main():
             )
             continue
         finally:
-            env.close()
+            if env is not None:
+                env.close()
 
         # Check success from final step
         cube_z = 0.0
@@ -181,7 +183,7 @@ def main():
         # Save raw trace
         trace_path = os.path.join(raw_dir, f"trace_{ep:04d}.json")
         with open(trace_path, "w") as f:
-            json.dump(trace.dict(), f, default=str)
+            json.dump(trace.model_dump(), f, default=str)
 
         # Create a minimal validation report for passing traces
         if success:

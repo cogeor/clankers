@@ -7,10 +7,9 @@ LLMPlanner wraps OpenAIClient to propose plans and refine failed candidates.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
-from clankers_synthetic.specs import LLMRequest, SceneSpec, TaskSpec
 from clankers_synthetic.openai_client import OpenAIClient
+from clankers_synthetic.specs import LLMRequest, SceneSpec, TaskSpec
 
 
 class PromptAssembler:
@@ -36,7 +35,7 @@ class PromptAssembler:
 
     def __init__(
         self,
-        few_shot_examples: Optional[list] = None,
+        few_shot_examples: list | None = None,
         max_context_tokens: int = 8000,
     ) -> None:
         self.few_shot_examples = few_shot_examples or []
@@ -112,16 +111,16 @@ class PromptAssembler:
         )
 
     def _build_user_message(self, scene: SceneSpec, task: TaskSpec) -> str:
-        scene_json = json.dumps(scene.dict(), indent=2, default=str)
-        task_json = json.dumps(task.dict(), indent=2, default=str)
+        scene_json = json.dumps(scene.model_dump(), indent=2, default=str)
+        task_json = json.dumps(task.model_dump(), indent=2, default=str)
 
         parts = [f"## Scene\n{scene_json}", f"## Task\n{task_json}"]
 
         if self.few_shot_examples:
             for i, (ex_scene, ex_task, ex_plan) in enumerate(self.few_shot_examples):
                 parts.append(f"## Example {i + 1}")
-                parts.append(f"Scene: {json.dumps(ex_scene.dict(), default=str)}")
-                parts.append(f"Task: {json.dumps(ex_task.dict(), default=str)}")
+                parts.append(f"Scene: {json.dumps(ex_scene.model_dump(), default=str)}")
+                parts.append(f"Task: {json.dumps(ex_task.model_dump(), default=str)}")
                 parts.append(f"Plan: {json.dumps(ex_plan, indent=2)}")
 
         parts.append("## Plan the trajectory.")
@@ -142,8 +141,8 @@ class LLMPlanner:
 
     def __init__(
         self,
-        assembler: Optional[PromptAssembler] = None,
-        client: Optional[OpenAIClient] = None,
+        assembler: PromptAssembler | None = None,
+        client: OpenAIClient | None = None,
         model: str = "gpt-5",
         temperature: float = 0.3,
         n_candidates: int = 3,
@@ -160,8 +159,8 @@ class LLMPlanner:
         self,
         scene: SceneSpec,
         task: TaskSpec,
-        n_candidates: Optional[int] = None,
-        seed: Optional[int] = None,
+        n_candidates: int | None = None,
+        seed: int | None = None,
     ) -> list:
         """Generate candidate plans from the LLM.
 
@@ -189,7 +188,7 @@ class LLMPlanner:
         failure_report: dict,
         scene: SceneSpec,
         task: TaskSpec,
-        attempt_history: Optional[list] = None,
+        attempt_history: list | None = None,
     ) -> dict:
         """Refine a failed plan using LLM with structured failure context.
 

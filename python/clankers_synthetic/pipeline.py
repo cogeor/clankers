@@ -99,10 +99,10 @@ def generate_dataset(
 
     # Compute hashes for provenance
     scene_hash = hashlib.sha256(
-        json.dumps(scene.dict(), sort_keys=True, default=str).encode()
+        json.dumps(scene.model_dump(), sort_keys=True, default=str).encode()
     ).hexdigest()[:16]
     task_hash = hashlib.sha256(
-        json.dumps(task.dict(), sort_keys=True, default=str).encode()
+        json.dumps(task.model_dump(), sort_keys=True, default=str).encode()
     ).hexdigest()[:16]
 
     # Generate plans
@@ -164,7 +164,7 @@ def generate_dataset(
         if report.passed:
             n_passed += 1
             passing_traces.append((trace, report))
-            all_plans.append(canonical_plan.dict())
+            all_plans.append(canonical_plan.model_dump())
             all_prompts.append(provenance)
         else:
             # 5. PVCB refinement
@@ -181,7 +181,7 @@ def generate_dataset(
                         n_refined += 1
                         n_passed += 1
                         passing_traces.append((trace2, report2))
-                        all_plans.append(refined.dict())
+                        all_plans.append(refined.model_dump())
                         all_prompts.append(provenance)
                 except Exception as e:
                     logger.warning(f"Plan {plan_idx}: refined execution failed: {e}")

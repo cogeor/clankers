@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from clankers_synthetic.planner import LLMPlanner, PromptAssembler
 from clankers_synthetic.specs import (
     ConstraintSpec,
     LLMRequest,
@@ -17,8 +18,6 @@ from clankers_synthetic.specs import (
     SuccessCriterion,
     TaskSpec,
 )
-from clankers_synthetic.planner import LLMPlanner, PromptAssembler
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -153,7 +152,7 @@ class TestPromptAssemblerUserMessageContainsScene:
         assert "panda" in request.user_message
         assert "cube" in request.user_message
         # Verify it's valid JSON embedded in the message
-        scene_dict = scene.dict()
+        scene_dict = scene.model_dump()
         scene_json = json.dumps(scene_dict, indent=2, default=str)
         assert scene_json in request.user_message
 
@@ -170,7 +169,7 @@ class TestPromptAssemblerUserMessageContainsTask:
         assert "## Task" in request.user_message
         assert "reach_001" in request.user_message
         assert "Move the end-effector" in request.user_message
-        task_dict = task.dict()
+        task_dict = task.model_dump()
         task_json = json.dumps(task_dict, indent=2, default=str)
         assert task_json in request.user_message
 

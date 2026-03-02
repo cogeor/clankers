@@ -30,7 +30,6 @@ from clankers_synthetic.specs import (
     ValidationReport,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures — reusable model instances
 # ---------------------------------------------------------------------------
@@ -153,7 +152,7 @@ class TestSimulationSpec:
 
     def test_roundtrip(self):
         spec = SimulationSpec(seed=99)
-        data = spec.dict()
+        data = spec.model_dump()
         restored = SimulationSpec(**data)
         assert restored == spec
 
@@ -182,7 +181,7 @@ class TestRobotSpec:
             joint_names=["j1", "j2"],
             joint_limits={"j1": [-3.14, 3.14], "j2": [-1.57, 1.57]},
         )
-        data = robot.dict()
+        data = robot.model_dump()
         restored = RobotSpec(**data)
         assert restored == robot
 
@@ -209,7 +208,7 @@ class TestObjectSpec:
 
     def test_roundtrip(self):
         obj = _make_object_spec(is_graspable=True, mass=0.5)
-        data = obj.dict()
+        data = obj.model_dump()
         restored = ObjectSpec(**data)
         assert restored == obj
 
@@ -271,7 +270,7 @@ class TestSceneSpec:
 
     def test_roundtrip(self):
         scene = _make_scene_spec()
-        data = scene.dict()
+        data = scene.model_dump()
         restored = SceneSpec(**data)
         assert restored == scene
 
@@ -287,7 +286,7 @@ class TestSceneSpec:
                 _make_object_spec(name="b"),
             ]
         )
-        data = scene.dict()
+        data = scene.model_dump()
         restored = SceneSpec(**data)
         assert restored.objects[0].name == "a"
         assert restored.objects[1].name == "b"
@@ -334,7 +333,7 @@ class TestTaskSpec:
 
     def test_roundtrip(self):
         task = _make_task_spec(preferences={"minimize_time": True})
-        data = task.dict()
+        data = task.model_dump()
         restored = TaskSpec(**data)
         assert restored == task
 
@@ -500,7 +499,7 @@ class TestCanonicalPlan:
             assumptions=["test assumption"],
             metadata={"key": "value"},
         )
-        data = plan.dict()
+        data = plan.model_dump()
         restored = CanonicalPlan(**data)
         assert restored == plan
 
@@ -595,7 +594,7 @@ class TestExecutionTrace:
             truncated=False,
             final_info={"is_success": True},
         )
-        data = trace.dict()
+        data = trace.model_dump()
         restored = ExecutionTrace(**data)
         assert restored == trace
 
@@ -685,7 +684,7 @@ class TestValidationReport:
             ],
             metrics=_make_validation_metrics(),
         )
-        data = report.dict()
+        data = report.model_dump()
         restored = ValidationReport(**data)
         assert restored == report
 
@@ -769,7 +768,7 @@ class TestDatasetManifest:
             stats={"mean_reward": 0.5},
             split_sizes={"train": 40, "val": 5, "test": 5},
         )
-        data = manifest.dict()
+        data = manifest.model_dump()
         restored = DatasetManifest(**data)
         assert restored == manifest
 
@@ -809,7 +808,7 @@ class TestSceneSpecNested:
         assert "bin" in names
 
         # Verify roundtrip preserves all nested data
-        data = scene.dict()
+        data = scene.model_dump()
         restored = SceneSpec(**data)
         assert restored == scene
 
@@ -889,7 +888,7 @@ class TestCanonicalPlanIntegration:
         assert plan.skills[2].name == "set_gripper"
 
         # Roundtrip
-        data = plan.dict()
+        data = plan.model_dump()
         restored = CanonicalPlan(**data)
         assert restored == plan
 
@@ -939,7 +938,7 @@ class TestValidationReportIntegration:
         assert "cube" in report.metrics.final_object_poses
 
         # Roundtrip
-        data = report.dict()
+        data = report.model_dump()
         restored = ValidationReport(**data)
         assert restored == report
 
@@ -972,7 +971,7 @@ class TestExecutionTraceIntegration:
         assert trace.final_info["is_success"] is True
 
         # Roundtrip
-        data = trace.dict()
+        data = trace.model_dump()
         restored = ExecutionTrace(**data)
         assert restored == trace
         assert len(restored.steps) == 50

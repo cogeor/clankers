@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Union
 
 from clankers_synthetic.parser import PlanParser
 from clankers_synthetic.planner import LLMPlanner
@@ -90,14 +89,14 @@ class PVCBRefiner:
                     "plan_hash": self._plan_hash(current_plan),
                     "failure_reason": current_report.failure_reason,
                     "violations": [
-                        v.dict() for v in current_report.constraint_violations
+                        v.model_dump() for v in current_report.constraint_violations
                     ],
                 })
 
                 try:
                     refined = self.planner.refine_candidate(
-                        plan=current_plan.dict(),
-                        failure_report=current_report.dict(),
+                        plan=current_plan.model_dump(),
+                        failure_report=current_report.model_dump(),
                         scene=scene,
                         task=task,
                         attempt_history=attempt_history,

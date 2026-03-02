@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import random
-from typing import Any
 
 from clankers_synthetic.specs import (
     DatasetManifest,
@@ -111,7 +110,7 @@ class DatasetPackager:
             # Write validation report
             val_path = os.path.join(validation_dir, f"ep_{i:06d}.json")
             with open(val_path, "w") as f:
-                json.dump(report.dict(), f, indent=2, default=str)
+                json.dump(report.model_dump(), f, indent=2, default=str)
 
             # Write plan provenance
             if plans and i < len(plans):

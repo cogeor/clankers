@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -14,19 +14,17 @@ import pytest
 from clankers_synthetic.cli import main as cli_main
 from clankers_synthetic.packager import DatasetPackager
 from clankers_synthetic.pipeline import generate_dataset
-from clankers_synthetic.planner import PromptAssembler
 from clankers_synthetic.specs import (
     ConstraintSpec,
     DatasetManifest,
-    ObservationSpec,
     ObjectSpec,
+    ObservationSpec,
     RobotSpec,
     SceneSpec,
     SimulationSpec,
-    TaskSpec,
     SuccessCriterion,
+    TaskSpec,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -474,10 +472,10 @@ class TestCLI:
         out_dir = str(tmp_path / "output")
 
         with open(scene_path, "w") as f:
-            json.dump(scene.dict(), f, default=str)
+            json.dump(scene.model_dump(), f, default=str)
 
         with open(task_path, "w") as f:
-            json.dump(task.dict(), f, default=str)
+            json.dump(task.model_dump(), f, default=str)
 
         mock_generate.return_value = DatasetManifest(
             output_dir=out_dir,

@@ -3,8 +3,9 @@
 Loads execution traces (single ``dry_run_trace.json`` or packaged
 ``episodes/ep_*.json``) and uses :class:`JointEncoder` to produce consistent
 joint-position vectors.  Returns ``(pos_t, pos_t+1)`` pairs suitable for
-training a next-step predictor, or ``(pos_t, action_t)`` when
-``include_actions=True``.
+training a next-step predictor, ``(pos_t, action_t)`` when
+``include_actions=True``, or ``(pos_t, vel_t)`` when
+``include_velocities=True`` where ``vel_t = (pos_{t+1} - pos_t) / control_dt``.
 
 Example::
 
@@ -13,6 +14,14 @@ Example::
         joint_names=["j1", "j2", "j3", "j4", "j5", "j6"],
     )
     pos_t, pos_next = ds[0]
+
+    # Velocity mode
+    ds_vel = TrajectoryDataset.from_trace_file(
+        "output/dry_run_trace.json",
+        include_velocities=True,
+        control_dt=0.02,
+    )
+    pos_t, vel_t = ds_vel[0]  # vel_t in rad/s
 """
 
 from __future__ import annotations
@@ -102,6 +111,8 @@ class TrajectoryDataset(Dataset):
         joint_names: list[str] | None = None,
         scene_spec: str | Path | None = None,
         include_actions: bool = False,
+        include_velocities: bool = False,
+        control_dt: float = 0.02,
     ) -> TrajectoryDataset:
         """Load a single trace JSON file.
 
@@ -116,11 +127,18 @@ class TrajectoryDataset(Dataset):
             Path to a SceneSpec JSON to read joint names from.
         include_actions : bool
             If True, targets are ``action_t`` instead of ``pos_{t+1}``.
+        include_velocities : bool
+            If True, targets are ``(pos_{t+1} - pos_t) / control_dt`` (rad/s).
+            Mutually exclusive with *include_actions*.
+        control_dt : float
+            Control timestep for velocity computation (default 0.02s).
         """
+        if include_actions and include_velocities:
+            raise ValueError("include_actions and include_velocities are mutually exclusive")
         path = Path(path)
         steps = _load_trace_steps(path)
         encoder = _resolve_encoder(joint_names, scene_spec, steps)
-        return _build_dataset(steps, encoder, include_actions)
+        return _build_dataset(steps, encoder, include_actions, include_velocities, control_dt)
 
     @classmethod
     def from_dataset_dir(
@@ -129,11 +147,15 @@ class TrajectoryDataset(Dataset):
         joint_names: list[str] | None = None,
         scene_spec: str | Path | None = None,
         include_actions: bool = False,
+        include_velocities: bool = False,
+        control_dt: float = 0.02,
     ) -> TrajectoryDataset:
         """Load all episode files from a packaged dataset directory.
 
         Expects ``episodes/ep_*.json`` inside *directory*.
         """
+        if include_actions and include_velocities:
+            raise ValueError("include_actions and include_velocities are mutually exclusive")
         directory = Path(directory)
         ep_dir = directory / "episodes"
         if not ep_dir.exists():
@@ -148,7 +170,7 @@ class TrajectoryDataset(Dataset):
             all_steps.extend(_load_trace_steps(f))
 
         encoder = _resolve_encoder(joint_names, scene_spec, all_steps)
-        return _build_dataset(all_steps, encoder, include_actions)
+        return _build_dataset(all_steps, encoder, include_actions, include_velocities, control_dt)
 
 
 def _resolve_encoder(
@@ -169,8 +191,7 @@ def _resolve_encoder(
             names = [f"joint_{i}" for i in range(n_joints)]
             return JointEncoder(names)
     raise ValueError(
-        "Cannot determine joint names: provide joint_names, scene_spec, "
-        "or a trace with obs data"
+        "Cannot determine joint names: provide joint_names, scene_spec, or a trace with obs data"
     )
 
 
@@ -178,6 +199,8 @@ def _build_dataset(
     steps: list[dict],
     encoder: JointEncoder,
     include_actions: bool,
+    include_velocities: bool = False,
+    control_dt: float = 0.02,
 ) -> TrajectoryDataset:
     """Extract position/target arrays from trace steps and build dataset."""
     n_joints = encoder.dof
@@ -194,7 +217,7 @@ def _build_dataset(
                 positions_list.append(pos)
                 targets_list.append(action)
     else:
-        # (pos_t, pos_{t+1}) consecutive pairs
+        # Extract all positions first (needed for both position and velocity modes)
         all_pos: list[list[float]] = []
         for step in steps:
             obs = step.get("obs", [])
@@ -203,7 +226,15 @@ def _build_dataset(
 
         for i in range(len(all_pos) - 1):
             positions_list.append(all_pos[i])
-            targets_list.append(all_pos[i + 1])
+            if include_velocities:
+                # vel_t = (pos_{t+1} - pos_t) / dt
+                vel = [
+                    (all_pos[i + 1][j] - all_pos[i][j]) / control_dt
+                    for j in range(n_joints)
+                ]
+                targets_list.append(vel)
+            else:
+                targets_list.append(all_pos[i + 1])
 
     if not positions_list:
         raise ValueError("No valid samples extracted from trace steps")

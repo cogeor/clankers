@@ -270,10 +270,7 @@ pub fn rapier_step_system(
 /// For each active contact pair, computes the total impulse and converts to force (N).
 /// Entities not involved in any contact are reset to zero.
 #[allow(clippy::needless_pass_by_value)]
-pub fn contact_update_system(
-    context: Res<RapierContext>,
-    mut contacts: Query<&mut ContactData>,
-) {
+pub fn contact_update_system(context: Res<RapierContext>, mut contacts: Query<&mut ContactData>) {
     // Reset all ContactData to zero
     for mut cd in &mut contacts {
         cd.normal_force = Vec3::ZERO;

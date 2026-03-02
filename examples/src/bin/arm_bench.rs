@@ -63,7 +63,10 @@ fn main() {
     println!("=== 6-DOF Arm IK Bench ===");
     println!(
         "  episodes={}, steps_per_target={}, max_steps={}, output={}\n",
-        args.episodes, args.steps_per_target, args.max_steps, args.output.display(),
+        args.episodes,
+        args.steps_per_target,
+        args.max_steps,
+        args.output.display(),
     );
 
     // Create output directory if needed

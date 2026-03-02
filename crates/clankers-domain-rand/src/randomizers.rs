@@ -263,9 +263,7 @@ pub fn scale_colliders(context: &mut RapierContext, scale: f32) {
             continue;
         };
         let new_shape = match collider.shape().as_typed_shape() {
-            TypedShape::Ball(ball) => {
-                SharedShape::ball(ball.radius * scale)
-            }
+            TypedShape::Ball(ball) => SharedShape::ball(ball.radius * scale),
             TypedShape::Cuboid(cuboid) => {
                 let he = cuboid.half_extents;
                 SharedShape::cuboid(he.x * scale, he.y * scale, he.z * scale)

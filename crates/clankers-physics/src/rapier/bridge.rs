@@ -169,8 +169,7 @@ pub fn register_robot(
                     ));
                 }
             } else if joint_data.joint_type == JointType::Fixed {
-                let fixed: GenericJoint =
-                    build_fixed_joint(origin_pos, &origin_rpy).build().into();
+                let fixed: GenericJoint = build_fixed_joint(origin_pos, &origin_rpy).build().into();
                 context
                     .impulse_joint_set
                     .insert(parent_handle, child_handle, fixed, true);
@@ -244,8 +243,7 @@ fn build_rapier_joint(
 
     match joint_type {
         JointType::Revolute | JointType::Continuous => {
-            let mut joint: GenericJoint =
-                RevoluteJointBuilder::new(axis).build().into();
+            let mut joint: GenericJoint = RevoluteJointBuilder::new(axis).build().into();
             joint.set_local_frame1(local_frame);
 
             if joint_type == JointType::Revolute
@@ -259,8 +257,7 @@ fn build_rapier_joint(
             joint
         }
         JointType::Prismatic => {
-            let mut joint: GenericJoint =
-                PrismaticJointBuilder::new(axis).build().into();
+            let mut joint: GenericJoint = PrismaticJointBuilder::new(axis).build().into();
             joint.set_local_frame1(local_frame);
 
             if let (Some(lo), Some(hi)) = (lower, upper) {
@@ -283,10 +280,7 @@ fn build_fixed_joint(origin_pos: Vec3, origin_rpy: &[f32; 3]) -> FixedJointBuild
 /// Construct a Rapier [`Pose3`](rapier3d::glamx::Pose3) from URDF joint origin (position + RPY).
 ///
 /// URDF uses fixed-axis XYZ convention: R = Rz(yaw) * Ry(pitch) * Rx(roll).
-fn make_joint_local_frame(
-    pos: Vec3,
-    rpy: &[f32; 3],
-) -> rapier3d::glamx::Pose3 {
+fn make_joint_local_frame(pos: Vec3, rpy: &[f32; 3]) -> rapier3d::glamx::Pose3 {
     let rotation = Quat::from_euler(EulerRot::ZYX, rpy[2], rpy[1], rpy[0]);
     rapier3d::glamx::Pose3::from_parts(pos, rotation)
 }
@@ -310,7 +304,12 @@ fn create_link_colliders(
         // Apply collision origin offset relative to the link body.
         let col_origin = &collision.origin;
         let col_pos = Vec3::new(col_origin.xyz[0], col_origin.xyz[1], col_origin.xyz[2]);
-        let col_rot = Quat::from_euler(EulerRot::ZYX, col_origin.rpy[2], col_origin.rpy[1], col_origin.rpy[0]);
+        let col_rot = Quat::from_euler(
+            EulerRot::ZYX,
+            col_origin.rpy[2],
+            col_origin.rpy[1],
+            col_origin.rpy[0],
+        );
         let col_frame = rapier3d::glamx::Pose3::from_parts(col_pos, col_rot);
 
         let collider = collider_builder.position(col_frame).build();
@@ -327,9 +326,11 @@ fn geometry_to_collider(geometry: &Geometry) -> Option<ColliderBuilder> {
     match geometry {
         Geometry::Sphere { radius } => Some(ColliderBuilder::ball(*radius)),
         // URDF Box size is full extents; Rapier cuboid takes half-extents.
-        Geometry::Box { size } => {
-            Some(ColliderBuilder::cuboid(size[0] / 2.0, size[1] / 2.0, size[2] / 2.0))
-        }
+        Geometry::Box { size } => Some(ColliderBuilder::cuboid(
+            size[0] / 2.0,
+            size[1] / 2.0,
+            size[2] / 2.0,
+        )),
         // URDF Cylinder length is full length; Rapier cylinder takes half-height.
         Geometry::Cylinder { radius, length } => {
             Some(ColliderBuilder::cylinder(*length / 2.0, *radius))

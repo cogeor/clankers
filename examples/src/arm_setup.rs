@@ -12,7 +12,9 @@ use clankers_actuator_core::prelude::ControlMode;
 use clankers_env::prelude::*;
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
 use clankers_physics::ClankersPhysicsPlugin;
-use clankers_physics::rapier::{RapierBackend, RapierBackendFixed, RapierContext, bridge::register_robot};
+use clankers_physics::rapier::{
+    RapierBackend, RapierBackendFixed, RapierContext, bridge::register_robot,
+};
 use clankers_sim::{SceneBuilder, SpawnedScene};
 use clankers_urdf::RobotModel;
 use nalgebra::Vector3;
@@ -106,7 +108,11 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
         .expect("failed to build IK chain to end_effector");
 
     // 6. Map chain joint order to entities
-    let arm_joint_names: Vec<String> = chain.joint_names().iter().map(std::string::ToString::to_string).collect();
+    let arm_joint_names: Vec<String> = chain
+        .joint_names()
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     let spawned = &scene.robots["six_dof_arm"];
     let joint_entities: Vec<Entity> = chain
         .joint_names()
@@ -123,7 +129,10 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(config.sensor_dof)), &mut buffer);
+        registry.register(
+            Box::new(JointStateSensor::new(config.sensor_dof)),
+            &mut buffer,
+        );
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

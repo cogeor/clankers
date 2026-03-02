@@ -19,9 +19,7 @@ use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use nalgebra::Vector3;
 
-use clankers_examples::arm_setup::{
-    ArmIkState, ArmSetupConfig, arm_ik_solver, setup_arm,
-};
+use clankers_examples::arm_setup::{ArmIkState, ArmSetupConfig, arm_ik_solver, setup_arm};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::prelude::*;
 use clankers_viz::{ClankersVizPlugin, VizMode, camera, phys_rot_to_vis, phys_to_vis};
@@ -99,10 +97,7 @@ struct GoalGizmo;
 // Startup: pin egui to the orbit camera (not the EE overlay)
 // ---------------------------------------------------------------------------
 
-fn assign_egui_to_orbit_cam(
-    mut commands: Commands,
-    cam_q: Query<Entity, With<PanOrbitCamera>>,
-) {
+fn assign_egui_to_orbit_cam(mut commands: Commands, cam_q: Query<Entity, With<PanOrbitCamera>>) {
     if let Ok(entity) = cam_q.single() {
         commands.entity(entity).insert(PrimaryEguiContext);
     }
@@ -130,10 +125,7 @@ fn spawn_ee_camera(mut commands: Commands) {
 }
 
 /// Keep the EE camera viewport pinned to the top-right corner.
-fn configure_ee_viewport(
-    windows: Query<&Window>,
-    mut ee_cam: Query<&mut Camera, With<EeCamera>>,
-) {
+fn configure_ee_viewport(windows: Query<&Window>, mut ee_cam: Query<&mut Camera, With<EeCamera>>) {
     let Ok(window) = windows.single() else {
         return;
     };
@@ -185,7 +177,11 @@ fn spawn_arm_meshes(
     });
 
     commands
-        .spawn((LinkVisual("base"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("base"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.08, 0.1))),
@@ -195,7 +191,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("shoulder_link"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("shoulder_link"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.04, 0.2))),
@@ -205,7 +205,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("upper_arm"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("upper_arm"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.035, 0.3))),
@@ -215,7 +219,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("elbow_link"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("elbow_link"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.03, 0.1))),
@@ -225,7 +233,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("forearm"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("forearm"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.025, 0.2))),
@@ -235,7 +247,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("wrist_link"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("wrist_link"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.02, 0.06))),
@@ -245,7 +261,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("end_effector"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("end_effector"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Sphere::new(0.025))),
@@ -255,7 +275,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("gripper_base"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("gripper_base"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cuboid::new(0.06, 0.02, 0.04))),
@@ -265,7 +289,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("finger_left"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("finger_left"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
@@ -275,7 +303,11 @@ fn spawn_arm_meshes(
         });
 
     commands
-        .spawn((LinkVisual("finger_right"), Visibility::default(), Transform::default()))
+        .spawn((
+            LinkVisual("finger_right"),
+            Visibility::default(),
+            Transform::default(),
+        ))
         .with_children(|p| {
             p.spawn((
                 Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
@@ -375,10 +407,7 @@ fn spawn_arm_meshes(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::needless_pass_by_value)]
-fn sync_link_visuals(
-    ctx: Res<RapierContext>,
-    mut query: Query<(&LinkVisual, &mut Transform)>,
-) {
+fn sync_link_visuals(ctx: Res<RapierContext>, mut query: Query<(&LinkVisual, &mut Transform)>) {
     for (link, mut tf) in &mut query {
         let Some(&handle) = ctx.body_handles.get(link.0) else {
             continue;
@@ -801,9 +830,9 @@ fn main() {
     }));
 
     scene.app.add_plugins(ClankersTeleopPlugin);
-    scene.app.add_plugins(ClankersVizPlugin {
-        fixed_update: true,
-    });
+    scene
+        .app
+        .add_plugins(ClankersVizPlugin { fixed_update: true });
 
     // Disable default docked side panel
     scene

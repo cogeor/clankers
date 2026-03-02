@@ -64,6 +64,9 @@ mod tests {
     fn rotation_round_trip_preserves_unit() {
         let q = Quat::from_rotation_z(FRAC_PI_2);
         let v = phys_rot_to_vis(&q);
-        assert!((v.length() - 1.0).abs() < 1e-6, "quaternion should remain unit");
+        assert!(
+            (v.length() - 1.0).abs() < 1e-6,
+            "quaternion should remain unit"
+        );
     }
 }

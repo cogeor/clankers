@@ -192,10 +192,7 @@ impl GymEnv {
             if let Some(body) = ctx.rigid_body_set.get(handle) {
                 let t = body.translation();
                 let r = body.rotation();
-                body_poses.insert(
-                    name.clone(),
-                    [t.x, t.y, t.z, r.x, r.y, r.z, r.w],
-                );
+                body_poses.insert(name.clone(), [t.x, t.y, t.z, r.x, r.y, r.z, r.w]);
             }
         }
         info.body_poses = body_poses;

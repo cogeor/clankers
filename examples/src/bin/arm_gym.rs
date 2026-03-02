@@ -26,7 +26,9 @@ impl clankers_core::traits::ActionApplicator for ArmApplicator {
         let values = action.as_slice();
         let entities = world.resource::<ArmJointEntities>().0.clone();
         for (i, entity) in entities.iter().enumerate() {
-            if i < values.len() && let Some(mut cmd) = world.get_mut::<JointCommand>(*entity) {
+            if i < values.len()
+                && let Some(mut cmd) = world.get_mut::<JointCommand>(*entity)
+            {
                 cmd.value = values[i];
             }
         }
@@ -75,29 +77,24 @@ fn main() {
 
     let joint_entities = setup.joint_entities;
 
-    let mut env = GymEnv::new(
-        scene.app,
-        obs_space,
-        act_space,
-        Box::new(ArmApplicator),
-    )
-    .with_reset_fn(move |world: &mut World| {
-        // Reset rapier rigid body positions and velocities
-        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-            ctx.reset_to_initial();
-            world.insert_resource(ctx);
-        }
-        // Reset joint states and commands for arm joints
-        for &entity in &joint_entities {
-            if let Some(mut state) = world.get_mut::<JointState>(entity) {
-                state.position = 0.0;
-                state.velocity = 0.0;
+    let mut env = GymEnv::new(scene.app, obs_space, act_space, Box::new(ArmApplicator))
+        .with_reset_fn(move |world: &mut World| {
+            // Reset rapier rigid body positions and velocities
+            if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+                ctx.reset_to_initial();
+                world.insert_resource(ctx);
             }
-            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                cmd.value = 0.0;
+            // Reset joint states and commands for arm joints
+            for &entity in &joint_entities {
+                if let Some(mut state) = world.get_mut::<JointState>(entity) {
+                    state.position = 0.0;
+                    state.velocity = 0.0;
+                }
+                if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
+                    cmd.value = 0.0;
+                }
             }
-        }
-    });
+        });
 
     // 3. Start server
     let server = GymServer::bind(address).expect("failed to bind server");
@@ -105,7 +102,9 @@ fn main() {
     println!("\nArm gym server listening on {addr}");
     println!("joints={num_joints}, obs_dim={obs_dim}, act_dim={num_joints}, max_steps={max_steps}");
     println!("Physics: Rapier3D, position-mode PID (kp=100, kd=10)");
-    println!("Connect with: python python/examples/arm_imitation_learning.py --online --port 9879\n");
+    println!(
+        "Connect with: python python/examples/arm_imitation_learning.py --online --port 9879\n"
+    );
 
     loop {
         println!("waiting for client...");

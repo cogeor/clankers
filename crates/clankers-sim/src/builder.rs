@@ -19,9 +19,9 @@ use bevy::prelude::*;
 use clankers_core::config::{ObjectConfig, Shape, SimConfig};
 use clankers_core::types::RobotGroup;
 use clankers_env::episode::EpisodeConfig;
+use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::bridge::register_robot;
 use clankers_physics::rapier::{RapierBackend, RapierBackendFixed, RapierContext};
-use clankers_physics::ClankersPhysicsPlugin;
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::RobotModel;
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle};
@@ -329,7 +329,9 @@ fn shape_to_collider(shape: &Shape) -> ColliderBuilder {
         // Mesh shapes are not yet supported; fall back to a small sphere
         // so the build does not panic.
         Shape::ConvexMesh(_) | Shape::TriMesh(_) => {
-            eprintln!("warning: mesh shapes are not yet supported in with_object(); falling back to unit sphere collider");
+            eprintln!(
+                "warning: mesh shapes are not yet supported in with_object(); falling back to unit sphere collider"
+            );
             ColliderBuilder::ball(0.01)
         }
     }

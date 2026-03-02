@@ -230,7 +230,10 @@ mod tests {
         t.set_position(1.0);
         t.reset();
         assert!((t.last_position).abs() < f32::EPSILON);
-        assert!(t.dead_zone_travel >= t.backlash, "should be engaged after reset");
+        assert!(
+            t.dead_zone_travel >= t.backlash,
+            "should be engaged after reset"
+        );
     }
 
     #[test]

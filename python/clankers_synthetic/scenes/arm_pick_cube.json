@@ -1,0 +1,109 @@
+{
+  "scene_id": "arm_pick_cube_v1",
+  "units": {
+    "length": "m",
+    "angle": "rad",
+    "time": "s"
+  },
+  "simulation": {
+    "gravity": [0.0, 0.0, -9.81],
+    "physics_dt": 0.001,
+    "control_dt": 0.02,
+    "max_episode_steps": 500,
+    "seed": 42
+  },
+  "robot": {
+    "name": "six_dof_arm",
+    "urdf_path": "examples/urdf/six_dof_arm.urdf",
+    "base_position": [0.0, 0.0, 0.0],
+    "base_orientation": [0.0, 0.0, 0.0, 1.0],
+    "fixed_base": true,
+    "control_mode": "position_pd",
+    "joint_names": [
+      "j1_base_yaw",
+      "j2_shoulder_pitch",
+      "j3_elbow_pitch",
+      "j4_forearm_roll",
+      "j5_wrist_pitch",
+      "j6_wrist_roll",
+      "j_finger_left",
+      "j_finger_right"
+    ],
+    "joint_limits": {
+      "j1_base_yaw": [-3.14159, 3.14159],
+      "j2_shoulder_pitch": [-1.5708, 2.356],
+      "j3_elbow_pitch": [-2.356, 2.356],
+      "j4_forearm_roll": [-3.14159, 3.14159],
+      "j5_wrist_pitch": [-2.094, 2.094],
+      "j6_wrist_roll": [-3.14159, 3.14159],
+      "j_finger_left": [0.0, 0.03],
+      "j_finger_right": [0.0, 0.03]
+    },
+    "joint_types": {
+      "j1_base_yaw": "revolute",
+      "j2_shoulder_pitch": "revolute",
+      "j3_elbow_pitch": "revolute",
+      "j4_forearm_roll": "revolute",
+      "j5_wrist_pitch": "revolute",
+      "j6_wrist_roll": "revolute",
+      "j_finger_left": "prismatic",
+      "j_finger_right": "prismatic"
+    },
+    "ee_link_name": "end_effector",
+    "pd_gains": {
+      "j1_base_yaw": [100.0, 10.0],
+      "j2_shoulder_pitch": [100.0, 10.0],
+      "j3_elbow_pitch": [100.0, 10.0],
+      "j4_forearm_roll": [100.0, 10.0],
+      "j5_wrist_pitch": [100.0, 10.0],
+      "j6_wrist_roll": [100.0, 10.0],
+      "j_finger_left": [100.0, 10.0],
+      "j_finger_right": [100.0, 10.0]
+    }
+  },
+  "objects": [
+    {
+      "name": "table",
+      "shape": "box",
+      "shape_params": {
+        "half_extents": [0.3, 0.2, 0.0125]
+      },
+      "position": [0.35, 0.0, 0.4],
+      "orientation": [0.0, 0.0, 0.0, 1.0],
+      "mass": 0.0,
+      "friction": 0.6,
+      "is_static": true,
+      "is_graspable": false
+    },
+    {
+      "name": "red_cube",
+      "shape": "box",
+      "shape_params": {
+        "half_extents": [0.0125, 0.0125, 0.0125]
+      },
+      "position": [0.3, 0.0, 0.425],
+      "orientation": [0.0, 0.0, 0.0, 1.0],
+      "mass": 0.1,
+      "friction": 0.8,
+      "is_static": false,
+      "is_graspable": true
+    }
+  ],
+  "constraints": {
+    "workspace_bounds_min": [-0.5, -0.5, 0.0],
+    "workspace_bounds_max": [0.7, 0.5, 1.0],
+    "max_ee_speed": 1.0,
+    "max_joint_velocity": 2.0,
+    "max_contact_force": 100.0,
+    "keep_upright": [],
+    "avoid_regions": [],
+    "no_self_collision": true
+  },
+  "observations": {
+    "modalities": ["proprio"],
+    "joint_state_dim": 16,
+    "ee_pose_dim": 7,
+    "object_pose_dim": 7,
+    "cameras": []
+  }
+}

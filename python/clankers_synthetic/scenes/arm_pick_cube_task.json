@@ -1,0 +1,21 @@
+{
+  "task_id": "pick_red_cube_v1",
+  "task_text": "Pick up the red cube from the table. The red cube is at position [0.3, 0.0, 0.425] on the table surface at z=0.4125. Approach from above, open the gripper, lower to the cube, close the gripper to grasp, then lift the cube at least 0.1m above the table.",
+  "success_criteria": [
+    {
+      "type": "object_height",
+      "params": {
+        "object_name": "red_cube",
+        "min_height": 0.525,
+        "description": "red_cube must be lifted at least 0.1m above table surface (0.4125 + 0.1 = 0.5125)"
+      }
+    }
+  ],
+  "reward_hint": "Sparse reward: 1.0 when red_cube height exceeds 0.525m, 0.0 otherwise.",
+  "preferences": {
+    "approach_direction": "top_down",
+    "grasp_type": "parallel_jaw",
+    "lift_height": 0.1,
+    "speed": "moderate"
+  }
+}

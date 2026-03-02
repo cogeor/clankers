@@ -40,9 +40,12 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets 2>&1 | tee /tmp/clippy_output.txt
           exit ${PIPESTATUS[0]}
-      - name: Show clippy errors
+      - name: Upload clippy output
         if: failure()
-        run: cat /tmp/clippy_output.txt | tail -100
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy-errors
+          path: /tmp/clippy_output.txt
 
   test:
     name: Test

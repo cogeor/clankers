@@ -33,7 +33,7 @@ impl ConstantSensor {
 impl Sensor for ConstantSensor {
     type Output = Observation;
 
-    fn read(&self, _world: &mut World) -> Observation {
+    fn read(&mut self, _world: &mut World) -> Observation {
         Observation::new(self.output.clone())
     }
 
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn constant_sensor_returns_fixed_values() {
-        let sensor = ConstantSensor::new(vec![1.0, 2.0, 3.0]);
+        let mut sensor = ConstantSensor::new(vec![1.0, 2.0, 3.0]);
         let mut world = test_world();
         let obs = sensor.read(&mut world);
         assert_eq!(obs.as_slice(), &[1.0, 2.0, 3.0]);
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn constant_sensor_zeros() {
-        let sensor = ConstantSensor::zeros(4);
+        let mut sensor = ConstantSensor::zeros(4);
         let mut world = test_world();
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);

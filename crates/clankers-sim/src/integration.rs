@@ -610,13 +610,13 @@ mod tests {
             .value = 5.0;
 
         // Robot 0 (pendulum) command sensor should see 1 value: 7.0
-        let sensor0 = RobotJointCommandSensor::new(RobotId(0), 1);
+        let mut sensor0 = RobotJointCommandSensor::new(RobotId(0), 1);
         let obs0 = sensor0.read(scene.app.world_mut());
         assert_eq!(obs0.len(), 1);
         assert!((obs0[0] - 7.0).abs() < f32::EPSILON);
 
         // Robot 1 (arm) command sensor should see 2 values: 3.0 and 5.0
-        let sensor1 = RobotJointCommandSensor::new(RobotId(1), 2);
+        let mut sensor1 = RobotJointCommandSensor::new(RobotId(1), 2);
         let obs1 = sensor1.read(scene.app.world_mut());
         assert_eq!(obs1.len(), 2);
         let vals: Vec<f32> = obs1.as_slice().to_vec();
@@ -640,14 +640,14 @@ mod tests {
             .build();
 
         // Robot 0 state sensor: 1 joint → 2 values (pos, vel)
-        let sensor0 = RobotJointStateSensor::new(RobotId(0), 1);
+        let mut sensor0 = RobotJointStateSensor::new(RobotId(0), 1);
         let obs0 = sensor0.read(scene.app.world_mut());
         assert_eq!(obs0.len(), 2);
         // Default initial position is 0.0
         assert!(obs0[0].abs() < f32::EPSILON);
 
         // Robot 1 state sensor: 2 joints → 4 values
-        let sensor1 = RobotJointStateSensor::new(RobotId(1), 2);
+        let mut sensor1 = RobotJointStateSensor::new(RobotId(1), 2);
         let obs1 = sensor1.read(scene.app.world_mut());
         assert_eq!(obs1.len(), 4);
         let vals: Vec<f32> = obs1.as_slice().to_vec();

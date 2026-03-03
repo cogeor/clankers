@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,8 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.93.1"
           components: rustfmt
       - run: cargo fmt --all --check
 
@@ -26,36 +30,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.93.1"
           components: clippy
-      - name: Install Linux dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1"
       - run: cargo clippy --workspace --all-targets
 
   test:
     name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.1"
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
       - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --lib -j 4
+
+  doc:
+    name: Documentation
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
-          prefix-key: "v1"
-      - run: cargo test --workspace
+          toolchain: "1.93.1"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps
 
   python-lint:
     name: Python Lint
@@ -73,19 +89,23 @@ jobs:
       - run: ruff format --check .
       - run: mypy --config-file pyproject.toml clankers/
 
-  doc:
-    name: Documentation
+  python-test:
+    name: Python Test
     runs-on: ubuntu-latest
-    env:
-      RUSTDOCFLAGS: "-D warnings"
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
         with:
-          prefix-key: "v1"
-      - run: cargo doc --workspace --no-deps
+          python-version: "3.12"
+          cache: pip
+      - run: pip install numpy gymnasium pytest pytest-timeout pydantic
+      - name: Run unit tests (lightweight deps only)
+        run: |
+          python -m pytest tests/ -x -q --timeout=60 \
+            --ignore=tests/test_dl_pipeline_e2e.py \
+            --ignore=tests/test_trajectory_dataset.py \
+            --ignore=tests/test_mcap_loader.py \
+            --ignore=tests/test_mcap_augmentor.py

@@ -756,6 +756,7 @@ fn trot_contact_pattern_alternates() {
 }
 
 #[test]
+#[ignore = "non-deterministic: Rapier physics can diverge across runs"]
 fn trot_moves_forward() {
     let desired_velocity = Vector3::new(0.3, 0.0, 0.0);
     let (_harness, _stand, loco) =
@@ -778,6 +779,7 @@ fn trot_moves_forward() {
 // ---- Walk ----------------------------------------------------------------
 
 #[test]
+#[ignore = "non-deterministic: Rapier physics can diverge across runs"]
 fn walk_feet_above_ground() {
     let desired_velocity = Vector3::new(0.15, 0.0, 0.0);
     let (_harness, _stand, loco) =

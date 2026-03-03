@@ -30,7 +30,7 @@ repos:
         types: [python]
       - id: mypy
         name: mypy
-        entry: mypy python/clanker_gym/
+        entry: mypy --config-file python/pyproject.toml python/clankers/
         language: system
         pass_filenames: false
         types: [python]

@@ -73,13 +73,14 @@ class McapEpisodeLoader:
     CHANNEL_ACTIONS = "/actions"
     CHANNEL_REWARD = "/reward"
     CHANNEL_IMAGE = "/camera/image"
+    CHANNEL_BODY_POSES = "/body_poses"
 
     def __init__(self, path: str) -> None:
         _require_mcap()
         self.path = path
         self._loaded: dict[str, Any] | None = None
 
-    def load(self) -> dict[str, NDArray[Any] | None]:
+    def load(self) -> dict[str, Any]:
         """Load the episode from disk.
 
         Returns a dict with the following keys:
@@ -107,6 +108,7 @@ class McapEpisodeLoader:
             "actions": [],
             "rewards": [],
             "images": [],
+            "body_poses": [],
             "timestamps_ns": [],
         }
         # Metadata for images (width, height, channels) extracted from channel
@@ -149,6 +151,9 @@ class McapEpisodeLoader:
                         raw["rewards"].append(reward.get("reward", 0.0))
                     else:
                         raw["rewards"].append(reward)
+                elif topic == self.CHANNEL_BODY_POSES:
+                    frame = json.loads(message.data.decode("utf-8"))
+                    raw["body_poses"].append(frame)
                 elif topic == self.CHANNEL_IMAGE:
                     raw["images"].append(bytes(message.data))
                     # Try to get image dimensions from first message if metadata missing.
@@ -156,7 +161,7 @@ class McapEpisodeLoader:
                         # Cannot infer without metadata; will require explicit metadata.
                         pass
 
-        result: dict[str, NDArray[Any] | None] = {
+        result: dict[str, Any] = {
             "timestamps_ns": None,
             "joint_positions": None,
             "joint_velocities": None,
@@ -164,6 +169,7 @@ class McapEpisodeLoader:
             "actions": None,
             "rewards": None,
             "images": None,
+            "body_poses": None,
         }
 
         if raw["timestamps_ns"]:
@@ -196,6 +202,11 @@ class McapEpisodeLoader:
                         frames.append(arr.reshape(height, width, channels))
                 if frames:
                     result["images"] = np.stack(frames, axis=0)
+
+        if raw["body_poses"]:
+            # Each entry is a dict with "timestamp_ns" and "poses" keys.
+            # "poses" maps body name -> [x, y, z, qx, qy, qz, qw].
+            result["body_poses"] = raw["body_poses"]
 
         self._loaded = result  # type: ignore[assignment]
         return result

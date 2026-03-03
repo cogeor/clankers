@@ -57,6 +57,23 @@ pub struct RewardFrame {
 }
 
 // ---------------------------------------------------------------------------
+// BodyPoseFrame
+// ---------------------------------------------------------------------------
+
+/// Snapshot of all named rigid body poses at a single simulation step.
+///
+/// Each entry maps a body name to its 7-float pose `[x, y, z, qx, qy, qz, qw]`.
+/// Written to the `/body_poses` MCAP channel as JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::derive_partial_eq_without_eq)] // f32 fields prevent Eq
+pub struct BodyPoseFrame {
+    /// Simulation timestamp in nanoseconds.
+    pub timestamp_ns: u64,
+    /// Named body poses: `{ "name": [x, y, z, qx, qy, qz, qw], ... }`.
+    pub poses: std::collections::HashMap<String, [f32; 7]>,
+}
+
+// ---------------------------------------------------------------------------
 // ImageFrame
 // ---------------------------------------------------------------------------
 
@@ -116,6 +133,22 @@ mod tests {
         };
         let json = serde_json::to_string(&frame).unwrap();
         let frame2: RewardFrame = serde_json::from_str(&json).unwrap();
+        assert_eq!(frame, frame2);
+    }
+
+    #[test]
+    fn body_pose_frame_roundtrip() {
+        let mut poses = std::collections::HashMap::new();
+        poses.insert(
+            "red_cube".to_string(),
+            [0.3, 0.0, 0.525, 0.0, 0.0, 0.0, 1.0],
+        );
+        let frame = BodyPoseFrame {
+            timestamp_ns: 100_000,
+            poses,
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        let frame2: BodyPoseFrame = serde_json::from_str(&json).unwrap();
         assert_eq!(frame, frame2);
     }
 

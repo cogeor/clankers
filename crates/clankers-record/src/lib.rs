@@ -35,8 +35,8 @@ pub mod types;
 pub mod prelude {
     pub use crate::{
         plugin::RecorderPlugin,
-        recorder::{PendingAction, PendingReward, Recorder, RecordingConfig},
-        types::{ActionFrame, ImageFrame, JointFrame, RewardFrame},
+        recorder::{PendingAction, PendingBodyPoses, PendingReward, Recorder, RecordingConfig},
+        types::{ActionFrame, BodyPoseFrame, ImageFrame, JointFrame, RewardFrame},
     };
 }
 
@@ -63,6 +63,7 @@ mod tests {
             record_joints: false,
             record_actions: false,
             record_rewards: false,
+            record_body_poses: false,
         });
         app.add_plugins(RecorderPlugin);
         app.finish();

@@ -3,8 +3,9 @@
 use bevy::prelude::*;
 
 use crate::recorder::{
-    PendingAction, PendingReward, RecordingConfig, record_action_system,
-    record_joint_states_system, record_reward_system, setup_channels, setup_recorder,
+    PendingAction, PendingBodyPoses, PendingReward, RecordingConfig, record_action_system,
+    record_body_poses_system, record_joint_states_system, record_reward_system, setup_channels,
+    setup_recorder,
 };
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ impl Plugin for RecorderPlugin {
         app.init_resource::<RecordingConfig>();
         app.init_resource::<PendingReward>();
         app.init_resource::<PendingAction>();
+        app.init_resource::<PendingBodyPoses>();
 
         // setup_recorder takes &mut World (exclusive system) — add to Startup.
         app.add_systems(Startup, setup_recorder);
@@ -50,6 +52,7 @@ impl Plugin for RecorderPlugin {
                 record_joint_states_system,
                 record_action_system,
                 record_reward_system,
+                record_body_poses_system,
             )
                 .chain(),
         );

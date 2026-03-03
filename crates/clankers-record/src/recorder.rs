@@ -29,7 +29,7 @@ use mcap::write::Writer as McapWriter;
 use clankers_actuator::components::{JointState, JointTorque};
 use clankers_core::time::SimTime;
 
-use crate::types::{ActionFrame, JointFrame, RewardFrame};
+use crate::types::{ActionFrame, BodyPoseFrame, JointFrame, RewardFrame};
 
 // ---------------------------------------------------------------------------
 // RecordingConfig
@@ -41,6 +41,7 @@ use crate::types::{ActionFrame, JointFrame, RewardFrame};
 /// `RecorderPlugin` will use sensible defaults and write to
 /// `episode_recording.mcap` in the current directory.
 #[derive(Resource, Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RecordingConfig {
     /// Path for the output MCAP file.
     pub output_path: PathBuf,
@@ -50,6 +51,8 @@ pub struct RecordingConfig {
     pub record_actions: bool,
     /// Whether to record rewards (`/reward` channel).
     pub record_rewards: bool,
+    /// Whether to record body poses (`/body_poses` channel).
+    pub record_body_poses: bool,
 }
 
 impl Default for RecordingConfig {
@@ -59,6 +62,7 @@ impl Default for RecordingConfig {
             record_joints: true,
             record_actions: true,
             record_rewards: true,
+            record_body_poses: false,
         }
     }
 }
@@ -73,6 +77,7 @@ pub struct ChannelIds {
     pub joints: Option<u16>,
     pub action: Option<u16>,
     pub reward: Option<u16>,
+    pub body_poses: Option<u16>,
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +200,17 @@ impl Recorder {
         self.write_json(channel_id, ts, &payload)
     }
 
+    /// Serialize and write a [`BodyPoseFrame`] to the given channel.
+    pub fn write_body_pose_frame(
+        &mut self,
+        channel_id: u16,
+        frame: &BodyPoseFrame,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let ts = frame.timestamp_ns;
+        let payload = serde_json::to_vec(frame)?;
+        self.write_json(channel_id, ts, &payload)
+    }
+
     /// Serialize and write a [`RewardFrame`] to the given channel.
     pub fn write_reward_frame(
         &mut self,
@@ -246,6 +262,18 @@ pub struct PendingReward(pub f32);
 /// Insert and update this resource to drive [`record_action_system`].
 #[derive(Resource, Default, Debug, Clone)]
 pub struct PendingAction(pub Vec<f32>);
+
+// ---------------------------------------------------------------------------
+// Pending body poses resource
+// ---------------------------------------------------------------------------
+
+/// Body poses to be recorded this frame, set by external systems.
+///
+/// Each entry maps a body name to `[x, y, z, qx, qy, qz, qw]`.
+/// Populate this from your physics backend (e.g. `RapierContext`) before
+/// `PostUpdate` runs so [`record_body_poses_system`] picks it up.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct PendingBodyPoses(pub std::collections::HashMap<String, [f32; 7]>);
 
 // ---------------------------------------------------------------------------
 // Startup system: initialise Recorder and register channels
@@ -316,6 +344,14 @@ pub fn setup_channels(
                         Ok(id) => channel_ids.reward = Some(id),
                         Err(e) => {
                             error!("clankers-record: failed to add /reward channel: {e}");
+                        }
+                    }
+                }
+                if config.record_body_poses {
+                    match Recorder::add_json_channel(writer, schema_id, "/body_poses") {
+                        Ok(id) => channel_ids.body_poses = Some(id),
+                        Err(e) => {
+                            error!("clankers-record: failed to add /body_poses channel: {e}");
                         }
                     }
                 }
@@ -425,6 +461,36 @@ pub fn record_reward_system(
 
     if let Err(e) = recorder.write_reward_frame(channel_id, &frame) {
         error!("clankers-record: failed to write reward frame: {e}");
+    }
+}
+
+/// `PostUpdate` system: writes current [`PendingBodyPoses`] as a [`BodyPoseFrame`].
+#[allow(clippy::needless_pass_by_value)] // Bevy system parameters are extracted by value
+pub fn record_body_poses_system(
+    recorder: Option<NonSendMut<Recorder>>,
+    channel_ids: Res<ChannelIds>,
+    sim_time: Res<SimTime>,
+    pending: Res<PendingBodyPoses>,
+) {
+    let Some(channel_id) = channel_ids.body_poses else {
+        return;
+    };
+
+    let Some(mut recorder) = recorder else {
+        return;
+    };
+
+    if pending.0.is_empty() {
+        return;
+    }
+
+    let frame = BodyPoseFrame {
+        timestamp_ns: sim_time.nanos(),
+        poses: pending.0.clone(),
+    };
+
+    if let Err(e) = recorder.write_body_pose_frame(channel_id, &frame) {
+        error!("clankers-record: failed to write body pose frame: {e}");
     }
 }
 

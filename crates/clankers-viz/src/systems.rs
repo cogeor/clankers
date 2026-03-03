@@ -272,12 +272,14 @@ pub fn sim_should_step(gate: Res<VizSimGate>) -> bool {
 pub fn mode_gate_system(
     mode: Res<VizMode>,
     mut viz_config: ResMut<VizConfig>,
-    mut teleop_config: ResMut<TeleopConfig>,
+    mut teleop_config: Option<ResMut<TeleopConfig>>,
     mut gate: ResMut<VizSimGate>,
 ) {
     match *mode {
         VizMode::Paused => {
-            teleop_config.enabled = false;
+            if let Some(ref mut tc) = teleop_config {
+                tc.enabled = false;
+            }
             if viz_config.step_once {
                 gate.should_step = true;
                 viz_config.step_once = false;
@@ -286,15 +288,21 @@ pub fn mode_gate_system(
             }
         }
         VizMode::Teleop => {
-            teleop_config.enabled = true;
+            if let Some(ref mut tc) = teleop_config {
+                tc.enabled = true;
+            }
             gate.should_step = true;
         }
         VizMode::Policy => {
-            teleop_config.enabled = false;
+            if let Some(ref mut tc) = teleop_config {
+                tc.enabled = false;
+            }
             gate.should_step = true;
         }
         VizMode::Replay => {
-            teleop_config.enabled = false;
+            if let Some(ref mut tc) = teleop_config {
+                tc.enabled = false;
+            }
             gate.should_step = false;
         }
     }
@@ -310,11 +318,14 @@ pub fn mode_gate_system(
 pub fn sync_teleop_to_robot(
     selected: Res<SelectedRobotId>,
     robot_group: Option<Res<RobotGroup>>,
-    mut teleop_config: ResMut<TeleopConfig>,
+    teleop_config: Option<ResMut<TeleopConfig>>,
     mut teleop_map: ResMut<KeyboardTeleopMap>,
-    mut commander: ResMut<TeleopCommander>,
+    commander: Option<ResMut<TeleopCommander>>,
     mut last_selected: Local<Option<Option<RobotId>>>,
 ) {
+    let (Some(mut teleop_config), Some(mut commander)) = (teleop_config, commander) else {
+        return;
+    };
     // Determine current selection.
     let current = selected.0;
 
@@ -371,13 +382,15 @@ pub fn sync_teleop_to_robot(
 pub fn mode_transition_system(
     mode: Res<VizMode>,
     mut last_mode: Local<VizMode>,
-    mut commander: ResMut<TeleopCommander>,
+    mut commander: Option<ResMut<TeleopCommander>>,
     mut policy_runner: Option<ResMut<PolicyRunner>>,
 ) {
     if *mode != *last_mode {
         // Leaving teleop: clear stale commander values.
-        if *last_mode == VizMode::Teleop {
-            commander.clear();
+        if *last_mode == VizMode::Teleop
+            && let Some(ref mut cmd) = commander
+        {
+            cmd.clear();
         }
         // Entering policy: reset the runner's action to zeros.
         if *mode == VizMode::Policy

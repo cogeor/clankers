@@ -1,13 +1,20 @@
-//! 6-DOF arm driven by a vision-based ONNX policy.
+//! 6+2 DOF arm driven by a vision-based ONNX policy.
 //!
 //! Loads a trained vision policy (image + joint_positions -> velocity) and
 //! runs it in a Bevy window.  The observation consists of:
 //!
 //! - End-effector camera image (RGBA, resolution from model metadata)
-//! - Joint positions (6-DOF)
+//! - Joint positions (6 arm + 2 gripper)
 //!
 //! Policy output is joint velocity, integrated each step as:
 //!     target_pos = current_pos + velocity * control_dt
+//!
+//! **IMPORTANT — Motor control pattern:**
+//! All joints (arm AND gripper) MUST use `MotorOverrides` to drive Rapier's
+//! built-in PD motor at the physics substep rate.  Joints that fall through
+//! to the actuator PID path use ZOH (zero-order hold) torque at the frame
+//! rate, which causes oscillation on the arm's light links.  See
+//! `arm_ik_viz.rs` and `arm_pick_gym.rs` for the canonical pattern.
 //!
 //! Run:
 //!     cargo run -p clankers-examples --bin arm_policy_viz -- --model vision_bc.onnx
@@ -22,9 +29,10 @@ use clankers_env::prelude::*;
 use clankers_examples::arm_setup::{ArmSetupConfig, setup_arm};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_policy::prelude::*;
-use clankers_render::prelude::*;
 use clankers_render::camera::spawn_camera_sensor;
-use clankers_viz::{ClankersVizPlugin, phys_rot_to_vis, phys_to_vis};
+use clankers_render::prelude::*;
+use clankers_teleop::prelude::*;
+use clankers_viz::{ClankersVizPlugin, VizMode, phys_rot_to_vis, phys_to_vis};
 use clap::Parser;
 
 // ---------------------------------------------------------------------------
@@ -49,16 +57,26 @@ struct Cli {
 // Constants
 // ---------------------------------------------------------------------------
 
-const REST_POSE: [f32; 6] = [0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0];
-const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
+/// Rest pose for all 8 joints: 6 arm + 2 gripper (fingers open at 0.03m).
+const REST_POSE: [f32; 8] = [0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0, 0.03, 0.03];
+
+/// Effort limits for all 8 joints: 6 arm + 2 gripper.
+const EFFORT_LIMITS: [f32; 8] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0, 10.0, 10.0];
+
+/// Gripper finger travel in meters (prismatic joint range 0..0.03).
+const FINGER_TRAVEL: f32 = 0.03;
 
 // ---------------------------------------------------------------------------
 // Resources & Components
 // ---------------------------------------------------------------------------
 
-/// Joint entities for the 6-DOF arm.
+/// Joint entities for the 6-DOF arm (excludes gripper).
 #[derive(Resource)]
 struct ArmJointEntities(Vec<Entity>);
+
+/// The two prismatic finger joint entities (left, right).
+#[derive(Resource)]
+struct GripperEntities([Entity; 2]);
 
 /// Control timestep for velocity integration.
 #[derive(Resource)]
@@ -194,10 +212,7 @@ fn sync_link_visuals(ctx: Res<RapierContext>, mut query: Query<(&LinkVisual, &mu
 
 /// Track the observation camera to the end-effector body.
 #[allow(clippy::needless_pass_by_value)]
-fn track_ee_camera(
-    ctx: Res<RapierContext>,
-    mut cam_q: Query<&mut Transform, With<SimCamera>>,
-) {
+fn track_ee_camera(ctx: Res<RapierContext>, mut cam_q: Query<&mut Transform, With<SimCamera>>) {
     let Some(&handle) = ctx.body_handles.get("end_effector") else {
         return;
     };
@@ -219,10 +234,15 @@ fn track_ee_camera(
 /// Apply policy velocity output as motor position targets.
 ///
 /// velocity output -> target_pos = current_pos + vel * dt -> MotorOverrides
+///
+/// **All joints (arm + gripper) must go through `MotorOverrides`.**
+/// Joints that fall through to the actuator PID path use ZOH torque at
+/// frame rate, which causes oscillation on light links.
 #[allow(clippy::needless_pass_by_value)]
 fn apply_velocity_action(
     runner: Res<PolicyRunner>,
     joints_res: Res<ArmJointEntities>,
+    gripper: Res<GripperEntities>,
     dt: Res<ControlDt>,
     episode: Res<Episode>,
     joint_q: Query<&JointState>,
@@ -233,17 +253,11 @@ fn apply_velocity_action(
     }
 
     let action = runner.action().as_slice();
-    let entities = &joints_res.0;
 
-    for (i, &entity) in entities.iter().enumerate() {
-        if i >= 6 {
-            break;
-        }
-
+    // Arm joints (0..6): velocity integration with stiff PD motor
+    for (i, &entity) in joints_res.0.iter().enumerate() {
         let velocity = action.get(i).copied().unwrap_or(0.0);
-        let current_pos = joint_q
-            .get(entity)
-            .map_or(REST_POSE[i], |s| s.position);
+        let current_pos = joint_q.get(entity).map_or(REST_POSE[i], |s| s.position);
 
         let target_pos = current_pos + velocity * dt.0;
 
@@ -254,6 +268,28 @@ fn apply_velocity_action(
                 target_vel: 0.0,
                 stiffness: 100.0,
                 damping: 10.0,
+                max_force: EFFORT_LIMITS[i],
+            },
+        );
+    }
+
+    // Gripper fingers (6..8): velocity integration with softer PD motor.
+    // Uses the same MotorOverrides path to avoid ZOH oscillation.
+    let arm_dof = joints_res.0.len();
+    for (fi, &entity) in gripper.0.iter().enumerate() {
+        let i = arm_dof + fi;
+        let velocity = action.get(i).copied().unwrap_or(0.0);
+        let current_pos = joint_q.get(entity).map_or(FINGER_TRAVEL, |s| s.position);
+
+        let target_pos = (current_pos + velocity * dt.0).clamp(0.0, FINGER_TRAVEL);
+
+        motor_overrides.joints.insert(
+            entity,
+            MotorOverrideParams {
+                target_pos,
+                target_vel: 0.0,
+                stiffness: 50.0,
+                damping: 5.0,
                 max_force: EFFORT_LIMITS[i],
             },
         );
@@ -292,20 +328,52 @@ fn main() {
     // Image resolution from model metadata (default 64x64 RGBA)
     let (img_c, img_h, img_w) = onnx_policy.image_shape().unwrap_or((4, 64, 64));
 
-    // 2. Setup arm
+    // 2. Setup arm — use joint_dim from model if available, else default to 6
+    let joint_dim = onnx_policy.joint_dim().unwrap_or(6);
+    let sensor_dof = joint_dim;
     let setup = setup_arm(ArmSetupConfig {
         max_episode_steps: 50_000,
         use_fixed_update: true,
-        sensor_dof: 6,
+        sensor_dof,
     });
     let joint_entities = setup.joint_entities.clone();
+
+    // Extract gripper finger entities
+    let gripper_entities = {
+        let spawned = &setup.scene.robots["six_dof_arm"];
+        GripperEntities([
+            spawned
+                .joint_entity("j_finger_left")
+                .expect("j_finger_left not found"),
+            spawned
+                .joint_entity("j_finger_right")
+                .expect("j_finger_right not found"),
+        ])
+    };
     let mut scene = setup.scene;
 
-    // 3. Add rendering plugins for image observations
+    // 3. Window + viz (must come before ImageCopyPlugin to avoid duplicate GpuReadbackPlugin)
+    scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Clankers -- Arm Vision Policy".to_string(),
+            resolution: (1280, 720).into(),
+            ..default()
+        }),
+        ..default()
+    }));
+    scene.app.add_plugins(ClankersTeleopPlugin);
+    scene
+        .app
+        .add_plugins(ClankersVizPlugin { fixed_update: true });
+
+    // Start in Policy mode — this binary runs an ONNX policy, not teleop.
+    *scene.app.world_mut().resource_mut::<VizMode>() = VizMode::Policy;
+
+    // 4. Add rendering plugins for image observations
     scene.app.add_plugins(ClankersRenderPlugin);
     scene.app.add_plugins(ImageCopyPlugin);
 
-    // 4. Register sensors: image first, then joint state
+    // 5. Register sensors: image first, then joint state
     //    Observation layout: [image (H*W*C floats)..., pos (J)..., vel (J)...]
     {
         let world = scene.app.world_mut();
@@ -320,37 +388,25 @@ fn main() {
             )),
             &mut buffer,
         );
-        registry.register(Box::new(JointStateSensor::new(6)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(sensor_dof)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
 
-    // 5. PolicyRunner + ClankersPolicyPlugin
+    // 6. PolicyRunner + ClankersPolicyPlugin
     let runner = PolicyRunner::new(Box::new(onnx_policy), action_dim);
     scene.app.insert_resource(runner);
     scene.app.add_plugins(ClankersPolicyPlugin);
 
-    // 6. Resources
+    // 7. Resources
     scene.app.insert_resource(ArmJointEntities(joint_entities));
+    scene.app.insert_resource(gripper_entities);
     scene.app.insert_resource(ControlDt(cli.control_dt));
     scene.app.insert_resource(MotorOverrides::default());
     scene.app.insert_resource(ObsCameraConfig {
         width: img_w as u32,
         height: img_h as u32,
     });
-
-    // 7. Window + viz
-    scene.app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Clankers -- Arm Vision Policy".to_string(),
-            resolution: (1280, 720).into(),
-            ..default()
-        }),
-        ..default()
-    }));
-    scene
-        .app
-        .add_plugins(ClankersVizPlugin { fixed_update: true });
 
     // 8. Startup systems
     scene

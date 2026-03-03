@@ -35,6 +35,18 @@ pub struct MotorOverrideParams {
 /// and instead use Rapier's built-in PD motor evaluated at the physics rate.
 /// This is essential for stiff PD gains on light links where ZOH torque
 /// control at the frame rate would cause oscillation.
+///
+/// # Important: ALL joints must be overridden
+///
+/// When using this resource, **every joint** (arm AND gripper) must have an
+/// entry.  Joints without an override fall through to the actuator PID →
+/// torque motor trick path, which is ZOH at the frame rate and will
+/// oscillate on light links.  This is the most common cause of "robot
+/// flailing wildly" in arm visualization binaries.
+///
+/// See `arm_ik_viz.rs` and `arm_pick_gym.rs` for the canonical pattern:
+/// arm joints use stiffness=100/damping=10, gripper fingers use softer
+/// stiffness=50/damping=5.
 #[derive(Resource, Default)]
 pub struct MotorOverrides {
     /// Map from joint entity to position motor parameters.

@@ -27,7 +27,7 @@ pub fn side_panel_system(
     mut viz_config: ResMut<VizConfig>,
     mut mode: ResMut<VizMode>,
     mut episode: ResMut<Episode>,
-    mut commander: ResMut<TeleopCommander>,
+    mut commander: Option<ResMut<TeleopCommander>>,
     joints: Query<(
         Entity,
         &JointCommand,
@@ -70,18 +70,30 @@ pub fn side_panel_system(
             robot_section(ui, robot_group.as_deref(), &mut selected_robot);
             ui.separator();
 
-            controls_section(ui, &mut viz_config, &mut mode, &mut episode, &mut commander);
+            controls_section(
+                ui,
+                &mut viz_config,
+                &mut mode,
+                &mut episode,
+                commander.as_deref_mut(),
+            );
             ui.separator();
 
             episode_section(ui, &episode, stats.as_deref());
             ui.separator();
 
-            joints_section(ui, &joints, &mut commander, *mode, &selected_robot);
+            joints_section(
+                ui,
+                &joints,
+                commander.as_deref_mut(),
+                *mode,
+                &selected_robot,
+            );
             ui.separator();
 
             observation_section(ui, &obs_buffer);
 
-            action_section(ui, policy_runner.as_deref(), &commander, *mode);
+            action_section(ui, policy_runner.as_deref(), commander.as_deref(), *mode);
         });
 }
 
@@ -157,14 +169,16 @@ fn controls_section(
     viz_config: &mut ResMut<VizConfig>,
     mode: &mut ResMut<VizMode>,
     episode: &mut ResMut<Episode>,
-    commander: &mut ResMut<TeleopCommander>,
+    mut commander: Option<&mut TeleopCommander>,
 ) {
     ui.label("Controls");
 
     ui.horizontal(|ui| {
         if ui.button("Reset").clicked() {
             episode.reset(None);
-            commander.clear();
+            if let Some(ref mut cmd) = commander {
+                cmd.clear();
+            }
         }
 
         if mode.is_simulating() {
@@ -266,7 +280,7 @@ fn joints_section(
         &JointTorque,
         Option<&RobotId>,
     )>,
-    commander: &mut ResMut<TeleopCommander>,
+    mut commander: Option<&mut TeleopCommander>,
     mode: VizMode,
     selected: &SelectedRobotId,
 ) {
@@ -300,14 +314,15 @@ fn joints_section(
             for (i, (_entity, cmd, state, torque, _rid)) in filtered.iter().enumerate() {
                 ui.label(format!("J{i}"));
 
-                if is_teleop {
+                if is_teleop && commander.is_some() {
+                    let cmd_ref = commander.as_deref_mut().unwrap();
                     let channel = format!("joint_{i}");
-                    let mut value = commander.get(&channel);
+                    let mut value = cmd_ref.get(&channel);
                     if ui
                         .add(egui::Slider::new(&mut value, -1.0..=1.0).show_value(true))
                         .changed()
                     {
-                        commander.set(channel, value);
+                        cmd_ref.set(channel, value);
                     }
                 } else {
                     ui.label(format!("{:.3}", cmd.value));
@@ -361,7 +376,7 @@ fn observation_section(ui: &mut egui::Ui, buffer: &ObservationBuffer) {
 fn action_section(
     ui: &mut egui::Ui,
     policy_runner: Option<&PolicyRunner>,
-    commander: &TeleopCommander,
+    commander: Option<&TeleopCommander>,
     mode: VizMode,
 ) {
     egui::CollapsingHeader::new("Action")
@@ -378,9 +393,13 @@ fn action_section(
                 }
             }
             VizMode::Teleop => {
-                ui.label("Source: Teleop");
-                for (ch, v) in commander.iter() {
-                    ui.label(format!("{ch}: {v:.4}"));
+                if let Some(cmd) = commander {
+                    ui.label("Source: Teleop");
+                    for (ch, v) in cmd.iter() {
+                        ui.label(format!("{ch}: {v:.4}"));
+                    }
+                } else {
+                    ui.label("No teleop commander.");
                 }
             }
             VizMode::Paused => {

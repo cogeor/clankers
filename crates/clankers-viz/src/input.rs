@@ -85,8 +85,11 @@ impl KeyboardTeleopMap {
 pub fn keyboard_teleop_system(
     keys: Res<ButtonInput<KeyCode>>,
     map: Res<KeyboardTeleopMap>,
-    mut commander: ResMut<TeleopCommander>,
+    commander: Option<ResMut<TeleopCommander>>,
 ) {
+    let Some(mut commander) = commander else {
+        return;
+    };
     for binding in &map.bindings {
         let current = commander.get(&binding.channel);
         let mut delta = 0.0;

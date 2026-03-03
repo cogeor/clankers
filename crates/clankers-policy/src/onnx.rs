@@ -88,6 +88,30 @@ pub enum ActionTransform {
 }
 
 // ---------------------------------------------------------------------------
+// VisionLayout
+// ---------------------------------------------------------------------------
+
+/// Layout descriptor for vision models with separate image + position inputs.
+///
+/// When present, the observation is split into image pixels and joint state,
+/// and inference runs with two named input tensors instead of one flat vector.
+#[derive(Debug, Clone)]
+struct VisionLayout {
+    /// Name of the image input tensor in the ONNX model.
+    image_input_name: String,
+    /// Name of the joint-positions input tensor in the ONNX model.
+    pos_input_name: String,
+    /// Number of image channels (C in `[B, C, H, W]`).
+    image_channels: usize,
+    /// Image height (H in `[B, C, H, W]`).
+    image_height: usize,
+    /// Image width (W in `[B, C, H, W]`).
+    image_width: usize,
+    /// Number of joint position dimensions (J in `[B, J]`).
+    joint_dim: usize,
+}
+
+// ---------------------------------------------------------------------------
 // OnnxPolicy
 // ---------------------------------------------------------------------------
 
@@ -96,24 +120,41 @@ pub enum ActionTransform {
 /// Wraps an [`ort::session::Session`] and implements the
 /// [`Policy`] trait. The session is protected
 /// by a [`Mutex`] because `Session::run` requires `&mut self`.
+///
+/// Supports two modes:
+/// - **Single-input** (default): flat `[1, obs_dim]` vector observation.
+/// - **Vision** (multi-input): separate `"image"` `[1, C, H, W]` and
+///   `"joint_positions"` `[1, J]` tensors.  Detected automatically in
+///   [`from_file`](Self::from_file) when both named inputs are present.
 pub struct OnnxPolicy {
     session: Mutex<Session>,
     obs_dim: usize,
     action_dim: usize,
     action_transform: ActionTransform,
+    /// Input tensor name used for single-input (flat vector) mode.
     input_name: String,
     output_name: String,
+    /// When `Some`, the model uses vision (multi-input) mode.
+    vision: Option<VisionLayout>,
 }
 
 impl std::fmt::Debug for OnnxPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OnnxPolicy")
-            .field("obs_dim", &self.obs_dim)
+        let mut s = f.debug_struct("OnnxPolicy");
+        s.field("obs_dim", &self.obs_dim)
             .field("action_dim", &self.action_dim)
             .field("action_transform", &self.action_transform)
             .field("input_name", &self.input_name)
-            .field("output_name", &self.output_name)
-            .finish_non_exhaustive()
+            .field("output_name", &self.output_name);
+        if let Some(ref v) = self.vision {
+            s.field("vision_mode", &true)
+                .field(
+                    "image_shape",
+                    &(v.image_channels, v.image_height, v.image_width),
+                )
+                .field("joint_dim", &v.joint_dim);
+        }
+        s.finish_non_exhaustive()
     }
 }
 
@@ -137,6 +178,22 @@ impl OnnxPolicy {
                 source: e,
             })?;
 
+        // Try vision mode first: look for "image" + "joint_positions" inputs.
+        let maybe_image = find_tensor_name(
+            session.inputs().iter().map(ort::value::Outlet::name),
+            &["image"],
+        );
+        let maybe_pos = find_tensor_name(
+            session.inputs().iter().map(ort::value::Outlet::name),
+            &["joint_positions"],
+        );
+
+        if let (Some(image_name), Some(pos_name)) = (maybe_image, maybe_pos) {
+            return Self::from_session_vision(session, image_name, pos_name);
+        }
+
+        // Fall back to single-input mode.
+
         // Find observation input tensor name.
         let input_name = find_tensor_name(
             session.inputs().iter().map(ort::value::Outlet::name),
@@ -147,7 +204,7 @@ impl OnnxPolicy {
         // Find action output tensor name.
         let output_name = find_tensor_name(
             session.outputs().iter().map(ort::value::Outlet::name),
-            &["action", "actions"],
+            &["action", "actions", "velocity"],
         )
         .ok_or(OnnxPolicyError::MissingActionOutput)?;
 
@@ -168,6 +225,49 @@ impl OnnxPolicy {
             action_transform,
             input_name,
             output_name,
+            vision: None,
+        })
+    }
+
+    /// Build a vision-mode policy from a session with `"image"` and
+    /// `"joint_positions"` inputs.
+    fn from_session_vision(
+        session: Session,
+        image_name: String,
+        pos_name: String,
+    ) -> Result<Self, OnnxPolicyError> {
+        let (ic, ih, iw) = extract_image_dims(&session, &image_name)?;
+        let joint_dim = extract_dim_from_input(&session, &pos_name)?;
+
+        // Output can be named "velocity", "action", or "actions".
+        let output_name = find_tensor_name(
+            session.outputs().iter().map(ort::value::Outlet::name),
+            &["velocity", "action", "actions"],
+        )
+        .ok_or(OnnxPolicyError::MissingActionOutput)?;
+        let action_dim = extract_dim_from_output(&session, &output_name)?;
+
+        let metadata = read_metadata(&session);
+        let action_transform = parse_action_transform(&metadata, action_dim);
+
+        // obs_dim = image pixels + joint state (pos + vel interleaved)
+        let obs_dim = ic * ih * iw + joint_dim * 2;
+
+        Ok(Self {
+            session: Mutex::new(session),
+            obs_dim,
+            action_dim,
+            action_transform,
+            input_name: image_name.clone(),
+            output_name,
+            vision: Some(VisionLayout {
+                image_input_name: image_name,
+                pos_input_name: pos_name,
+                image_channels: ic,
+                image_height: ih,
+                image_width: iw,
+                joint_dim,
+            }),
         })
     }
 
@@ -179,6 +279,23 @@ impl OnnxPolicy {
     /// Returns the action dimension produced by the model.
     pub const fn action_dim(&self) -> usize {
         self.action_dim
+    }
+
+    /// Returns `true` if this policy uses vision (multi-input) mode.
+    pub const fn is_vision(&self) -> bool {
+        self.vision.is_some()
+    }
+
+    /// Returns `(C, H, W)` image shape if this is a vision policy.
+    pub fn image_shape(&self) -> Option<(usize, usize, usize)> {
+        self.vision
+            .as_ref()
+            .map(|v| (v.image_channels, v.image_height, v.image_width))
+    }
+
+    /// Returns the number of joint position dimensions for vision policies.
+    pub fn joint_dim(&self) -> Option<usize> {
+        self.vision.as_ref().map(|v| v.joint_dim)
     }
 
     /// Returns the action transform configuration.
@@ -213,31 +330,81 @@ impl OnnxPolicy {
 // ---------------------------------------------------------------------------
 
 impl Policy for OnnxPolicy {
+    #[allow(clippy::option_if_let_else)] // Readability: two 20-line closures is worse.
     fn get_action(&self, obs: &Observation) -> Action {
         let obs_slice = obs.as_slice();
-        let obs_len = obs_slice.len().min(self.obs_dim);
 
-        // Build a zero-padded [1, obs_dim] input buffer.
-        let mut input_data = vec![0.0f32; self.obs_dim];
-        input_data[..obs_len].copy_from_slice(&obs_slice[..obs_len]);
+        let mut action_data = if let Some(ref v) = self.vision {
+            // Vision mode: split observation into image pixels + joint positions.
+            let n_pixels = v.image_channels * v.image_height * v.image_width;
+            let total_needed = n_pixels + v.joint_dim;
 
-        // Create a TensorRef from the raw slice -- shape (1, obs_dim).
-        let input_tensor =
-            TensorRef::<f32>::from_array_view(([1_usize, self.obs_dim], &*input_data))
-                .expect("failed to create input tensor");
+            // Zero-pad if observation is shorter than expected.
+            let mut buf = vec![0.0f32; total_needed];
+            let copy_len = obs_slice.len().min(total_needed);
+            buf[..copy_len].copy_from_slice(&obs_slice[..copy_len]);
 
-        let mut action_data: Vec<f32> = self
-            .session
-            .lock()
-            .expect("session lock poisoned")
-            .run(ort::inputs![&self.input_name => input_tensor])
-            .expect("ONNX inference failed")[&*self.output_name]
-            .try_extract_tensor::<f32>()
-            .expect("failed to extract action tensor")
-            .1
-            .to_vec();
+            // Observation buffer stores image in HWC order (row-major, channels
+            // interleaved).  The ONNX model expects CHW (PyTorch convention).
+            let (c, h, w) = (v.image_channels, v.image_height, v.image_width);
+            let mut image_chw = vec![0.0f32; n_pixels];
+            for ch in 0..c {
+                for row in 0..h {
+                    for col in 0..w {
+                        image_chw[ch * h * w + row * w + col] =
+                            buf[row * w * c + col * c + ch];
+                    }
+                }
+            }
+
+            let pos_data = &buf[n_pixels..n_pixels + v.joint_dim];
+
+            let image_tensor = TensorRef::<f32>::from_array_view((
+                [1_usize, v.image_channels, v.image_height, v.image_width],
+                &*image_chw,
+            ))
+            .expect("failed to create image tensor");
+
+            let pos_tensor = TensorRef::<f32>::from_array_view((
+                [1_usize, v.joint_dim],
+                pos_data,
+            ))
+            .expect("failed to create position tensor");
+
+            self.session
+                .lock()
+                .expect("session lock poisoned")
+                .run(ort::inputs![
+                    &*v.image_input_name => image_tensor,
+                    &*v.pos_input_name => pos_tensor
+                ])
+                .expect("ONNX inference failed")[&*self.output_name]
+                .try_extract_tensor::<f32>()
+                .expect("failed to extract action tensor")
+                .1
+                .to_vec()
+        } else {
+            // Single-input mode: flat [1, obs_dim] vector.
+            let obs_len = obs_slice.len().min(self.obs_dim);
+            let mut input_data = vec![0.0f32; self.obs_dim];
+            input_data[..obs_len].copy_from_slice(&obs_slice[..obs_len]);
+
+            let input_tensor =
+                TensorRef::<f32>::from_array_view(([1_usize, self.obs_dim], &*input_data))
+                    .expect("failed to create input tensor");
+
+            self.session
+                .lock()
+                .expect("session lock poisoned")
+                .run(ort::inputs![&self.input_name => input_tensor])
+                .expect("ONNX inference failed")[&*self.output_name]
+                .try_extract_tensor::<f32>()
+                .expect("failed to extract action tensor")
+                .1
+                .to_vec()
+        };
+
         action_data.truncate(self.action_dim);
-
         self.apply_transform(&mut action_data);
 
         Action::from(action_data)
@@ -286,6 +453,27 @@ fn extract_dim_from_input(session: &Session, name: &str) -> Result<usize, OnnxPo
                 if dim > 0 {
                     return usize::try_from(dim).map_err(|_| OnnxPolicyError::UnknownObsDim);
                 }
+            }
+        }
+    }
+    Err(OnnxPolicyError::UnknownObsDim)
+}
+
+/// Extract image dimensions `(C, H, W)` from a 4-D input tensor `[batch, C, H, W]`.
+fn extract_image_dims(
+    session: &Session,
+    name: &str,
+) -> Result<(usize, usize, usize), OnnxPolicyError> {
+    for input in session.inputs() {
+        if input.name() == name
+            && let ValueType::Tensor { shape, .. } = input.dtype()
+            && shape.len() == 4
+        {
+            let c = usize::try_from(shape[1]).map_err(|_| OnnxPolicyError::UnknownObsDim)?;
+            let h = usize::try_from(shape[2]).map_err(|_| OnnxPolicyError::UnknownObsDim)?;
+            let w = usize::try_from(shape[3]).map_err(|_| OnnxPolicyError::UnknownObsDim)?;
+            if c > 0 && h > 0 && w > 0 {
+                return Ok((c, h, w));
             }
         }
     }

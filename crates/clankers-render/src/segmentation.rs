@@ -154,12 +154,18 @@ impl Default for SegmentationFrameBuffer {
 pub use gpu_impl::*;
 
 #[cfg(feature = "gpu")]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::type_complexity,
+    clippy::default_trait_access,
+    clippy::similar_names
+)]
 mod gpu_impl {
     use bevy::camera::RenderTarget;
+    use bevy::camera::visibility::RenderLayers;
     use bevy::prelude::*;
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-    use bevy::render::view::RenderLayers;
 
     use crate::segmentation::{SegmentationFrameBuffer, SegmentationPalette};
 

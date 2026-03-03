@@ -16,6 +16,7 @@ pub use gpu_impl::*;
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "gpu")]
+#[allow(clippy::default_trait_access)]
 mod gpu_impl {
     use bevy::camera::RenderTarget;
     use bevy::prelude::*;

@@ -19,6 +19,7 @@ pub use gpu_impl::*;
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "gpu")]
+#[allow(clippy::needless_pass_by_value, clippy::type_complexity)]
 mod gpu_impl {
     use bevy::prelude::*;
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};

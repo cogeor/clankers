@@ -2016,6 +2016,7 @@ dependencies = [
  "clankers-physics",
  "clankers-policy",
  "clankers-record",
+ "clankers-render",
  "clankers-sim",
  "clankers-teleop",
  "clankers-urdf",

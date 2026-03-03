@@ -241,6 +241,35 @@ def export_onnx(policy: BCPolicy, path: str) -> None:
             "action": {0: "batch"},
         },
     )
+
+    # Embed encoder metadata for Rust-side consumption
+    try:
+        import json
+
+        import onnx
+
+        onnx_model = onnx.load(path)
+
+        metadata = {
+            "clanker_policy_type": "proprioceptive",
+            "clanker_input_dim": "12",
+            "clanker_target_dim": "6",
+            "clanker_prediction_mode": "action",
+            "action_transform": "none",
+            "action_scale": json.dumps([1.0] * 6),
+            "action_offset": json.dumps([0.0] * 6),
+        }
+
+        for key, value in metadata.items():
+            entry = onnx_model.metadata_props.add()
+            entry.key = key
+            entry.value = value
+
+        onnx.save(onnx_model, path)
+        print("ONNX metadata embedded: obs_dim=12, act_dim=6, mode=action")
+    except ImportError:
+        print("  (onnx package not installed — metadata not embedded)")
+
     print(f"\nExported ONNX model to {path}")
 
 

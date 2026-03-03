@@ -19,6 +19,18 @@ sb3 = [
 mcap = [
     "mcap>=1.0.0",
 ]
+torch = [
+    "torch>=2.0.0",
+]
+onnx = [
+    "onnx>=1.14",
+    "onnxruntime>=1.15",
+]
+train = [
+    "torch>=2.0.0",
+    "onnx>=1.14",
+    "onnxruntime>=1.15",
+]
 dev = [
     "pytest>=7.0",
     "pytest-timeout>=2.0",
@@ -58,5 +70,5 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*"]
+module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*"]
 ignore_missing_imports = true

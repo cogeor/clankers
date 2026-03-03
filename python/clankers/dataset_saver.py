@@ -189,10 +189,12 @@ def process_dataset(
         images = data.get("images")
         if images is None:
             stats.skipped_no_images += 1
-            stats.episode_details.append({
-                "episode": ep_name,
-                "status": "skipped_no_images",
-            })
+            stats.episode_details.append(
+                {
+                    "episode": ep_name,
+                    "status": "skipped_no_images",
+                }
+            )
             continue
 
         # Check grip success via body_poses
@@ -205,18 +207,18 @@ def process_dataset(
 
         if not success:
             stats.failed_episodes += 1
-            stats.episode_details.append({
-                "episode": ep_name,
-                "status": "failed_grip",
-                "reason": f"{object_name} not lifted above {success_threshold}m",
-            })
+            stats.episode_details.append(
+                {
+                    "episode": ep_name,
+                    "status": "failed_grip",
+                    "reason": f"{object_name} not lifted above {success_threshold}m",
+                }
+            )
             continue
 
         # Success: save images at interval
         stats.successful_episodes += 1
-        n_saved = save_episode_images(
-            images, output_dir, ep_name, interval=image_interval
-        )
+        n_saved = save_episode_images(images, output_dir, ep_name, interval=image_interval)
         stats.total_images_saved += n_saved
 
         detail: dict[str, Any] = {

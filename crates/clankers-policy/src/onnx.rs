@@ -351,8 +351,7 @@ impl Policy for OnnxPolicy {
             for ch in 0..c {
                 for row in 0..h {
                     for col in 0..w {
-                        image_chw[ch * h * w + row * w + col] =
-                            buf[row * w * c + col * c + ch];
+                        image_chw[ch * h * w + row * w + col] = buf[row * w * c + col * c + ch];
                     }
                 }
             }
@@ -365,11 +364,8 @@ impl Policy for OnnxPolicy {
             ))
             .expect("failed to create image tensor");
 
-            let pos_tensor = TensorRef::<f32>::from_array_view((
-                [1_usize, v.joint_dim],
-                pos_data,
-            ))
-            .expect("failed to create position tensor");
+            let pos_tensor = TensorRef::<f32>::from_array_view(([1_usize, v.joint_dim], pos_data))
+                .expect("failed to create position tensor");
 
             self.session
                 .lock()

@@ -501,9 +501,13 @@ pub fn record_body_poses_system(
 #[cfg(feature = "camera")]
 pub mod camera {
     //! Optional camera recording system.
-    use super::*;
+    use std::collections::{BTreeMap, HashMap};
+
+    use bevy::prelude::*;
+    use mcap::records::MessageHeader;
+
+    use super::{Recorder, SimTime};
     use clankers_render::buffer::CameraFrameBuffers;
-    use std::collections::HashMap;
 
     /// Per-camera MCAP channel ID cache.
     #[derive(Resource, Default)]
@@ -530,50 +534,42 @@ pub mod camera {
             // Lazily register a channel per camera label.
             let channel_id = if let Some(&id) = cam_channels.channels.get(label) {
                 id
-            } else {
-                if let Some(ref mut writer) = recorder.writer {
-                    // Register shared binary schema once.
-                    let schema_id = if let Some(id) = cam_channels.schema_id {
-                        id
-                    } else {
-                        let id = match writer.add_schema("binary", "application/octet-stream", &[])
-                        {
-                            Ok(id) => id,
-                            Err(e) => {
-                                error!("clankers-record: failed to register binary schema: {e}");
-                                continue;
-                            }
-                        };
-                        cam_channels.schema_id = Some(id);
-                        id
-                    };
-
-                    let topic = format!("/camera/{label}");
-                    let mut metadata = BTreeMap::new();
-                    metadata.insert("width".to_string(), buf.width().to_string());
-                    metadata.insert("height".to_string(), buf.height().to_string());
-                    metadata.insert(
-                        "channels".to_string(),
-                        (buf.format().bytes_per_pixel()).to_string(),
-                    );
-                    match writer.add_channel(
-                        schema_id,
-                        &topic,
-                        "application/octet-stream",
-                        &metadata,
-                    ) {
-                        Ok(id) => {
-                            cam_channels.channels.insert(label.to_string(), id);
-                            id
-                        }
+            } else if let Some(ref mut writer) = recorder.writer {
+                // Register shared binary schema once.
+                let schema_id = if let Some(id) = cam_channels.schema_id {
+                    id
+                } else {
+                    let id = match writer.add_schema("binary", "application/octet-stream", &[]) {
+                        Ok(id) => id,
                         Err(e) => {
-                            error!("clankers-record: failed to add channel {topic}: {e}");
+                            error!("clankers-record: failed to register binary schema: {e}");
                             continue;
                         }
+                    };
+                    cam_channels.schema_id = Some(id);
+                    id
+                };
+
+                let topic = format!("/camera/{label}");
+                let mut metadata = BTreeMap::new();
+                metadata.insert("width".to_string(), buf.width().to_string());
+                metadata.insert("height".to_string(), buf.height().to_string());
+                metadata.insert(
+                    "channels".to_string(),
+                    (buf.format().bytes_per_pixel()).to_string(),
+                );
+                match writer.add_channel(schema_id, &topic, "application/octet-stream", &metadata) {
+                    Ok(id) => {
+                        cam_channels.channels.insert(label.to_string(), id);
+                        id
                     }
-                } else {
-                    continue;
+                    Err(e) => {
+                        error!("clankers-record: failed to add channel {topic}: {e}");
+                        continue;
+                    }
                 }
+            } else {
+                continue;
             };
 
             // Write raw pixel bytes directly.
@@ -582,8 +578,8 @@ pub mod camera {
 
             let seq = recorder.sequence;
             recorder.sequence = recorder.sequence.wrapping_add(1);
-            if let Some(ref mut w) = recorder.writer {
-                if let Err(e) = w.write_to_known_channel(
+            if let Some(ref mut w) = recorder.writer
+                && let Err(e) = w.write_to_known_channel(
                     &MessageHeader {
                         channel_id,
                         sequence: seq,
@@ -591,9 +587,9 @@ pub mod camera {
                         publish_time: ts,
                     },
                     payload,
-                ) {
-                    error!("clankers-record: failed to write image frame: {e}");
-                }
+                )
+            {
+                error!("clankers-record: failed to write image frame: {e}");
             }
         }
     }

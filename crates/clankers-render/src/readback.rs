@@ -54,8 +54,10 @@ mod gpu_impl {
 
     impl Plugin for ImageCopyPlugin {
         fn build(&self, app: &mut App) {
-            app.add_plugins(GpuReadbackPlugin::default())
-                .add_systems(Update, attach_readback_to_new_cameras)
+            if !app.is_plugin_added::<GpuReadbackPlugin>() {
+                app.add_plugins(GpuReadbackPlugin::default());
+            }
+            app.add_systems(Update, attach_readback_to_new_cameras)
                 .add_observer(handle_readback_complete);
         }
     }

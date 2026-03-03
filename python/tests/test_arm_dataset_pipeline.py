@@ -21,7 +21,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 try:
-    from mcap.writer import Writer as McapWriter, CompressionType
+    from mcap.writer import CompressionType
+    from mcap.writer import Writer as McapWriter
 
     _MCAP_WRITE_AVAILABLE = True
 except ImportError:
@@ -82,9 +83,7 @@ def write_synthetic_mcap(
         writer.start()
 
         # Register JSON schema
-        json_schema_id = writer.register_schema(
-            name="json", encoding="jsonschema", data=b""
-        )
+        json_schema_id = writer.register_schema(name="json", encoding="jsonschema", data=b"")
 
         # Joint states channel
         joint_ch = writer.register_channel(
@@ -211,6 +210,7 @@ class TestMcapLoaderBodyPoses:
         _require_mcap_read()
 
         import pathlib
+
         p = pathlib.Path(str(tmp_path))
         mcap_path = str(p / "test_ep.mcap")
         write_synthetic_mcap(mcap_path, n_steps=10, cube_final_z=0.6)
@@ -233,11 +233,10 @@ class TestMcapLoaderBodyPoses:
         _require_mcap_read()
 
         import pathlib
+
         p = pathlib.Path(str(tmp_path))
         mcap_path = str(p / "test_ep_no_poses.mcap")
-        write_synthetic_mcap(
-            mcap_path, n_steps=5, include_body_poses=False
-        )
+        write_synthetic_mcap(mcap_path, n_steps=5, include_body_poses=False)
 
         loader = McapEpisodeLoader(mcap_path)
         data = loader.load()
@@ -250,11 +249,11 @@ class TestMcapLoaderBodyPoses:
         _require_mcap_read()
 
         import pathlib
+
         p = pathlib.Path(str(tmp_path))
         mcap_path = str(p / "test_ep_full.mcap")
         write_synthetic_mcap(
-            mcap_path, n_steps=10, image_width=4, image_height=4,
-            image_channels=4, n_joints=8
+            mcap_path, n_steps=10, image_width=4, image_height=4, image_channels=4, n_joints=8
         )
 
         loader = McapEpisodeLoader(mcap_path)
@@ -326,9 +325,10 @@ class TestDatasetPipeline:
         """Verify successful episodes are kept and failed ones are discarded."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -337,15 +337,18 @@ class TestDatasetPipeline:
         # Write 3 episodes: 2 successful, 1 failed
         write_synthetic_mcap(
             str(input_dir / "ep_001.mcap"),
-            n_steps=20, cube_final_z=0.6,  # SUCCESS: cube lifted
+            n_steps=20,
+            cube_final_z=0.6,  # SUCCESS: cube lifted
         )
         write_synthetic_mcap(
             str(input_dir / "ep_002.mcap"),
-            n_steps=20, cube_final_z=0.42,  # FAIL: cube stayed on table
+            n_steps=20,
+            cube_final_z=0.42,  # FAIL: cube stayed on table
         )
         write_synthetic_mcap(
             str(input_dir / "ep_003.mcap"),
-            n_steps=20, cube_final_z=0.55,  # SUCCESS: cube lifted
+            n_steps=20,
+            cube_final_z=0.55,  # SUCCESS: cube lifted
         )
 
         stats = process_dataset(
@@ -367,9 +370,10 @@ class TestDatasetPipeline:
         """Verify images are saved at correct intervals."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -377,7 +381,8 @@ class TestDatasetPipeline:
 
         write_synthetic_mcap(
             str(input_dir / "ep_success.mcap"),
-            n_steps=20, cube_final_z=0.6,
+            n_steps=20,
+            cube_final_z=0.6,
         )
 
         stats = process_dataset(
@@ -399,9 +404,10 @@ class TestDatasetPipeline:
         """Episodes without images are skipped."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -409,7 +415,9 @@ class TestDatasetPipeline:
 
         write_synthetic_mcap(
             str(input_dir / "ep_no_imgs.mcap"),
-            n_steps=10, cube_final_z=0.6, include_images=False,
+            n_steps=10,
+            cube_final_z=0.6,
+            include_images=False,
         )
 
         stats = process_dataset(
@@ -426,9 +434,10 @@ class TestDatasetPipeline:
         """Joint positions are saved alongside images for successful episodes."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -436,7 +445,9 @@ class TestDatasetPipeline:
 
         write_synthetic_mcap(
             str(input_dir / "ep_joints.mcap"),
-            n_steps=15, n_joints=8, cube_final_z=0.6,
+            n_steps=15,
+            n_joints=8,
+            cube_final_z=0.6,
         )
 
         stats = process_dataset(
@@ -457,9 +468,10 @@ class TestDatasetPipeline:
         """Verify dataset_summary.json is created."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -467,11 +479,13 @@ class TestDatasetPipeline:
 
         write_synthetic_mcap(
             str(input_dir / "ep_001.mcap"),
-            n_steps=10, cube_final_z=0.6,
+            n_steps=10,
+            cube_final_z=0.6,
         )
         write_synthetic_mcap(
             str(input_dir / "ep_002.mcap"),
-            n_steps=10, cube_final_z=0.4,
+            n_steps=10,
+            cube_final_z=0.4,
         )
 
         process_dataset(
@@ -496,9 +510,10 @@ class TestDatasetPipeline:
         """Comprehensive test: mix of success, fail, and no-image episodes."""
         _require_mcap_write()
         _require_mcap_read()
+        import pathlib
+
         from clankers.dataset_saver import process_dataset
 
-        import pathlib
         p = pathlib.Path(str(tmp_path))
         input_dir = p / "recordings"
         output_dir = p / "dataset"
@@ -507,22 +522,27 @@ class TestDatasetPipeline:
         # Episode 1: success with images
         write_synthetic_mcap(
             str(input_dir / "ep_001.mcap"),
-            n_steps=30, cube_final_z=0.6,
+            n_steps=30,
+            cube_final_z=0.6,
         )
         # Episode 2: fail (cube not lifted)
         write_synthetic_mcap(
             str(input_dir / "ep_002.mcap"),
-            n_steps=30, cube_final_z=0.43,
+            n_steps=30,
+            cube_final_z=0.43,
         )
         # Episode 3: success but no images
         write_synthetic_mcap(
             str(input_dir / "ep_003.mcap"),
-            n_steps=30, cube_final_z=0.7, include_images=False,
+            n_steps=30,
+            cube_final_z=0.7,
+            include_images=False,
         )
         # Episode 4: success with images
         write_synthetic_mcap(
             str(input_dir / "ep_004.mcap"),
-            n_steps=30, cube_final_z=0.55,
+            n_steps=30,
+            cube_final_z=0.55,
         )
 
         stats = process_dataset(
@@ -533,8 +553,8 @@ class TestDatasetPipeline:
 
         assert stats.total_episodes == 4
         assert stats.successful_episodes == 2  # ep_001, ep_004
-        assert stats.failed_episodes == 1      # ep_002
-        assert stats.skipped_no_images == 1    # ep_003
+        assert stats.failed_episodes == 1  # ep_002
+        assert stats.skipped_no_images == 1  # ep_003
 
         # 30 frames / 10 interval = 3 images per episode, 2 episodes = 6
         assert stats.total_images_saved == 6

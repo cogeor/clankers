@@ -178,7 +178,7 @@ mod gpu_impl {
 
     /// Marker component identifying the segmentation-capture camera entity.
     ///
-    /// Entities carrying this component render on [`RenderLayers::layer(1)`]
+    /// Entities carrying this component render on `RenderLayers::layer(1)`
     /// and are managed by the segmentation readback system.
     #[derive(Component, Debug, Clone, Copy, Default)]
     pub struct SegmentationCamera;
@@ -251,7 +251,7 @@ mod gpu_impl {
     ///
     /// Creates a GPU [`Image`] asset with [`TextureFormat::Rgba8UnormSrgb`]
     /// configured with `COPY_SRC | TEXTURE_BINDING | RENDER_ATTACHMENT`
-    /// usages, spawns a `Camera3d` entity on [`RenderLayers::layer(1)`] with
+    /// usages, spawns a `Camera3d` entity on `RenderLayers::layer(1)` with
     /// [`SegmentationCamera`] marker and [`SegmentationImageHandle`], and
     /// inserts a matching [`SegmentationFrameBuffer`] resource.
     ///
@@ -424,7 +424,9 @@ mod gpu_impl {
 
         #[test]
         fn segmentation_camera_marker_is_default() {
-            let _cam = SegmentationCamera;
+            let cam = SegmentationCamera;
+            // Verify the marker type can be constructed (unit struct).
+            assert_eq!(std::mem::size_of_val(&cam), 0);
         }
 
         #[test]

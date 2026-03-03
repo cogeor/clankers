@@ -25,9 +25,12 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
-  clippy:
-    name: Clippy
+  check:
+    name: Clippy + Test + Doc
+    needs: fmt
     runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -40,57 +43,11 @@ jobs:
           sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93.1"
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --lib --exclude clankers-examples -j 4
-
-  doc:
-    name: Documentation
-    runs-on: ubuntu-latest
-    env:
-      RUSTDOCFLAGS: "-D warnings"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93.1"
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
-      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --lib --exclude clankers-examples
       - run: cargo doc --workspace --no-deps
 
-  python-lint:
-    name: Python Lint
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: python
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install ruff mypy numpy
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: mypy --config-file pyproject.toml clankers/
-
-  python-test:
-    name: Python Test
+  python:
+    name: Python
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -101,8 +58,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install numpy gymnasium pytest pytest-timeout pydantic
-      - name: Run unit tests (lightweight deps only)
+      - run: pip install ruff mypy numpy gymnasium pytest pytest-timeout pydantic
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy --config-file pyproject.toml clankers/
+      - name: Run unit tests
         run: |
           python -m pytest tests/ -x -q --timeout=60 \
             --ignore=tests/test_dl_pipeline_e2e.py \

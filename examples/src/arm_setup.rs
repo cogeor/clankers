@@ -146,8 +146,15 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
                 } else {
                     rapier3d::prelude::JointAxis::AngX
                 };
-                joint.data.set_motor(axis, q0, 0.0, 100.0, 10.0);
-                joint.data.set_motor_max_force(axis, 80.0);
+                let max_f = if i < EFFORT_LIMITS.len() {
+                    EFFORT_LIMITS[i]
+                } else {
+                    EFFORT_LIMITS[EFFORT_LIMITS.len() - 1]
+                };
+                joint
+                    .data
+                    .set_motor(axis, q0, 0.0, ARM_STIFFNESS, ARM_DAMPING);
+                joint.data.set_motor_max_force(axis, max_f);
             }
         }
 
@@ -299,22 +306,26 @@ pub const fn arm_ik_solver() -> DlsSolver {
 // Motor override constants & helpers
 // ---------------------------------------------------------------------------
 
-/// Per-joint effort (torque) limits for the 6 arm joints.
-pub const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
+/// Per-joint effort limits for the 6 arm joints.
+/// With `AccelerationBased` motor model these are max accelerations (rad/s²),
+/// so they can be very high to make the arm essentially rigid.
+pub const EFFORT_LIMITS: [f32; 6] = [5000.0, 5000.0, 3000.0, 2000.0, 1000.0, 500.0];
 
-/// Default arm joint PD gains.
-pub const ARM_STIFFNESS: f32 = 100.0;
-/// Default arm joint PD damping.
-pub const ARM_DAMPING: f32 = 10.0;
+/// Default arm joint PD stiffness (acceleration per radian of error).
+/// High values make the arm essentially rigid under gravity.
+pub const ARM_STIFFNESS: f32 = 50_000.0;
+/// Default arm joint PD damping (acceleration per rad/s of velocity error).
+/// Slightly overdamped (ζ ≈ 1.1) to prevent oscillation.
+pub const ARM_DAMPING: f32 = 500.0;
 
 /// Default gripper finger travel in meters (prismatic range 0..0.03).
 pub const FINGER_TRAVEL: f32 = 0.03;
 /// Default gripper PD stiffness.
-pub const GRIPPER_STIFFNESS: f32 = 50.0;
+pub const GRIPPER_STIFFNESS: f32 = 500.0;
 /// Default gripper PD damping.
-pub const GRIPPER_DAMPING: f32 = 5.0;
+pub const GRIPPER_DAMPING: f32 = 50.0;
 /// Default gripper max force.
-pub const GRIPPER_MAX_FORCE: f32 = 10.0;
+pub const GRIPPER_MAX_FORCE: f32 = 100.0;
 
 /// Build [`MotorOverrides`] pre-populated with REST_POSE targets for all arm
 /// and gripper joints.

@@ -42,13 +42,14 @@ pub fn spawn_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Ground plane.
+    // Ground plane (lowered slightly to avoid z-fighting with table/base).
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(10.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.35, 0.38, 0.35),
             ..default()
         })),
+        Transform::from_xyz(0.0, -0.01, 0.0),
     ));
 
     // Directional light (sun).

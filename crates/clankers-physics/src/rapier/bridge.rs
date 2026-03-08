@@ -4,9 +4,10 @@
 use std::collections::{HashMap, VecDeque};
 
 use bevy::prelude::{EulerRot, Quat, Vec3, World};
+use rapier3d::dynamics::{GenericJointBuilder, JointAxesMask};
 use rapier3d::prelude::{
-    ColliderBuilder, FixedJointBuilder, GenericJoint, ImpulseJointHandle, JointAxis,
-    MassProperties, MotorModel, PrismaticJointBuilder, RevoluteJointBuilder, RigidBodyBuilder,
+    ColliderBuilder, GenericJoint, ImpulseJointHandle, JointAxis,
+    MassProperties, MotorModel, RigidBodyBuilder,
 };
 
 use clankers_urdf::spawner::SpawnedRobot;
@@ -27,6 +28,12 @@ use super::context::{JointInfo, RapierContext};
 /// Creates rigid bodies for each link and impulse joints for each actuated
 /// joint. Inserts [`PhysicsBody`] and [`PhysicsJoint`] marker components
 /// on the corresponding Bevy entities.
+///
+/// Initial joint positions from the spawned robot's `JointState` components
+/// are used to compute FK, so rigid bodies are placed at the correct
+/// initial configuration (not zero-angle). This prevents the first physics
+/// step from generating large motor forces to drive from zero to the
+/// desired pose.
 #[allow(clippy::too_many_lines)]
 pub fn register_robot(
     context: &mut RapierContext,
@@ -94,9 +101,48 @@ pub fn register_robot(
             let origin_rot =
                 Quat::from_euler(EulerRot::ZYX, origin_rpy[2], origin_rpy[1], origin_rpy[0]);
 
-            // Child world pose = parent world pose * joint origin transform
-            let child_world_pos = parent_world_pos + parent_world_rot * origin_pos;
-            let child_world_rot = parent_world_rot * origin_rot;
+            // Read initial joint position from JointState (set by URDF spawner).
+            // This lets us place bodies at the correct initial FK pose instead
+            // of zero-angle, avoiding a violent first-step motor correction.
+            let initial_q = spawned
+                .joints
+                .get(&joint_data.name)
+                .and_then(|&entity| {
+                    world
+                        .get::<clankers_actuator::components::JointState>(entity)
+                        .map(|s| s.position)
+                })
+                .unwrap_or(0.0);
+
+            // Apply initial joint angle: rotate around the joint axis
+            let joint_axis = Vec3::new(
+                joint_data.axis[0],
+                joint_data.axis[1],
+                joint_data.axis[2],
+            );
+            let joint_rotation = if joint_data.joint_type.is_actuated()
+                && joint_data.joint_type != JointType::Prismatic
+                && initial_q.abs() > f32::EPSILON
+            {
+                Quat::from_axis_angle(joint_axis, initial_q)
+            } else {
+                Quat::IDENTITY
+            };
+
+            // Child world pose = parent * joint_origin * joint_rotation
+            // For prismatic joints, add translation along joint axis instead.
+            let joint_frame_pos = parent_world_pos + parent_world_rot * origin_pos;
+            let joint_frame_rot = parent_world_rot * origin_rot * joint_rotation;
+
+            let child_world_pos = if joint_data.joint_type == JointType::Prismatic
+                && initial_q.abs() > f32::EPSILON
+            {
+                joint_frame_pos + parent_world_rot * (joint_axis * initial_q)
+            } else {
+                joint_frame_pos
+            };
+            let child_world_rot = joint_frame_rot;
+
             link_world_pos.insert(child_link_name.clone(), child_world_pos);
             link_world_rot.insert(child_link_name.clone(), child_world_rot);
 
@@ -169,7 +215,14 @@ pub fn register_robot(
                     ));
                 }
             } else if joint_data.joint_type == JointType::Fixed {
-                let fixed: GenericJoint = build_fixed_joint(origin_pos, &origin_rpy).build().into();
+                let fixed = build_rapier_joint(
+                    JointType::Fixed,
+                    Vec3::ZERO,
+                    origin_pos,
+                    &origin_rpy,
+                    None,
+                    None,
+                );
                 context
                     .impulse_joint_set
                     .insert(parent_handle, child_handle, fixed, true);
@@ -230,7 +283,12 @@ fn quat_to_angvector(q: Quat) -> Vec3 {
     }
 }
 
-/// Build a rapier `GenericJoint` from URDF joint data, including origin RPY.
+/// Build a rapier `GenericJoint` from URDF joint data.
+///
+/// Uses `GenericJointBuilder` with explicit anchor/axis setup, matching the
+/// approach from the official `rapier3d-urdf` crate. This avoids the pitfall
+/// of `RevoluteJointBuilder::new(axis)` + `set_local_frame1()` which
+/// overwrites the internal axis frames and causes constraint explosions.
 fn build_rapier_joint(
     joint_type: JointType,
     axis: Vec3,
@@ -239,51 +297,75 @@ fn build_rapier_joint(
     lower: Option<f32>,
     upper: Option<f32>,
 ) -> GenericJoint {
-    let local_frame = make_joint_local_frame(origin_pos, origin_rpy);
+    let origin_rot = Quat::from_euler(EulerRot::ZYX, origin_rpy[2], origin_rpy[1], origin_rpy[0]);
+
+    let locked_axes = match joint_type {
+        JointType::Revolute | JointType::Continuous => JointAxesMask::LOCKED_REVOLUTE_AXES,
+        JointType::Prismatic => JointAxesMask::LOCKED_PRISMATIC_AXES,
+        _ => JointAxesMask::LOCKED_FIXED_AXES,
+    };
+
+    let mut builder = GenericJointBuilder::new(locked_axes)
+        .local_anchor1(origin_pos)
+        .contacts_enabled(false);
+
+    // Set joint axis in both parent and child frames.
+    // In the parent frame, the axis is rotated by the joint origin RPY.
+    // In the child frame, the axis is unrotated (child body is aligned with the joint).
+    let normalized_axis = axis.normalize_or_zero();
+    if normalized_axis != Vec3::ZERO {
+        builder = builder
+            .local_axis1(origin_rot * normalized_axis)
+            .local_axis2(normalized_axis);
+    }
 
     match joint_type {
-        JointType::Revolute | JointType::Continuous => {
-            let mut joint: GenericJoint = RevoluteJointBuilder::new(axis).build().into();
-            joint.set_local_frame1(local_frame);
-
-            if joint_type == JointType::Revolute
-                && let (Some(lo), Some(hi)) = (lower, upper)
-            {
-                joint.set_limits(JointAxis::AngX, [lo, hi]);
+        JointType::Revolute => {
+            if let (Some(lo), Some(hi)) = (lower, upper) {
+                builder = builder.limits(JointAxis::AngX, [lo, hi]);
             }
-
-            joint.set_motor_model(JointAxis::AngX, MotorModel::AccelerationBased);
-            joint.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
-            joint
         }
         JointType::Prismatic => {
-            let mut joint: GenericJoint = PrismaticJointBuilder::new(axis).build().into();
-            joint.set_local_frame1(local_frame);
-
             if let (Some(lo), Some(hi)) = (lower, upper) {
-                joint.set_limits(JointAxis::LinX, [lo, hi]);
+                builder = builder.limits(JointAxis::LinX, [lo, hi]);
             }
+        }
+        _ => {}
+    }
 
+    let mut joint = builder.build();
+
+    // Set acceleration-based motor model for actuated joints.
+    // AccelerationBased is mass-independent, so same gains work for heavy
+    // shoulder and light wrist joints.
+    match joint_type {
+        JointType::Revolute | JointType::Continuous => {
+            joint.set_motor_model(JointAxis::AngX, MotorModel::AccelerationBased);
+            joint.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
+        }
+        JointType::Prismatic => {
             joint.set_motor_model(JointAxis::LinX, MotorModel::AccelerationBased);
             joint.set_motor(JointAxis::LinX, 0.0, 0.0, 0.0, 0.0);
-            joint
         }
-        _ => build_fixed_joint(origin_pos, origin_rpy).build().into(),
+        _ => {}
     }
+
+    joint
 }
 
-/// Build a `FixedJointBuilder` with the URDF origin transform as `local_frame1`.
-fn build_fixed_joint(origin_pos: Vec3, origin_rpy: &[f32; 3]) -> FixedJointBuilder {
-    FixedJointBuilder::new().local_frame1(make_joint_local_frame(origin_pos, origin_rpy))
-}
 
-/// Construct a Rapier [`Pose3`](rapier3d::glamx::Pose3) from URDF joint origin (position + RPY).
+/// Rotation to convert URDF's Z-up cylinder to Rapier's Y-up cylinder.
 ///
-/// URDF uses fixed-axis XYZ convention: R = Rz(yaw) * Ry(pitch) * Rx(roll).
-fn make_joint_local_frame(pos: Vec3, rpy: &[f32; 3]) -> rapier3d::glamx::Pose3 {
-    let rotation = Quat::from_euler(EulerRot::ZYX, rpy[2], rpy[1], rpy[0]);
-    rapier3d::glamx::Pose3::from_parts(pos, rotation)
-}
+/// URDF specifies cylinders with their axis along Z, but Rapier's
+/// `ColliderBuilder::cylinder` creates Y-up cylinders.  Rotating by
+/// π/2 around X maps Y→Z, matching the URDF convention.
+/// See `rapier3d-urdf` for the canonical approach.
+const CYLINDER_Z_UP: Quat = Quat::from_xyzw(
+    std::f32::consts::FRAC_1_SQRT_2, // sin(π/4)
+    0.0,
+    0.0,
+    std::f32::consts::FRAC_1_SQRT_2, // cos(π/4)
+);
 
 /// Create Rapier colliders from a link's URDF collision geometry.
 ///
@@ -302,14 +384,19 @@ fn create_link_colliders(
         };
 
         // Apply collision origin offset relative to the link body.
+        // For cylinders, compose with CYLINDER_Z_UP to convert Rapier's
+        // Y-up cylinder to URDF's Z-up convention.
         let col_origin = &collision.origin;
         let col_pos = Vec3::new(col_origin.xyz[0], col_origin.xyz[1], col_origin.xyz[2]);
-        let col_rot = Quat::from_euler(
+        let mut col_rot = Quat::from_euler(
             EulerRot::ZYX,
             col_origin.rpy[2],
             col_origin.rpy[1],
             col_origin.rpy[0],
         );
+        if matches!(collision.geometry, Geometry::Cylinder { .. }) {
+            col_rot *= CYLINDER_Z_UP;
+        }
         let col_frame = rapier3d::glamx::Pose3::from_parts(col_pos, col_rot);
 
         let collider = collider_builder.position(col_frame).build();

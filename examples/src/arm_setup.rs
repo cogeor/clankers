@@ -5,6 +5,7 @@
 //! so each binary calls `setup_arm(config)` and gets back everything it needs.
 
 use std::collections::HashMap;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
@@ -13,7 +14,8 @@ use clankers_env::prelude::*;
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::{
-    RapierBackend, RapierBackendFixed, RapierContext, bridge::register_robot,
+    MotorOverrideParams, MotorOverrides, RapierBackend, RapierBackendFixed, RapierContext,
+    bridge::register_robot,
 };
 use clankers_sim::{SceneBuilder, SpawnedScene};
 use clankers_urdf::RobotModel;
@@ -21,8 +23,13 @@ use nalgebra::Vector3;
 
 use crate::SIX_DOF_ARM_URDF;
 
+/// Default resting pose for the 6-DOF arm.
+///
+/// j2 tilts shoulder 45° forward, j3 bends elbow 90°, j5 pitches wrist down.
+pub const REST_POSE: [f32; 6] = [0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0];
+
 /// Configuration for arm setup — knobs that differ between binaries.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ArmSetupConfig {
     /// Maximum episode length (500 for bench, 50_000 for viz).
     pub max_episode_steps: u32,
@@ -30,6 +37,9 @@ pub struct ArmSetupConfig {
     pub use_fixed_update: bool,
     /// Sensor DOF: 6 for arm-only, 8 for arm + gripper.
     pub sensor_dof: usize,
+    /// Initial joint positions for the 6 arm joints (chain order).
+    /// Defaults to [`REST_POSE`].
+    pub initial_positions: [f32; 6],
 }
 
 impl Default for ArmSetupConfig {
@@ -38,6 +48,7 @@ impl Default for ArmSetupConfig {
             max_episode_steps: 500,
             use_fixed_update: false,
             sensor_dof: 6,
+            initial_positions: REST_POSE,
         }
     }
 }
@@ -53,15 +64,28 @@ pub struct ArmSetup {
 
 /// Build a fully configured arm scene: URDF, physics, position-mode actuators,
 /// sensors, IK chain, and joint entity mapping.
+#[allow(clippy::needless_pass_by_value)]
 pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
     // 1. Parse URDF
     let model =
         clankers_urdf::parse_string(SIX_DOF_ARM_URDF).expect("failed to parse six_dof_arm URDF");
 
-    // 2. Build scene with position-controlled actuators
+    // 2. Build IK chain (needed for joint names before spawning)
+    let chain = KinematicChain::from_model(&model, "end_effector")
+        .expect("failed to build IK chain to end_effector");
+
+    // 3. Build initial positions map from rest pose
+    let initial_positions: HashMap<String, f32> = chain
+        .joint_names()
+        .iter()
+        .zip(config.initial_positions.iter())
+        .map(|(name, &pos)| (name.to_string(), pos))
+        .collect();
+
+    // 4. Build scene with position-controlled actuators
     let mut scene = SceneBuilder::new()
         .with_max_episode_steps(config.max_episode_steps)
-        .with_robot(model.clone(), HashMap::new())
+        .with_robot(model.clone(), initial_positions)
         .build();
 
     let spawned = &scene.robots["six_dof_arm"];
@@ -100,12 +124,35 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
         let world = scene.app.world_mut();
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
         register_robot(&mut ctx, &model, spawned, world, true);
+        ctx.integration_parameters.num_solver_iterations = 50;
+
+        // Set initial motor targets so the first physics step doesn't jerk
+        // from zero to REST_POSE.
+        for (i, name) in chain.joint_names().iter().enumerate() {
+            if i >= config.initial_positions.len() {
+                break;
+            }
+            let q0 = config.initial_positions[i];
+            if let Some(&entity) = spawned.joints.get(*name)
+                && let Some(&jh) = ctx.joint_handles.get(&entity)
+                && let Some(joint) = ctx.impulse_joint_set.get_mut(jh, true)
+            {
+                let axis = if ctx
+                    .joint_info
+                    .get(&entity)
+                    .is_some_and(|info| info.is_prismatic)
+                {
+                    rapier3d::prelude::JointAxis::LinX
+                } else {
+                    rapier3d::prelude::JointAxis::AngX
+                };
+                joint.data.set_motor(axis, q0, 0.0, 100.0, 10.0);
+                joint.data.set_motor_max_force(axis, 80.0);
+            }
+        }
+
         world.insert_resource(ctx);
     }
-
-    // 5. Build IK chain
-    let chain = KinematicChain::from_model(&model, "end_effector")
-        .expect("failed to build IK chain to end_effector");
 
     // 6. Map chain joint order to entities
     let arm_joint_names: Vec<String> = chain
@@ -246,4 +293,70 @@ pub const fn arm_ik_solver() -> DlsSolver {
         angle_tolerance: 1e-3,
         damping: 0.01,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Motor override constants & helpers
+// ---------------------------------------------------------------------------
+
+/// Per-joint effort (torque) limits for the 6 arm joints.
+pub const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
+
+/// Default arm joint PD gains.
+pub const ARM_STIFFNESS: f32 = 100.0;
+/// Default arm joint PD damping.
+pub const ARM_DAMPING: f32 = 10.0;
+
+/// Default gripper finger travel in meters (prismatic range 0..0.03).
+pub const FINGER_TRAVEL: f32 = 0.03;
+/// Default gripper PD stiffness.
+pub const GRIPPER_STIFFNESS: f32 = 50.0;
+/// Default gripper PD damping.
+pub const GRIPPER_DAMPING: f32 = 5.0;
+/// Default gripper max force.
+pub const GRIPPER_MAX_FORCE: f32 = 10.0;
+
+/// Build [`MotorOverrides`] pre-populated with REST_POSE targets for all arm
+/// and gripper joints.
+///
+/// This ensures motors are active from the very first physics step, preventing
+/// the arm from collapsing under gravity before the controller starts.
+/// Follows the Isaac Sim pattern: configure joint drives to hold initial
+/// position before physics begins.
+#[must_use]
+pub fn initial_motor_overrides(setup: &ArmSetup, gripper_entities: &[Entity]) -> MotorOverrides {
+    let mut overrides = MotorOverrides::default();
+
+    // Arm joints: hold at REST_POSE
+    for (i, &entity) in setup.joint_entities.iter().enumerate() {
+        if i >= 6 {
+            break;
+        }
+        overrides.joints.insert(
+            entity,
+            MotorOverrideParams {
+                target_pos: REST_POSE[i],
+                target_vel: 0.0,
+                stiffness: ARM_STIFFNESS,
+                damping: ARM_DAMPING,
+                max_force: EFFORT_LIMITS[i],
+            },
+        );
+    }
+
+    // Gripper fingers: hold open
+    for &entity in gripper_entities {
+        overrides.joints.insert(
+            entity,
+            MotorOverrideParams {
+                target_pos: FINGER_TRAVEL,
+                target_vel: 0.0,
+                stiffness: GRIPPER_STIFFNESS,
+                damping: GRIPPER_DAMPING,
+                max_force: GRIPPER_MAX_FORCE,
+            },
+        );
+    }
+
+    overrides
 }

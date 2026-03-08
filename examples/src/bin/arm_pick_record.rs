@@ -12,7 +12,10 @@ use bevy::prelude::*;
 use clankers_actuator::components::JointState;
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::arm_setup::{ArmIkState, ArmSetupConfig, arm_ik_solver, setup_arm};
+use clankers_examples::arm_setup::{
+    ArmIkState, ArmSetupConfig, arm_ik_solver, initial_motor_overrides, setup_arm, ARM_DAMPING,
+    ARM_STIFFNESS, EFFORT_LIMITS, GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+};
 use clankers_ik::IkTarget;
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_record::prelude::*;
@@ -46,8 +49,6 @@ struct Args {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
 
 // Cube position on the table
 const CUBE_POS: [f32; 3] = [0.3, 0.0, 0.425];
@@ -418,8 +419,8 @@ fn pick_control_system(
                 MotorOverrideParams {
                     target_pos: result.joint_positions[i],
                     target_vel: 0.0,
-                    stiffness: 100.0,
-                    damping: 10.0,
+                    stiffness: ARM_STIFFNESS,
+                    damping: ARM_DAMPING,
                     max_force: EFFORT_LIMITS[i],
                 },
             );
@@ -434,9 +435,9 @@ fn pick_control_system(
             MotorOverrideParams {
                 target_pos: finger_target,
                 target_vel: 0.0,
-                stiffness: 50.0,
-                damping: 5.0,
-                max_force: 10.0,
+                stiffness: GRIPPER_STIFFNESS,
+                damping: GRIPPER_DAMPING,
+                max_force: GRIPPER_MAX_FORCE,
             },
         );
     }
@@ -496,6 +497,7 @@ fn main() {
             max_episode_steps: args.max_steps,
             use_fixed_update: true,
             sensor_dof: 8,
+            ..ArmSetupConfig::default()
         });
 
         let gripper_entities = {
@@ -509,6 +511,10 @@ fn main() {
                     .expect("j_finger_right not found"),
             ])
         };
+
+        // Pre-populate motor overrides so motors hold from the first physics step
+        let motor_overrides = initial_motor_overrides(&setup, &gripper_entities.0);
+
         let mut scene = setup.scene;
 
         // Add Bevy Name components to joint entities so record_joint_states_system
@@ -625,7 +631,7 @@ fn main() {
             steps_at_target: 0,
             steps_per_target: 9999,
         });
-        scene.app.insert_resource(MotorOverrides::default());
+        scene.app.insert_resource(motor_overrides);
         scene.app.insert_resource(gripper_entities);
         scene.app.insert_resource(PickState {
             phase: PickPhase::Approach,

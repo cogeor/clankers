@@ -252,7 +252,7 @@ fn build_rapier_joint(
                 joint.set_limits(JointAxis::AngX, [lo, hi]);
             }
 
-            joint.set_motor_model(JointAxis::AngX, MotorModel::ForceBased);
+            joint.set_motor_model(JointAxis::AngX, MotorModel::AccelerationBased);
             joint.set_motor(JointAxis::AngX, 0.0, 0.0, 0.0, 0.0);
             joint
         }
@@ -264,7 +264,7 @@ fn build_rapier_joint(
                 joint.set_limits(JointAxis::LinX, [lo, hi]);
             }
 
-            joint.set_motor_model(JointAxis::LinX, MotorModel::ForceBased);
+            joint.set_motor_model(JointAxis::LinX, MotorModel::AccelerationBased);
             joint.set_motor(JointAxis::LinX, 0.0, 0.0, 0.0, 0.0);
             joint
         }

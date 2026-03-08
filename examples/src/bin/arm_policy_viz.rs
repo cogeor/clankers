@@ -26,7 +26,10 @@ use bevy::prelude::*;
 use clankers_actuator::components::JointState;
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
-use clankers_examples::arm_setup::{ArmSetupConfig, setup_arm};
+use clankers_examples::arm_setup::{
+    ArmSetupConfig, initial_motor_overrides, setup_arm, ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS,
+    FINGER_TRAVEL, GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_policy::prelude::*;
 use clankers_render::camera::spawn_camera_sensor;
@@ -57,14 +60,22 @@ struct Cli {
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Rest pose for all 8 joints: 6 arm + 2 gripper (fingers open at 0.03m).
-const REST_POSE: [f32; 8] = [0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0, 0.03, 0.03];
+/// Rest pose for all 8 joints: 6 arm + 2 gripper (fingers open at FINGER_TRAVEL).
+const REST_POSE_8: [f32; 8] = [
+    0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0, FINGER_TRAVEL, FINGER_TRAVEL,
+];
 
 /// Effort limits for all 8 joints: 6 arm + 2 gripper.
-const EFFORT_LIMITS: [f32; 8] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0, 10.0, 10.0];
-
-/// Gripper finger travel in meters (prismatic joint range 0..0.03).
-const FINGER_TRAVEL: f32 = 0.03;
+const EFFORT_LIMITS_8: [f32; 8] = [
+    EFFORT_LIMITS[0],
+    EFFORT_LIMITS[1],
+    EFFORT_LIMITS[2],
+    EFFORT_LIMITS[3],
+    EFFORT_LIMITS[4],
+    EFFORT_LIMITS[5],
+    GRIPPER_MAX_FORCE,
+    GRIPPER_MAX_FORCE,
+];
 
 // ---------------------------------------------------------------------------
 // Resources & Components
@@ -257,7 +268,7 @@ fn apply_velocity_action(
     // Arm joints (0..6): velocity integration with stiff PD motor
     for (i, &entity) in joints_res.0.iter().enumerate() {
         let velocity = action.get(i).copied().unwrap_or(0.0);
-        let current_pos = joint_q.get(entity).map_or(REST_POSE[i], |s| s.position);
+        let current_pos = joint_q.get(entity).map_or(REST_POSE_8[i], |s| s.position);
 
         let target_pos = current_pos + velocity * dt.0;
 
@@ -266,9 +277,9 @@ fn apply_velocity_action(
             MotorOverrideParams {
                 target_pos,
                 target_vel: 0.0,
-                stiffness: 100.0,
-                damping: 10.0,
-                max_force: EFFORT_LIMITS[i],
+                stiffness: ARM_STIFFNESS,
+                damping: ARM_DAMPING,
+                max_force: EFFORT_LIMITS_8[i],
             },
         );
     }
@@ -288,9 +299,9 @@ fn apply_velocity_action(
             MotorOverrideParams {
                 target_pos,
                 target_vel: 0.0,
-                stiffness: 50.0,
-                damping: 5.0,
-                max_force: EFFORT_LIMITS[i],
+                stiffness: GRIPPER_STIFFNESS,
+                damping: GRIPPER_DAMPING,
+                max_force: EFFORT_LIMITS_8[i],
             },
         );
     }
@@ -335,6 +346,7 @@ fn main() {
         max_episode_steps: 50_000,
         use_fixed_update: true,
         sensor_dof,
+        ..ArmSetupConfig::default()
     });
     let joint_entities = setup.joint_entities.clone();
 
@@ -350,6 +362,10 @@ fn main() {
                 .expect("j_finger_right not found"),
         ])
     };
+
+    // Pre-populate motor overrides so motors hold from the first physics step
+    let motor_overrides = initial_motor_overrides(&setup, &gripper_entities.0);
+
     let mut scene = setup.scene;
 
     // 3. Window + viz (must come before ImageCopyPlugin to avoid duplicate GpuReadbackPlugin)
@@ -402,7 +418,7 @@ fn main() {
     scene.app.insert_resource(ArmJointEntities(joint_entities));
     scene.app.insert_resource(gripper_entities);
     scene.app.insert_resource(ControlDt(cli.control_dt));
-    scene.app.insert_resource(MotorOverrides::default());
+    scene.app.insert_resource(motor_overrides);
     scene.app.insert_resource(ObsCameraConfig {
         width: img_w as u32,
         height: img_h as u32,

@@ -13,7 +13,10 @@
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
-use clankers_examples::arm_setup::{ArmSetupConfig, setup_arm};
+use clankers_examples::arm_setup::{
+    ArmSetupConfig, initial_motor_overrides, setup_arm, ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS,
+    GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+};
 use clankers_gym::prelude::*;
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle, SharedShape};
@@ -27,8 +30,6 @@ struct PickJointEntities(Vec<Entity>);
 #[derive(Resource)]
 struct ObjectInitialPositions(Vec<(RigidBodyHandle, Vec3)>);
 
-/// Per-joint effort limits (matching arm_ik_viz for stable control).
-const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
 
 /// Maps 8-dim action to `MotorOverrides` on the arm + gripper joint entities.
 ///
@@ -52,8 +53,8 @@ impl clankers_core::traits::ActionApplicator for PickApplicator {
                     MotorOverrideParams {
                         target_pos: values[i],
                         target_vel: 0.0,
-                        stiffness: 100.0,
-                        damping: 10.0,
+                        stiffness: ARM_STIFFNESS,
+                        damping: ARM_DAMPING,
                         max_force: EFFORT_LIMITS[i],
                     },
                 );
@@ -64,9 +65,9 @@ impl clankers_core::traits::ActionApplicator for PickApplicator {
                     MotorOverrideParams {
                         target_pos: values[i],
                         target_vel: 0.0,
-                        stiffness: 50.0,
-                        damping: 5.0,
-                        max_force: 10.0,
+                        stiffness: GRIPPER_STIFFNESS,
+                        damping: GRIPPER_DAMPING,
+                        max_force: GRIPPER_MAX_FORCE,
                     },
                 );
             }
@@ -93,16 +94,22 @@ fn main() {
         max_episode_steps: max_steps,
         use_fixed_update: false,
         sensor_dof: num_joints,
+        ..ArmSetupConfig::default()
     });
+
+    // 2. Collect gripper entities before moving scene
+    let finger_left = setup.scene.robots["six_dof_arm"].joint_entity("j_finger_left");
+    let finger_right = setup.scene.robots["six_dof_arm"].joint_entity("j_finger_right");
+
+    // Pre-populate motor overrides so motors hold from the first physics step
+    let gripper_ents: Vec<Entity> = [finger_left, finger_right]
+        .iter()
+        .filter_map(|e| *e)
+        .collect();
+    let motor_overrides = initial_motor_overrides(&setup, &gripper_ents);
+
     let mut scene = setup.scene;
-
-    // Insert MotorOverrides so the applicator can use Rapier position motors
-    scene.app.insert_resource(MotorOverrides::default());
-
-    // 2. Collect joint entities: 6 arm joints + 2 gripper fingers
-    let spawned = &scene.robots["six_dof_arm"];
-    let finger_left = spawned.joint_entity("j_finger_left");
-    let finger_right = spawned.joint_entity("j_finger_right");
+    scene.app.insert_resource(motor_overrides);
 
     let mut all_joint_entities = setup.joint_entities.clone();
     if let Some(fl) = finger_left {

@@ -8,7 +8,7 @@
 //!
 //! Run: `cargo run -p clankers-examples --bin arm_ik_viz`
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::prelude::*;
@@ -19,7 +19,11 @@ use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use nalgebra::Vector3;
 
-use clankers_examples::arm_setup::{ArmIkState, ArmSetupConfig, arm_ik_solver, setup_arm};
+use clankers_examples::arm_setup::{
+    ArmIkState, ArmSetupConfig, REST_POSE, arm_ik_solver, initial_motor_overrides, setup_arm,
+    ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS, FINGER_TRAVEL, GRIPPER_DAMPING, GRIPPER_MAX_FORCE,
+    GRIPPER_STIFFNESS,
+};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::prelude::*;
 use clankers_viz::{ClankersVizPlugin, VizMode, camera, phys_rot_to_vis, phys_to_vis};
@@ -27,17 +31,6 @@ use clankers_viz::{ClankersVizPlugin, VizMode, camera, phys_rot_to_vis, phys_to_
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/// Default resting pose: arm forward-down, EE camera looking at workspace.
-/// j2 tilts shoulder 45° forward, j3 bends elbow 90° further (forearm goes
-/// forward-and-down at 45° past horizontal), j5 pitches wrist down so the
-/// camera/gripper points straight at the ground.
-const REST_POSE: [f32; 6] = [0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0];
-
-/// Gripper finger travel in meters (prismatic joint range 0..0.03).
-const FINGER_TRAVEL: f32 = 0.03;
-
-const EFFORT_LIMITS: [f32; 6] = [80.0, 60.0, 40.0, 20.0, 10.0, 5.0];
 
 const JOINT_LIMITS: [[f32; 2]; 6] = [
     [-PI, PI],           // j1_base_yaw
@@ -473,16 +466,11 @@ fn update_goal_gizmo_system(
 fn arm_motor_override_system(
     ik: Res<ArmIkState>,
     mode: Res<VizMode>,
-    episode: Res<Episode>,
     ui_state: Res<ArmUiState>,
     gripper: Res<GripperEntities>,
     mut motor_overrides: ResMut<MotorOverrides>,
 ) {
-    if !episode.is_running() {
-        return;
-    }
-
-    // Arm joints
+    // Arm joints — always active (no episode gate) so motors hold from frame 1.
     for (i, &entity) in ik.joint_entities.iter().enumerate() {
         if i >= 6 {
             break;
@@ -501,8 +489,8 @@ fn arm_motor_override_system(
             MotorOverrideParams {
                 target_pos,
                 target_vel: 0.0,
-                stiffness: 100.0,
-                damping: 10.0,
+                stiffness: ARM_STIFFNESS,
+                damping: ARM_DAMPING,
                 max_force: EFFORT_LIMITS[i],
             },
         );
@@ -516,9 +504,9 @@ fn arm_motor_override_system(
             MotorOverrideParams {
                 target_pos: finger_pos,
                 target_vel: 0.0,
-                stiffness: 50.0,
-                damping: 5.0,
-                max_force: 10.0,
+                stiffness: GRIPPER_STIFFNESS,
+                damping: GRIPPER_DAMPING,
+                max_force: GRIPPER_MAX_FORCE,
             },
         );
     }
@@ -527,14 +515,9 @@ fn arm_motor_override_system(
 #[allow(clippy::needless_pass_by_value)]
 fn ik_motor_control_system(
     mut ik: ResMut<ArmIkState>,
-    episode: Res<Episode>,
     mut motor_overrides: ResMut<MotorOverrides>,
     query: Query<&JointState>,
 ) {
-    if !episode.is_running() {
-        return;
-    }
-
     ik.steps_at_target += 1;
     if ik.steps_at_target >= ik.steps_per_target {
         ik.steps_at_target = 0;
@@ -566,8 +549,8 @@ fn ik_motor_control_system(
             MotorOverrideParams {
                 target_pos: result.joint_positions[i],
                 target_vel: 0.0,
-                stiffness: 100.0,
-                damping: 10.0,
+                stiffness: ARM_STIFFNESS,
+                damping: ARM_DAMPING,
                 max_force: EFFORT_LIMITS[i],
             },
         );
@@ -780,6 +763,7 @@ fn main() {
         max_episode_steps: 50_000,
         use_fixed_update: true,
         sensor_dof: 8,
+        ..ArmSetupConfig::default()
     });
 
     // Extract gripper finger entities before moving scene
@@ -794,6 +778,13 @@ fn main() {
                 .expect("j_finger_right not found"),
         ])
     };
+
+    // Pre-populate motor overrides so motors hold from the first physics step.
+    let motor_overrides = initial_motor_overrides(
+        &setup,
+        &gripper_entities.0,
+    );
+
     let mut scene = setup.scene;
 
     // Table-workspace IK targets (physics Z-up coords).
@@ -816,7 +807,7 @@ fn main() {
         steps_at_target: 0,
         steps_per_target: 300,
     });
-    scene.app.insert_resource(MotorOverrides::default());
+    scene.app.insert_resource(motor_overrides);
     scene.app.insert_resource(ArmUiState::default());
     scene.app.insert_resource(gripper_entities);
 

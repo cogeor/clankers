@@ -26,3 +26,13 @@ __pycache__/
 .delegate/
 
 .env
+
+# Scratch / report files
+*.report.md
+data_gen.txt
+task.txt
+gemini_report*.md
+mpc_gait_root_cause_report.md
+quadruped_mpc_report.md
+aug_report.md
+output/

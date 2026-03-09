@@ -39,7 +39,7 @@ mod gpu_impl {
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
-    use crate::buffer::DepthFrameBuffer;
+    use crate::buffer::{DepthFrameBuffer, DepthFrameBuffers};
 
     // wgpu guarantees rows in a texture-to-buffer copy are padded to 256 bytes.
     const COPY_BYTES_PER_ROW_ALIGNMENT: usize = 256;
@@ -65,6 +65,14 @@ mod gpu_impl {
     /// the depth image to schedule readback from.
     #[derive(Component, Debug, Clone)]
     pub struct DepthImageHandle(pub Handle<Image>);
+
+    /// Optional label component for keyed depth cameras.
+    ///
+    /// When present on a [`DepthCamera`] entity, the readback system routes
+    /// depth data into [`DepthFrameBuffers`] under this label instead of the
+    /// singleton [`DepthFrameBuffer`].
+    #[derive(Component, Debug, Clone)]
+    pub struct DepthCameraLabel(pub String);
 
     // -----------------------------------------------------------------------
     // ClankersDepthPlugin
@@ -188,18 +196,36 @@ mod gpu_impl {
     /// actual pixel row. This function strips the padding before writing.
     pub fn handle_depth_readback_complete(
         trigger: On<ReadbackComplete>,
-        cameras: Query<&DepthImageHandle, With<DepthCamera>>,
-        mut depth_buf: ResMut<DepthFrameBuffer>,
+        cameras: Query<
+            (&DepthImageHandle, Option<&DepthCameraLabel>),
+            With<DepthCamera>,
+        >,
+        depth_buf: Option<ResMut<DepthFrameBuffer>>,
+        keyed_bufs: Option<ResMut<DepthFrameBuffers>>,
     ) {
         let entity = trigger.entity;
 
         // Only handle readbacks for DepthCamera entities.
-        let Ok(_handle) = cameras.get(entity) else {
+        let Ok((_handle, maybe_label)) = cameras.get(entity) else {
             return;
         };
 
-        let width = depth_buf.width();
-        let height = depth_buf.height();
+        // Resolve which buffer to write to.
+        let (width, height) = if let Some(label) = maybe_label {
+            if let Some(ref bufs) = keyed_bufs {
+                if let Some(buf) = bufs.get(&label.0) {
+                    (buf.width(), buf.height())
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else if let Some(ref buf) = depth_buf {
+            (buf.width(), buf.height())
+        } else {
+            return;
+        };
 
         // Raw bytes from the GPU: each pixel is a 4-byte little-endian f32.
         let raw: &[u8] = &trigger;
@@ -209,7 +235,6 @@ mod gpu_impl {
         let packed_row = width as usize * bytes_per_pixel;
 
         if raw.len() < aligned_row * height as usize {
-            // Unexpected size: skip to avoid panic.
             return;
         }
 
@@ -234,8 +259,19 @@ mod gpu_impl {
             })
             .collect();
 
-        if depth_values.len() == expected_pixels {
-            depth_buf.write_depth_frame(depth_values);
+        if depth_values.len() != expected_pixels {
+            return;
+        }
+
+        // Write to the appropriate buffer.
+        if let Some(label) = maybe_label {
+            if let Some(mut bufs) = keyed_bufs {
+                if let Some(buf) = bufs.get_mut(&label.0) {
+                    buf.write_depth_frame(depth_values);
+                }
+            }
+        } else if let Some(mut buf) = depth_buf {
+            buf.write_depth_frame(depth_values);
         }
     }
 

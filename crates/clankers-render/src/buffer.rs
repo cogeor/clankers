@@ -240,6 +240,50 @@ impl Default for DepthFrameBuffer {
 }
 
 // ---------------------------------------------------------------------------
+// DepthFrameBuffers (keyed)
+// ---------------------------------------------------------------------------
+
+/// Resource holding one [`DepthFrameBuffer`] per named camera.
+///
+/// Analogous to [`CameraFrameBuffers`] but for depth data. When a depth
+/// camera is spawned with a [`DepthCameraLabel`][crate::depth::DepthCameraLabel],
+/// the readback system routes depth data into the buffer keyed by that label.
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::buffer::{DepthFrameBuffers, DepthFrameBuffer};
+///
+/// let mut bufs = DepthFrameBuffers::default();
+/// bufs.insert("main".to_string(), DepthFrameBuffer::new(64, 64));
+/// assert!(bufs.get("main").is_some());
+/// ```
+#[derive(Resource, Default, Debug)]
+pub struct DepthFrameBuffers(HashMap<String, DepthFrameBuffer>);
+
+impl DepthFrameBuffers {
+    /// Return a reference to the buffer for the given label.
+    pub fn get(&self, label: &str) -> Option<&DepthFrameBuffer> {
+        self.0.get(label)
+    }
+
+    /// Return a mutable reference to the buffer for the given label.
+    pub fn get_mut(&mut self, label: &str) -> Option<&mut DepthFrameBuffer> {
+        self.0.get_mut(label)
+    }
+
+    /// Register (or replace) a buffer under the given label.
+    pub fn insert(&mut self, label: String, buf: DepthFrameBuffer) {
+        self.0.insert(label, buf);
+    }
+
+    /// Iterate over all (label, buffer) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &DepthFrameBuffer)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CameraFrameBuffers
 // ---------------------------------------------------------------------------
 

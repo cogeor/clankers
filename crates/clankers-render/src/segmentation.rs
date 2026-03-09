@@ -147,6 +147,49 @@ impl Default for SegmentationFrameBuffer {
 }
 
 // ---------------------------------------------------------------------------
+// SegmentationFrameBuffers (keyed)
+// ---------------------------------------------------------------------------
+
+/// Resource holding one [`SegmentationFrameBuffer`] per named camera.
+///
+/// Analogous to [`CameraFrameBuffers`][crate::buffer::CameraFrameBuffers]
+/// but for segmentation data.
+///
+/// # Example
+///
+/// ```
+/// use clankers_render::segmentation::{SegmentationFrameBuffers, SegmentationFrameBuffer};
+///
+/// let mut bufs = SegmentationFrameBuffers::default();
+/// bufs.insert("main".to_string(), SegmentationFrameBuffer::new(64, 64));
+/// assert!(bufs.get("main").is_some());
+/// ```
+#[derive(Resource, Default, Debug)]
+pub struct SegmentationFrameBuffers(std::collections::HashMap<String, SegmentationFrameBuffer>);
+
+impl SegmentationFrameBuffers {
+    /// Return a reference to the buffer for the given label.
+    pub fn get(&self, label: &str) -> Option<&SegmentationFrameBuffer> {
+        self.0.get(label)
+    }
+
+    /// Return a mutable reference to the buffer for the given label.
+    pub fn get_mut(&mut self, label: &str) -> Option<&mut SegmentationFrameBuffer> {
+        self.0.get_mut(label)
+    }
+
+    /// Register (or replace) a buffer under the given label.
+    pub fn insert(&mut self, label: String, buf: SegmentationFrameBuffer) {
+        self.0.insert(label, buf);
+    }
+
+    /// Iterate over all (label, buffer) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &SegmentationFrameBuffer)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GPU plugin (feature = "gpu")
 // ---------------------------------------------------------------------------
 
@@ -167,7 +210,7 @@ mod gpu_impl {
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
-    use crate::segmentation::{SegmentationFrameBuffer, SegmentationPalette};
+    use crate::segmentation::{SegmentationFrameBuffer, SegmentationFrameBuffers, SegmentationPalette};
 
     // wgpu guarantees rows in a texture-to-buffer copy are padded to 256 bytes.
     const COPY_BYTES_PER_ROW_ALIGNMENT: usize = 256;
@@ -193,6 +236,14 @@ mod gpu_impl {
     /// locate the RGBA image to schedule readback from.
     #[derive(Component, Debug, Clone)]
     pub struct SegmentationImageHandle(pub Handle<Image>);
+
+    /// Optional label component for keyed segmentation cameras.
+    ///
+    /// When present on a [`SegmentationCamera`] entity, the readback system
+    /// routes segmentation data into [`SegmentationFrameBuffers`] under this
+    /// label instead of the singleton [`SegmentationFrameBuffer`].
+    #[derive(Component, Debug, Clone)]
+    pub struct SegmentationCameraLabel(pub String);
 
     // -----------------------------------------------------------------------
     // SegmentationMaterials
@@ -344,18 +395,35 @@ mod gpu_impl {
     /// [`SegmentationFrameBuffer`].
     pub fn handle_segmentation_readback_complete(
         trigger: On<ReadbackComplete>,
-        cameras: Query<&SegmentationImageHandle, With<SegmentationCamera>>,
-        mut seg_buf: ResMut<SegmentationFrameBuffer>,
+        cameras: Query<
+            (&SegmentationImageHandle, Option<&SegmentationCameraLabel>),
+            With<SegmentationCamera>,
+        >,
+        seg_buf: Option<ResMut<SegmentationFrameBuffer>>,
+        keyed_bufs: Option<ResMut<SegmentationFrameBuffers>>,
     ) {
         let entity = trigger.entity;
 
-        // Only handle readbacks for SegmentationCamera entities.
-        let Ok(_handle) = cameras.get(entity) else {
+        let Ok((_handle, maybe_label)) = cameras.get(entity) else {
             return;
         };
 
-        let width = seg_buf.width();
-        let height = seg_buf.height();
+        // Resolve which buffer to read dimensions from.
+        let (width, height) = if let Some(label) = maybe_label {
+            if let Some(ref bufs) = keyed_bufs {
+                if let Some(buf) = bufs.get(&label.0) {
+                    (buf.width(), buf.height())
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else if let Some(ref buf) = seg_buf {
+            (buf.width(), buf.height())
+        } else {
+            return;
+        };
 
         // Raw RGBA bytes from the GPU; each pixel is 4 bytes.
         let raw: &[u8] = &trigger;
@@ -365,7 +433,6 @@ mod gpu_impl {
         let packed_rgba_row = width as usize * bytes_per_pixel;
 
         if raw.len() < aligned_row * height as usize {
-            // Unexpected size: skip to avoid panic.
             return;
         }
 
@@ -388,8 +455,19 @@ mod gpu_impl {
             rgb_bytes.push(chunk[2]); // B
         }
 
-        if rgb_bytes.len() == pixel_count * 3 {
-            seg_buf.write_frame(rgb_bytes);
+        if rgb_bytes.len() != pixel_count * 3 {
+            return;
+        }
+
+        // Write to the appropriate buffer.
+        if let Some(label) = maybe_label {
+            if let Some(mut bufs) = keyed_bufs {
+                if let Some(buf) = bufs.get_mut(&label.0) {
+                    buf.write_frame(rgb_bytes);
+                }
+            }
+        } else if let Some(mut buf) = seg_buf {
+            buf.write_frame(rgb_bytes);
         }
     }
 

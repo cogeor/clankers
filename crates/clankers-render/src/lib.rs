@@ -52,9 +52,9 @@ use bevy::prelude::*;
 // Re-exports
 // ---------------------------------------------------------------------------
 
-pub use buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer};
+pub use buffer::{CameraFrameBuffers, DepthFrameBuffer, DepthFrameBuffers, FrameBuffer};
 pub use config::{CameraConfig, RenderConfig};
-pub use segmentation::{SegmentationFrameBuffer, SegmentationPalette};
+pub use segmentation::{SegmentationFrameBuffer, SegmentationFrameBuffers, SegmentationPalette};
 pub use sensor::{DepthSensor, ImageSensor, SegmentationSensor};
 
 // ---------------------------------------------------------------------------
@@ -96,20 +96,21 @@ fn init_frame_buffer(mut commands: Commands, config: Res<RenderConfig>) {
 pub mod prelude {
     pub use crate::{
         ClankersRenderPlugin,
-        buffer::{CameraFrameBuffers, DepthFrameBuffer, FrameBuffer},
+        buffer::{CameraFrameBuffers, DepthFrameBuffer, DepthFrameBuffers, FrameBuffer},
         config::{CameraConfig, PixelFormat, RenderConfig},
-        segmentation::{SegmentationFrameBuffer, SegmentationPalette},
+        segmentation::{SegmentationFrameBuffer, SegmentationFrameBuffers, SegmentationPalette},
         sensor::{DepthSensor, ImageSensor, SegmentationSensor},
     };
 
     #[cfg(feature = "gpu")]
     pub use crate::{
         camera::SimCamera,
-        depth::{ClankersDepthPlugin, DepthCamera, spawn_depth_camera_sensor},
+        depth::{ClankersDepthPlugin, DepthCamera, DepthCameraLabel, spawn_depth_camera_sensor},
         readback::ImageCopyPlugin,
         segmentation::{
-            ClankersSegmentationPlugin, SegmentationCamera, SegmentationImageHandle,
-            SegmentationMaterials, both_layers, spawn_segmentation_camera_sensor,
+            ClankersSegmentationPlugin, SegmentationCamera, SegmentationCameraLabel,
+            SegmentationImageHandle, SegmentationMaterials, both_layers,
+            spawn_segmentation_camera_sensor,
         },
     };
 }

@@ -29,6 +29,7 @@ use clankers_core::types::SegmentationClass;
 use clankers_render::cosmos_log::{
     CameraPlacement, CameraSpec, CosmosLogConfig, CosmosLogPlugin,
 };
+use clankers_render::cosmos_log::writer::CosmosWriterState;
 use clankers_viz::camera::{
     ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera,
     sync_obs_camera_viewport,
@@ -708,6 +709,96 @@ fn main() {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // --log mode: headless deterministic Cosmos frame capture
+    // -----------------------------------------------------------------------
+    if cli.log {
+        let mut app = App::new();
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: None,
+            ..default()
+        }))
+        .insert_resource(playback)
+        .add_systems(
+            Startup,
+            (spawn_camera_and_scene, spawn_arm_link_meshes),
+        )
+        .add_systems(Update, apply_body_poses_system);
+
+        app.insert_resource(CosmosLogConfig {
+            output_root: cli.log_dir.clone(),
+            run_name: Some("arm-pick".into()),
+            cameras: vec![
+                CameraSpec {
+                    label: "main".into(),
+                    resolution: (854, 480),
+                    fov_deg: 70.0,
+                    placement: CameraPlacement::Fixed {
+                        position: Vec3::new(0.8, 0.8, 0.8),
+                        target: Vec3::new(0.2, 0.4, 0.0),
+                    },
+                },
+                CameraSpec {
+                    label: "ee".into(),
+                    resolution: (424, 240),
+                    fov_deg: 90.0,
+                    placement: CameraPlacement::FollowLink {
+                        link_name: "end_effector".into(),
+                        offset: Vec3::new(0.0, -0.05, 0.0),
+                        orientation: Quat::from_rotation_x(FRAC_PI_2),
+                    },
+                },
+            ],
+            ..CosmosLogConfig::default()
+        });
+        app.add_plugins(CosmosLogPlugin);
+
+        println!("  Cosmos logging → {}", cli.log_dir.display());
+
+        app.finish();
+        app.cleanup();
+
+        // Warmup: let Bevy initialise the render pipeline and spawn entities.
+        for _ in 0..5 {
+            app.update();
+        }
+
+        println!("  Capturing {n} frames...");
+
+        for trace_frame in 0..n {
+            app.world_mut()
+                .resource_mut::<TracePlayback>()
+                .cursor = trace_frame;
+
+            // Pump until the cosmos writer captures this frame.
+            let target = (trace_frame + 1) as u32;
+            for _ in 0..10 {
+                app.update();
+                if let Some(state) = app.world().get_resource::<CosmosWriterState>() {
+                    if state.frame_index >= target {
+                        break;
+                    }
+                }
+            }
+
+            if (trace_frame + 1) % 100 == 0 || trace_frame == n - 1 {
+                println!("  Frame {}/{n}", trace_frame + 1);
+            }
+        }
+
+        // Write metadata.json
+        let config = app.world().resource::<CosmosLogConfig>().clone();
+        let state = app.world().resource::<CosmosWriterState>();
+        clankers_render::cosmos_log::metadata::write_cosmos_metadata(&config, state);
+
+        println!("  Cosmos capture complete.");
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Interactive mode: windowed visualization
+    // -----------------------------------------------------------------------
+
     let obs_config = ObsCameraConfig {
         width_fraction: 0.3,
         aspect: 4.0 / 3.0,
@@ -741,38 +832,6 @@ fn main() {
         ),
     )
     .add_systems(EguiPrimaryContextPass, replay_panel_system);
-
-    // Add Cosmos logging if --log was specified
-    if cli.log {
-        app.insert_resource(CosmosLogConfig {
-            output_root: cli.log_dir.clone(),
-            run_name: Some("arm-pick".into()),
-            cameras: vec![
-                CameraSpec {
-                    label: "main".into(),
-                    resolution: (854, 480),
-                    fov_deg: 70.0,
-                    placement: CameraPlacement::Fixed {
-                        position: Vec3::new(0.8, 0.8, 0.8),
-                        target: Vec3::new(0.2, 0.4, 0.0),
-                    },
-                },
-                CameraSpec {
-                    label: "ee".into(),
-                    resolution: (424, 240),
-                    fov_deg: 90.0,
-                    placement: CameraPlacement::FollowLink {
-                        link_name: "end_effector".into(),
-                        offset: Vec3::new(0.0, -0.05, 0.0),
-                        orientation: Quat::from_rotation_x(FRAC_PI_2),
-                    },
-                },
-            ],
-            ..CosmosLogConfig::default()
-        });
-        app.add_plugins(CosmosLogPlugin);
-        println!("  Cosmos logging enabled → {}", cli.log_dir.display());
-    }
 
     // Add recording systems if --record was specified
     if let Some(rec) = recording {

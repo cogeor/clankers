@@ -10,7 +10,6 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, PrimaryEguiContext, egui};
 use bevy_panorbit_camera::PanOrbitCamera;
@@ -29,7 +28,10 @@ use clankers_examples::arm_visuals::{
 };
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::prelude::*;
-use clankers_viz::{ClankersVizPlugin, VizMode, camera, phys_rot_to_vis, phys_to_vis};
+use clankers_viz::{
+    ClankersVizPlugin, ObsCameraConfig, ObservationCamera, VizMode, camera, phys_rot_to_vis,
+    phys_to_vis,
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -74,9 +76,6 @@ impl Default for ArmUiState {
 }
 
 #[derive(Component)]
-struct EeCamera;
-
-#[derive(Component)]
 struct CameraVisual;
 
 #[derive(Component)]
@@ -89,44 +88,6 @@ struct GoalGizmo;
 fn assign_egui_to_orbit_cam(mut commands: Commands, cam_q: Query<Entity, With<PanOrbitCamera>>) {
     if let Ok(entity) = cam_q.single() {
         commands.entity(entity).insert(PrimaryEguiContext);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Startup: EE camera with viewport overlay (top-right, 1/4 width)
-// ---------------------------------------------------------------------------
-
-fn spawn_ee_camera(mut commands: Commands) {
-    commands.spawn((
-        EeCamera,
-        Camera3d::default(),
-        Camera {
-            order: 1,
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.05, 0.05, 0.1)),
-            ..default()
-        },
-        Projection::Perspective(PerspectiveProjection {
-            fov: 70_f32.to_radians(),
-            ..default()
-        }),
-        Transform::from_xyz(0.0, 0.5, 0.0),
-    ));
-}
-
-/// Keep the EE camera viewport pinned to the top-right corner.
-fn configure_ee_viewport(windows: Query<&Window>, mut ee_cam: Query<&mut Camera, With<EeCamera>>) {
-    let Ok(window) = windows.single() else {
-        return;
-    };
-    let w = window.physical_width();
-    let vp_w = w / 4;
-    let vp_h = vp_w * 3 / 4; // 4:3 aspect
-    for mut cam in &mut ee_cam {
-        cam.viewport = Some(Viewport {
-            physical_position: UVec2::new(w - vp_w, 0),
-            physical_size: UVec2::new(vp_w, vp_h),
-            ..default()
-        });
     }
 }
 
@@ -232,8 +193,8 @@ fn spawn_ik_viz_extras(
 #[allow(clippy::needless_pass_by_value)]
 fn sync_ee_camera_system(
     ctx: Res<RapierContext>,
-    mut cam_q: Query<&mut Transform, (With<EeCamera>, Without<CameraVisual>)>,
-    mut vis_q: Query<&mut Transform, (With<CameraVisual>, Without<EeCamera>)>,
+    mut cam_q: Query<&mut Transform, (With<ObservationCamera>, Without<CameraVisual>)>,
+    mut vis_q: Query<&mut Transform, (With<CameraVisual>, Without<ObservationCamera>)>,
 ) {
     let Some(&handle) = ctx.body_handles.get("end_effector") else {
         return;
@@ -649,7 +610,10 @@ fn main() {
         ),
     );
 
-    // Startup: robot meshes + scene extras + EE camera
+    // Observation camera config (EE camera in top-right viewport)
+    scene.app.insert_resource(ObsCameraConfig::default());
+
+    // Startup: robot meshes + scene extras + observation camera
     scene
         .app
         .add_systems(Startup, (spawn_arm_link_meshes, spawn_ik_viz_extras));
@@ -657,17 +621,17 @@ fn main() {
         Startup,
         (
             assign_egui_to_orbit_cam.after(camera::spawn_camera),
-            spawn_ee_camera.after(camera::spawn_camera),
+            camera::spawn_obs_camera.after(camera::spawn_camera),
         ),
     );
 
-    // Runtime: visual sync + EE camera viewport + goal gizmo + keyboard shortcuts
+    // Runtime: visual sync + obs camera viewport + goal gizmo + keyboard shortcuts
     scene.app.add_systems(
         Update,
         (
             sync_link_visuals.after(ClankersSet::Simulate),
             sync_ee_camera_system.after(ClankersSet::Simulate),
-            configure_ee_viewport,
+            camera::sync_obs_camera_viewport,
             update_goal_gizmo_system,
             keyboard_shortcut_system,
         ),

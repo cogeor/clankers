@@ -38,6 +38,7 @@ pub mod ui;
 #[derive(Resource, Default, Clone, Debug)]
 pub struct SelectedRobotId(pub Option<RobotId>);
 
+pub use camera::{ObsCameraConfig, ObservationCamera, ViewportCorner};
 pub use config::VizConfig;
 pub use mode::VizMode;
 pub use plugin::ClankersVizPlugin;

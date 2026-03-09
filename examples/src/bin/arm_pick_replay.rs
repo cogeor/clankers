@@ -48,6 +48,12 @@ struct Cli {
     /// Frame skip for recording (capture every Nth frame). Default: 1 (every frame)
     #[arg(long, default_value_t = 1)]
     frame_skip: usize,
+
+    /// After recording, run the augmentation pipeline on captured frames
+    /// and produce a second GIF with augmented (sim-to-real) images.
+    /// Requires: python -m clankers.augmentation
+    #[arg(long)]
+    augment: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +482,82 @@ fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f3
 }
 
 // ---------------------------------------------------------------------------
+// Augmentation: run Python pipeline on frames, produce augmented GIF
+// ---------------------------------------------------------------------------
+
+fn augment_frames(
+    frames_dir: &std::path::Path,
+    augmented_gif_path: &std::path::Path,
+    dt: f32,
+) {
+    let augmented_dir = frames_dir.join("augmented");
+    std::fs::create_dir_all(&augmented_dir).expect("failed to create augmented directory");
+
+    // Collect input frame paths
+    let mut frame_paths: Vec<PathBuf> = std::fs::read_dir(frames_dir)
+        .expect("failed to read frames directory")
+        .filter_map(std::result::Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "png"))
+        .collect();
+    frame_paths.sort();
+
+    if frame_paths.is_empty() {
+        eprintln!("No PNG frames found for augmentation in {}", frames_dir.display());
+        return;
+    }
+
+    println!(
+        "Augmenting {} frames (python -m clankers.augmentation)...",
+        frame_paths.len()
+    );
+
+    // Run augmentation on each frame via Python
+    for (i, path) in frame_paths.iter().enumerate() {
+        let output_path = augmented_dir.join(format!("frame_{i:05}.png"));
+        let status = std::process::Command::new("python")
+            .args([
+                "-m",
+                "clankers.augmentation.single_image",
+                &path.to_string_lossy(),
+                &output_path.to_string_lossy(),
+            ])
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                eprintln!(
+                    "  Warning: augmentation failed for frame {} (exit {}), copying original",
+                    i,
+                    s.code().unwrap_or(-1)
+                );
+                std::fs::copy(path, &output_path).ok();
+            }
+            Err(e) => {
+                eprintln!(
+                    "  Warning: could not run augmentation for frame {i}: {e}"
+                );
+                eprintln!("  Falling back: copying frames as-is to augmented GIF");
+                // Copy all remaining frames and break
+                for (j, p) in frame_paths.iter().enumerate().skip(i) {
+                    let out = augmented_dir.join(format!("frame_{j:05}.png"));
+                    std::fs::copy(p, out).ok();
+                }
+                break;
+            }
+        }
+
+        if (i + 1).is_multiple_of(10) || i == frame_paths.len() - 1 {
+            println!("  Augmented {}/{}", i + 1, frame_paths.len());
+        }
+    }
+
+    // Assemble augmented frames into GIF
+    assemble_gif(&augmented_dir, augmented_gif_path, dt);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -524,6 +606,9 @@ fn main() {
         if let Some(ref gif) = rec.gif_path {
             println!("  GIF output: {}", gif.display());
         }
+        if let Some(ref aug) = cli.augment {
+            println!("  Augmented GIF: {}", aug.display());
+        }
     }
 
     let mut app = App::new();
@@ -564,11 +649,17 @@ fn main() {
             ),
         );
 
+        let augment_path = cli.augment;
         app.run();
 
         // After app exits, assemble GIF if requested
         if let Some(gif) = gif_path {
             assemble_gif(&frames_dir, &gif, dt);
+        }
+
+        // Run augmentation pipeline if requested
+        if let Some(aug_gif) = augment_path {
+            augment_frames(&frames_dir, &aug_gif, dt);
         }
     } else if cli.gif.is_some() {
         // --gif without --record: look for existing frames

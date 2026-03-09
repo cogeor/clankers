@@ -289,8 +289,97 @@ mod gpu_impl {
                 app.add_plugins(GpuReadbackPlugin::default());
             }
             app.add_systems(Startup, build_segmentation_materials)
-                .add_systems(Update, attach_readback_to_segmentation_cameras)
+                .add_systems(
+                    Update,
+                    (
+                        attach_readback_to_segmentation_cameras,
+                        spawn_segmentation_shadows,
+                        sync_segmentation_shadows.after(spawn_segmentation_shadows),
+                    ),
+                )
                 .add_observer(handle_segmentation_readback_complete);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Segmentation shadow entities
+    // -----------------------------------------------------------------------
+
+    /// Marker: this entity is a segmentation shadow clone of another entity.
+    ///
+    /// Shadow entities live on `RenderLayers::layer(1)` only and carry a flat
+    /// unlit material from [`SegmentationMaterials`] so the segmentation camera
+    /// renders per-class colours instead of visual materials.
+    #[derive(Component, Debug)]
+    pub struct SegShadow(pub Entity);
+
+    /// Marker inserted on entities that already have a shadow spawned.
+    #[derive(Component, Debug)]
+    struct SegShadowSpawned;
+
+    /// Spawn a flat-colour shadow entity on layer 1 for each entity that has
+    /// both [`SegmentationClass`] and [`Mesh3d`].
+    ///
+    /// For child entities (with a `Parent`), the shadow is added as a sibling
+    /// child of the same parent so Bevy's transform propagation positions it
+    /// automatically. For standalone entities the shadow is a root entity and
+    /// [`sync_segmentation_shadows`] copies the source transform each frame.
+    fn spawn_segmentation_shadows(
+        mut commands: Commands,
+        query: Query<
+            (Entity, &clankers_core::types::SegmentationClass, &Mesh3d, &Transform, Option<&ChildOf>),
+            (Without<SegShadowSpawned>, Without<SegShadow>),
+        >,
+        seg_materials: Res<SegmentationMaterials>,
+    ) {
+        for (entity, class, mesh, tf, maybe_parent) in &query {
+            let Some(mat_handle) = seg_materials.handles.get(&class.0) else {
+                continue;
+            };
+
+            if let Some(child_of) = maybe_parent {
+                // Child entity — add shadow as sibling child of same parent.
+                commands.entity(child_of.parent()).with_children(|p| {
+                    p.spawn((
+                        SegShadow(entity),
+                        mesh.clone(),
+                        MeshMaterial3d(mat_handle.clone()),
+                        *tf,
+                        RenderLayers::layer(1),
+                        Visibility::default(),
+                    ));
+                });
+            } else {
+                // Standalone entity — spawn root shadow, synced manually.
+                commands.spawn((
+                    SegShadow(entity),
+                    mesh.clone(),
+                    MeshMaterial3d(mat_handle.clone()),
+                    *tf,
+                    RenderLayers::layer(1),
+                    Visibility::default(),
+                ));
+            }
+
+            commands.entity(entity).insert(SegShadowSpawned);
+        }
+    }
+
+    /// Copy transforms from source entities to their parentless shadows.
+    ///
+    /// Shadows that are children of a parent entity get positioned automatically
+    /// by Bevy's transform propagation. This system only handles root shadows.
+    fn sync_segmentation_shadows(
+        sources: Query<&GlobalTransform, Without<SegShadow>>,
+        mut shadows: Query<(&SegShadow, &mut Transform), Without<ChildOf>>,
+    ) {
+        for (shadow, mut tf) in &mut shadows {
+            if let Ok(source_gt) = sources.get(shadow.0) {
+                let source_tf = source_gt.compute_transform();
+                tf.translation = source_tf.translation;
+                tf.rotation = source_tf.rotation;
+                tf.scale = source_tf.scale;
+            }
         }
     }
 
@@ -340,6 +429,7 @@ mod gpu_impl {
                 Camera3d::default(),
                 Camera {
                     target: RenderTarget::Image(image_handle.clone().into()),
+                    clear_color: bevy::prelude::ClearColorConfig::Custom(Color::BLACK),
                     ..Default::default()
                 },
                 Transform::default(),

@@ -25,10 +25,10 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
+use clankers_core::types::SegmentationClass;
 use clankers_render::cosmos_log::{
     CameraPlacement, CameraSpec, CosmosLogConfig, CosmosLogPlugin,
 };
-use clankers_render::segmentation::both_layers;
 use clankers_viz::camera::{
     ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera,
     sync_obs_camera_viewport,
@@ -150,7 +150,7 @@ fn spawn_camera_and_scene(
             base_color: Color::srgb(0.35, 0.38, 0.35),
             ..default()
         })),
-        both_layers(),
+        SegmentationClass::GROUND,
     ));
 
     commands.spawn((
@@ -160,7 +160,6 @@ fn spawn_camera_and_scene(
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
-        both_layers(),
     ));
 
     commands.insert_resource(AmbientLight {
@@ -181,7 +180,7 @@ fn spawn_camera_and_scene(
         MeshMaterial3d(table_mat),
         Visibility::default(),
         Transform::default(),
-        both_layers(),
+        SegmentationClass::TABLE,
     ));
 
     // Red cube
@@ -196,7 +195,7 @@ fn spawn_camera_and_scene(
         MeshMaterial3d(red_mat),
         Visibility::default(),
         Transform::default(),
-        both_layers(),
+        SegmentationClass::OBJECT,
     ));
 }
 

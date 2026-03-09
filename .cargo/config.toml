@@ -2,3 +2,6 @@
 
 [build]
 jobs = 24
+
+[env]
+ORT_DYLIB_PATH = { value = "vendor/ort/onnxruntime.dll", relative = true }

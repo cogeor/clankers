@@ -2,10 +2,12 @@
 
 use bevy::prelude::*;
 
-use crate::buffer::{CameraFrameBuffers, DepthFrameBuffer, DepthFrameBuffers};
+use bevy::camera::visibility::RenderLayers;
+
+use crate::buffer::CameraFrameBuffers;
 use crate::camera::spawn_camera_sensor;
 use crate::config::CameraConfig;
-use crate::depth::{DepthCameraLabel, spawn_depth_camera_sensor};
+use crate::depth_material::DEPTH_RENDER_LAYER;
 use crate::segmentation::{
     SegmentationCameraLabel, SegmentationFrameBuffer, SegmentationFrameBuffers,
     spawn_segmentation_camera_sensor,
@@ -39,7 +41,6 @@ pub fn spawn_cosmos_cameras(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut cam_bufs: ResMut<CameraFrameBuffers>,
-    mut depth_bufs: ResMut<DepthFrameBuffers>,
     mut seg_bufs: ResMut<SegmentationFrameBuffers>,
     config: Res<CosmosLogConfig>,
 ) {
@@ -68,17 +69,27 @@ pub fn spawn_cosmos_cameras(
             },
         ));
 
-        // --- Depth camera ---
-        depth_bufs.insert(spec.label.clone(), DepthFrameBuffer::new(w, h));
-        let (depth_entity, _) =
-            spawn_depth_camera_sensor(&mut commands, &mut images, w, h);
+        // --- Depth camera (RGB camera on depth layer, depth material renders grayscale) ---
+        let depth_label = format!("cosmos_{}_depth", spec.label);
+        let depth_cam_config = CameraConfig {
+            label: depth_label.clone(),
+            ..Default::default()
+        };
+        let (depth_entity, _) = spawn_camera_sensor(
+            &mut commands,
+            &mut images,
+            &mut cam_bufs,
+            depth_cam_config,
+            w,
+            h,
+        );
         commands.entity(depth_entity).insert((
             transform,
             Projection::Perspective(PerspectiveProjection {
                 fov: fov_rad,
                 ..Default::default()
             }),
-            DepthCameraLabel(spec.label.clone()),
+            RenderLayers::layer(DEPTH_RENDER_LAYER),
             CosmosLogCamera {
                 label: spec.label.clone(),
                 modality: CosmosModality::Depth,

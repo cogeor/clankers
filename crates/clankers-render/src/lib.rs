@@ -44,6 +44,8 @@ pub mod config;
 #[cfg(feature = "cosmos-log")]
 pub mod cosmos_log;
 pub mod depth;
+#[cfg(feature = "gpu")]
+pub mod depth_material;
 pub mod readback;
 pub mod segmentation;
 pub mod sensor;

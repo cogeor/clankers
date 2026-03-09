@@ -41,8 +41,7 @@ pub use config::{CameraPlacement, CameraSpec, CosmosLogConfig, COSMOS_480P, COSM
 use bevy::prelude::*;
 
 use crate::ClankersRenderPlugin;
-use crate::buffer::DepthFrameBuffers;
-use crate::depth::ClankersDepthPlugin;
+use crate::depth_material::{DepthMaterial, DepthMaterialHandle, DepthMaterialPlugin};
 use crate::readback::ImageCopyPlugin;
 use crate::segmentation::{ClankersSegmentationPlugin, SegmentationFrameBuffers};
 
@@ -62,16 +61,24 @@ impl Plugin for CosmosLogPlugin {
         if !app.is_plugin_added::<ImageCopyPlugin>() {
             app.add_plugins(ImageCopyPlugin);
         }
-        if !app.is_plugin_added::<ClankersDepthPlugin>() {
-            app.add_plugins(ClankersDepthPlugin);
+        if !app.is_plugin_added::<DepthMaterialPlugin>() {
+            app.add_plugins(DepthMaterialPlugin);
         }
         if !app.is_plugin_added::<ClankersSegmentationPlugin>() {
             app.add_plugins(ClankersSegmentationPlugin);
         }
 
         // Initialize keyed buffer resources.
-        app.init_resource::<DepthFrameBuffers>();
         app.init_resource::<SegmentationFrameBuffers>();
+
+        // Create and insert the shared depth material.
+        let config = app.world().resource::<CosmosLogConfig>();
+        let max_depth = config.depth_max_m;
+        let depth_mat = app
+            .world_mut()
+            .resource_mut::<Assets<DepthMaterial>>()
+            .add(DepthMaterial::new(max_depth));
+        app.insert_resource(DepthMaterialHandle(depth_mat));
 
         // Startup: create output directory, spawn cameras, init seg colors.
         app.add_systems(

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use image::{GrayImage, ImageBuffer, Rgb, RgbImage};
 
-use crate::buffer::{CameraFrameBuffers, DepthFrameBuffers};
+use crate::buffer::CameraFrameBuffers;
 use crate::segmentation::{SegmentationFrameBuffers, SegmentationPalette};
 
 use super::config::CosmosLogConfig;
@@ -109,9 +109,7 @@ pub fn init_seg_transform_colors(
 #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 pub fn write_cosmos_frames(
     cam_bufs: Res<CameraFrameBuffers>,
-    depth_bufs: Res<DepthFrameBuffers>,
     seg_bufs: Res<SegmentationFrameBuffers>,
-    config: Res<CosmosLogConfig>,
     seg_colors: Res<SegTransformColors>,
     mut state: ResMut<CosmosWriterState>,
     mut last_rgb_counters: Local<std::collections::HashMap<String, u64>>,
@@ -150,19 +148,17 @@ pub fn write_cosmos_frames(
             }
         }
 
-        // --- Depth (only write if buffer has data) ---
-        if let Some(buf) = depth_bufs.get(label) {
-            if buf.frame_counter() > 0 {
-                let dw = buf.width();
-                let dh = buf.height();
-                let max_depth = config.depth_max_m;
-                let gray: Vec<u8> = buf
-                    .data()
-                    .iter()
-                    .map(|&d| {
-                        let normalized = (d / max_depth).clamp(0.0, 1.0);
-                        (normalized * 255.0) as u8
-                    })
+        // --- Depth (from depth-material RGB camera on layer 2) ---
+        let depth_key = format!("cosmos_{label}_depth");
+        if let Some(depth_buf) = cam_bufs.get(&depth_key) {
+            if depth_buf.frame_counter() > 0 {
+                let dw = depth_buf.width();
+                let dh = depth_buf.height();
+                let depth_data = depth_buf.data();
+                // Depth material renders grayscale — extract R channel from RGBA.
+                let gray: Vec<u8> = depth_data
+                    .chunks_exact(4)
+                    .map(|px| px[0])
                     .collect();
                 if let Some(img) = GrayImage::from_raw(dw, dh, gray) {
                     let path = dir.join(format!("depth_{frame_idx:05}.png"));

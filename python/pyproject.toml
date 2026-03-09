@@ -31,6 +31,10 @@ train = [
     "onnx>=1.14",
     "onnxruntime>=1.15",
 ]
+cosmos = [
+    "huggingface_hub>=0.20",
+    "torch>=2.0.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-timeout>=2.0",
@@ -70,5 +74,5 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*"]
+module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*", "huggingface_hub", "huggingface_hub.*"]
 ignore_missing_imports = true

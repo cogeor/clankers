@@ -12,9 +12,14 @@ rust-version.workspace = true
 ## and per-camera frame buffer population. Requires a wgpu-capable GPU backend.
 gpu = ["bevy/bevy_render", "bevy/bevy_core_pipeline", "bevy/bevy_pbr"]
 
+## Enables CosmosLogPlugin for multi-camera frame export (RGB + depth + seg PNGs).
+cosmos-log = ["gpu", "dep:image", "dep:serde_json"]
+
 [dependencies]
 clankers-core.workspace = true
 bevy.workspace = true
+image = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 clankers-test-utils.workspace = true

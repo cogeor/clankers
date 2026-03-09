@@ -41,6 +41,8 @@
 pub mod buffer;
 pub mod camera;
 pub mod config;
+#[cfg(feature = "cosmos-log")]
+pub mod cosmos_log;
 pub mod depth;
 pub mod readback;
 pub mod segmentation;

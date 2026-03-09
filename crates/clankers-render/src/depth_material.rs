@@ -44,13 +44,8 @@ impl DepthMaterial {
     }
 }
 
-/// Resource holding the shader handle so it stays alive.
-#[derive(Resource)]
-struct DepthShaderHandle(#[allow(dead_code)] Handle<Shader>);
-
 impl Material for DepthMaterial {
     fn fragment_shader() -> ShaderRef {
-        // Use path that matches what we loaded via embedded assets.
         ShaderRef::Path("embedded://clankers_render/depth_material.wgsl".into())
     }
 
@@ -64,15 +59,9 @@ pub struct DepthMaterialPlugin;
 
 impl Plugin for DepthMaterialPlugin {
     fn build(&self, app: &mut App) {
-        // Register the embedded WGSL shader as an asset.
-        let handle = app
-            .world_mut()
-            .resource_mut::<Assets<Shader>>()
-            .add(Shader::from_wgsl(
-                include_str!("depth_material.wgsl"),
-                "embedded://clankers_render/depth_material.wgsl",
-            ));
-        app.insert_resource(DepthShaderHandle(handle));
+        // Register the WGSL shader as an embedded asset so the asset server
+        // can find it via `embedded://clankers_render/depth_material.wgsl`.
+        bevy::asset::embedded_asset!(app, "depth_material.wgsl");
 
         app.add_plugins(MaterialPlugin::<DepthMaterial>::default());
 

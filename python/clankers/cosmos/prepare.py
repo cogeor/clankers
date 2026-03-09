@@ -106,15 +106,21 @@ def _remap_seg_to_binary(seg_path: Path, output_path: Path) -> None:
 
     White (255,255,255) = transform region (robot, obstacle, table).
     Black (0,0,0) = keep region (ground, wall, unknown).
+
+    Uses nearest-palette-color matching (L2 distance) to handle minor
+    dithering/anti-aliasing artifacts from the GPU render pipeline.
     """
-    img = np.array(Image.open(seg_path).convert("RGB"))
+    img = np.array(Image.open(seg_path).convert("RGB"), dtype=np.int32)
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
 
     for cls_name in TRANSFORM_CLASSES:
         color = SEG_PALETTE.get(cls_name)
         if color is None:
             continue
-        match = np.all(img == np.array(color, dtype=np.uint8), axis=-1)
+        diff = img - np.array(color, dtype=np.int32)
+        dist_sq = np.sum(diff * diff, axis=-1)
+        # Match pixels within tolerance (handles ±2 per channel dithering)
+        match = dist_sq < 16  # ~4 per channel
         mask[match] = 255
 
     # Save as RGB (all channels same) for MP4 compatibility

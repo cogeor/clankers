@@ -89,6 +89,7 @@ pub fn spawn_cosmos_cameras(
                 fov: fov_rad,
                 ..Default::default()
             }),
+            bevy::core_pipeline::tonemapping::Tonemapping::None,
             RenderLayers::layer(DEPTH_RENDER_LAYER),
             CosmosLogCamera {
                 label: spec.label.clone(),

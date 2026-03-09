@@ -110,7 +110,7 @@ pub fn init_seg_transform_colors(
 pub fn write_cosmos_frames(
     cam_bufs: Res<CameraFrameBuffers>,
     seg_bufs: Res<SegmentationFrameBuffers>,
-    seg_colors: Res<SegTransformColors>,
+    _seg_colors: Res<SegTransformColors>,
     mut state: ResMut<CosmosWriterState>,
     mut last_rgb_counters: Local<std::collections::HashMap<String, u64>>,
 ) {
@@ -169,21 +169,15 @@ pub fn write_cosmos_frames(
             }
         }
 
-        // --- Segmentation → binary mask (only write if buffer has data) ---
+        // --- Segmentation → save raw palette-coloured image ---
         if let Some(buf) = seg_bufs.get(label) {
             if buf.frame_counter() > 0 {
                 let sw = buf.width();
                 let sh = buf.height();
                 let seg_data = buf.data();
-                let mask: Vec<u8> = seg_data
-                    .chunks_exact(3)
-                    .flat_map(|px| {
-                        let is_transform = seg_colors.0.iter().any(|c| c == px);
-                        let val = if is_transform { 255_u8 } else { 0_u8 };
-                        [val, val, val]
-                    })
-                    .collect();
-                if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, mask) {
+                if let Some(img) =
+                    ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, seg_data.to_vec())
+                {
                     let path = dir.join(format!("seg_{frame_idx:05}.png"));
                     if let Err(e) = img.save(&path) {
                         eprintln!("CosmosLog: failed to save seg frame: {e}");

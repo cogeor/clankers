@@ -424,6 +424,7 @@ mod gpu_impl {
         let image_handle = images.add(seg_image);
 
         // Spawn the Camera3d entity on render layer 1 only.
+        // Tonemapping and dithering are disabled to preserve exact palette colours.
         let camera_entity = commands
             .spawn((
                 Camera3d::default(),
@@ -432,6 +433,7 @@ mod gpu_impl {
                     clear_color: bevy::prelude::ClearColorConfig::Custom(Color::BLACK),
                     ..Default::default()
                 },
+                bevy::core_pipeline::tonemapping::Tonemapping::None,
                 Transform::default(),
                 GlobalTransform::default(),
                 SegmentationCamera,

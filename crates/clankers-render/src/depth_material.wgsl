@@ -5,7 +5,7 @@ struct DepthMaterialUniform {
     max_depth: f32,
 };
 
-@group(2) @binding(0) var<uniform> material: DepthMaterialUniform;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> material: DepthMaterialUniform;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {

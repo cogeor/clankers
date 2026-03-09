@@ -24,6 +24,9 @@ use clankers_examples::arm_setup::{
     ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS, FINGER_TRAVEL, GRIPPER_DAMPING, GRIPPER_MAX_FORCE,
     GRIPPER_STIFFNESS,
 };
+use clankers_examples::arm_visuals::{
+    GripperEntities, spawn_arm_link_meshes, sync_link_visuals,
+};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::prelude::*;
 use clankers_viz::{ClankersVizPlugin, VizMode, camera, phys_rot_to_vis, phys_to_vis};
@@ -70,15 +73,8 @@ impl Default for ArmUiState {
     }
 }
 
-/// The two prismatic finger joint entities (left, right).
-#[derive(Resource)]
-struct GripperEntities([Entity; 2]);
-
 #[derive(Component)]
 struct EeCamera;
-
-#[derive(Component)]
-struct LinkVisual(&'static str);
 
 #[derive(Component)]
 struct CameraVisual;
@@ -135,180 +131,14 @@ fn configure_ee_viewport(windows: Query<&Window>, mut ee_cam: Query<&mut Camera,
 }
 
 // ---------------------------------------------------------------------------
-// Startup: spawn robot link meshes + scene objects
+// Startup: spawn scene-specific extras (camera visual, workspace objects, gizmo)
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_lines)]
-fn spawn_arm_meshes(
+fn spawn_ik_viz_extras(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let base_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.3, 0.3, 0.35),
-        ..default()
-    });
-    let link_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.5, 0.8),
-        ..default()
-    });
-    let forearm_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.7, 0.3),
-        ..default()
-    });
-    let wrist_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.8, 0.2),
-        ..default()
-    });
-    let ee_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.4, 0.1),
-        ..default()
-    });
-    let gripper_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.6, 0.6, 0.65),
-        ..default()
-    });
-
-    commands
-        .spawn((
-            LinkVisual("base"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.08, 0.1))),
-                MeshMaterial3d(base_mat),
-                Transform::IDENTITY,
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("shoulder_link"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.04, 0.2))),
-                MeshMaterial3d(link_mat.clone()),
-                Transform::from_xyz(0.0, 0.1, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("upper_arm"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.035, 0.3))),
-                MeshMaterial3d(link_mat),
-                Transform::from_xyz(0.0, 0.15, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("elbow_link"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.03, 0.1))),
-                MeshMaterial3d(forearm_mat.clone()),
-                Transform::from_xyz(0.0, 0.05, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("forearm"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.025, 0.2))),
-                MeshMaterial3d(forearm_mat),
-                Transform::from_xyz(0.0, 0.1, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("wrist_link"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.02, 0.06))),
-                MeshMaterial3d(wrist_mat),
-                Transform::from_xyz(0.0, 0.03, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("end_effector"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Sphere::new(0.025))),
-                MeshMaterial3d(ee_mat),
-                Transform::IDENTITY,
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("gripper_base"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.06, 0.02, 0.04))),
-                MeshMaterial3d(gripper_mat.clone()),
-                Transform::IDENTITY,
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("finger_left"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
-                MeshMaterial3d(gripper_mat.clone()),
-                Transform::from_xyz(0.0, 0.02, 0.0),
-            ));
-        });
-
-    commands
-        .spawn((
-            LinkVisual("finger_right"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
-                MeshMaterial3d(gripper_mat),
-                Transform::from_xyz(0.0, 0.02, 0.0),
-            ));
-        });
-
     // Camera frustum visual (small cone at EE)
     let cam_vis_mat = materials.add(StandardMaterial {
         base_color: Color::srgba(0.2, 0.6, 1.0, 0.5),
@@ -398,20 +228,6 @@ fn spawn_arm_meshes(
 // ---------------------------------------------------------------------------
 // Runtime systems
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::needless_pass_by_value)]
-fn sync_link_visuals(ctx: Res<RapierContext>, mut query: Query<(&LinkVisual, &mut Transform)>) {
-    for (link, mut tf) in &mut query {
-        let Some(&handle) = ctx.body_handles.get(link.0) else {
-            continue;
-        };
-        let Some(body) = ctx.rigid_body_set.get(handle) else {
-            continue;
-        };
-        tf.translation = phys_to_vis(body.translation());
-        tf.rotation = phys_rot_to_vis(body.rotation());
-    }
-}
 
 #[allow(clippy::needless_pass_by_value)]
 fn sync_ee_camera_system(
@@ -767,17 +583,7 @@ fn main() {
     });
 
     // Extract gripper finger entities before moving scene
-    let gripper_entities = {
-        let spawned = &setup.scene.robots["six_dof_arm"];
-        GripperEntities([
-            spawned
-                .joint_entity("j_finger_left")
-                .expect("j_finger_left not found"),
-            spawned
-                .joint_entity("j_finger_right")
-                .expect("j_finger_right not found"),
-        ])
-    };
+    let gripper_entities = GripperEntities::from_setup(&setup);
 
     // Pre-populate motor overrides so motors hold from the first physics step.
     let motor_overrides = initial_motor_overrides(
@@ -843,8 +649,10 @@ fn main() {
         ),
     );
 
-    // Startup: robot meshes + EE camera
-    scene.app.add_systems(Startup, spawn_arm_meshes);
+    // Startup: robot meshes + scene extras + EE camera
+    scene
+        .app
+        .add_systems(Startup, (spawn_arm_link_meshes, spawn_ik_viz_extras));
     scene.app.add_systems(
         Startup,
         (

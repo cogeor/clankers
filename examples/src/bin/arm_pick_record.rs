@@ -16,12 +16,14 @@ use clankers_examples::arm_setup::{
     ArmIkState, ArmSetupConfig, arm_ik_solver, initial_motor_overrides, setup_arm, ARM_DAMPING,
     ARM_STIFFNESS, EFFORT_LIMITS, GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
 };
+use clankers_examples::arm_visuals::{
+    GripperEntities, spawn_arm_link_meshes, spawn_arm_scene, sync_link_visuals,
+};
 use clankers_ik::IkTarget;
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_record::prelude::*;
 use clankers_render::camera::spawn_camera_sensor;
 use clankers_render::prelude::*;
-use clankers_viz::{phys_rot_to_vis, phys_to_vis};
 use clap::Parser;
 use nalgebra::Vector3;
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle, SharedShape};
@@ -71,9 +73,6 @@ const HOLD_STEPS: u32 = 20;
 // ---------------------------------------------------------------------------
 // Resources & Components
 // ---------------------------------------------------------------------------
-
-#[derive(Resource)]
-struct GripperEntities([Entity; 2]);
 
 #[derive(Resource)]
 struct PickState {
@@ -131,10 +130,6 @@ impl PickPhase {
     }
 }
 
-/// Visual marker for link mesh sync.
-#[derive(Component)]
-struct LinkVisual(&'static str);
-
 /// Stores initial positions for physics reset (used between episodes).
 #[derive(Resource)]
 #[allow(dead_code)]
@@ -178,137 +173,10 @@ fn spawn_obs_camera(
 }
 
 // ---------------------------------------------------------------------------
-// Startup: spawn arm meshes + scene objects
+// Startup: spawn record-specific camera
 // ---------------------------------------------------------------------------
 
-fn spawn_arm_meshes(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let base_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.3, 0.3, 0.35),
-        ..default()
-    });
-    let link_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.5, 0.8),
-        ..default()
-    });
-    let forearm_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.7, 0.3),
-        ..default()
-    });
-    let ee_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.4, 0.1),
-        ..default()
-    });
-    let gripper_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.6, 0.6, 0.65),
-        ..default()
-    });
-
-    for (name, radius, height, y_off, mat) in [
-        ("base", 0.08, 0.1, 0.0, &base_mat),
-        ("shoulder_link", 0.04, 0.2, 0.1, &link_mat),
-        ("upper_arm", 0.035, 0.3, 0.15, &link_mat),
-        ("elbow_link", 0.03, 0.1, 0.05, &forearm_mat),
-        ("forearm", 0.025, 0.2, 0.1, &forearm_mat),
-    ] {
-        commands
-            .spawn((
-                LinkVisual(name),
-                Visibility::default(),
-                Transform::default(),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Mesh3d(meshes.add(Cylinder::new(radius, height))),
-                    MeshMaterial3d(mat.clone()),
-                    Transform::from_xyz(0.0, y_off, 0.0),
-                ));
-            });
-    }
-
-    // End-effector sphere
-    commands
-        .spawn((
-            LinkVisual("end_effector"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Sphere::new(0.025))),
-                MeshMaterial3d(ee_mat),
-                Transform::IDENTITY,
-            ));
-        });
-
-    // Gripper base + fingers
-    commands
-        .spawn((
-            LinkVisual("gripper_base"),
-            Visibility::default(),
-            Transform::default(),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.06, 0.02, 0.04))),
-                MeshMaterial3d(gripper_mat.clone()),
-                Transform::IDENTITY,
-            ));
-        });
-
-    for finger_name in ["finger_left", "finger_right"] {
-        commands
-            .spawn((
-                LinkVisual(finger_name),
-                Visibility::default(),
-                Transform::default(),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
-                    MeshMaterial3d(gripper_mat.clone()),
-                    Transform::from_xyz(0.0, 0.02, 0.0),
-                ));
-            });
-    }
-
-    // Table surface
-    let table_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.76, 0.6, 0.42),
-        ..default()
-    });
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(0.6, 0.02, 0.4))),
-        MeshMaterial3d(table_mat),
-        // physics z=0.4 -> bevy y=0.4, offset by table half-height
-        Transform::from_xyz(0.35, 0.4 - 0.01, 0.0),
-    ));
-
-    // Red cube visual
-    let red_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.0, 0.15, 0.1),
-        ..default()
-    });
-    commands.spawn((
-        LinkVisual("red_cube"),
-        Mesh3d(meshes.add(Cuboid::new(0.025, 0.025, 0.025))),
-        MeshMaterial3d(red_mat),
-        Visibility::default(),
-        Transform::default(),
-    ));
-
-    // Lighting
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 10000.0,
-            ..default()
-        },
-        Transform::from_xyz(1.0, 2.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-
+fn spawn_record_camera(mut commands: Commands) {
     // Main viewport camera (Bevy Y-up: physics (0.3, 0, 0.4) -> bevy (0.3, 0.4, 0))
     commands.spawn((
         Camera3d::default(),
@@ -319,21 +187,6 @@ fn spawn_arm_meshes(
 // ---------------------------------------------------------------------------
 // Runtime systems
 // ---------------------------------------------------------------------------
-
-/// Sync link visual transforms from physics bodies.
-#[allow(clippy::needless_pass_by_value)]
-fn sync_link_visuals(ctx: Res<RapierContext>, mut query: Query<(&LinkVisual, &mut Transform)>) {
-    for (link, mut tf) in &mut query {
-        let Some(&handle) = ctx.body_handles.get(link.0) else {
-            continue;
-        };
-        let Some(body) = ctx.rigid_body_set.get(handle) else {
-            continue;
-        };
-        tf.translation = phys_to_vis(body.translation());
-        tf.rotation = phys_rot_to_vis(body.rotation());
-    }
-}
 
 /// Populate `PendingBodyPoses` from `RapierContext` each frame.
 #[allow(clippy::needless_pass_by_value)]
@@ -500,17 +353,7 @@ fn main() {
             ..ArmSetupConfig::default()
         });
 
-        let gripper_entities = {
-            let spawned = &setup.scene.robots["six_dof_arm"];
-            GripperEntities([
-                spawned
-                    .joint_entity("j_finger_left")
-                    .expect("j_finger_left not found"),
-                spawned
-                    .joint_entity("j_finger_right")
-                    .expect("j_finger_right not found"),
-            ])
-        };
+        let gripper_entities = GripperEntities::from_setup(&setup);
 
         // Pre-populate motor overrides so motors hold from the first physics step
         let motor_overrides = initial_motor_overrides(&setup, &gripper_entities.0);
@@ -646,9 +489,15 @@ fn main() {
         });
 
         // 7. Startup systems
-        scene
-            .app
-            .add_systems(Startup, (spawn_arm_meshes, spawn_obs_camera));
+        scene.app.add_systems(
+            Startup,
+            (
+                spawn_arm_link_meshes,
+                spawn_arm_scene,
+                spawn_record_camera,
+                spawn_obs_camera,
+            ),
+        );
 
         // 8. Runtime systems
         scene

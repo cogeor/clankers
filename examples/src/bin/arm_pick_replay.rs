@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
 use clankers_viz::{phys_rot_to_vis, phys_to_vis};
 use clap::Parser;
 use serde::Deserialize;
@@ -21,7 +22,8 @@ use serde::Deserialize;
 #[derive(Parser)]
 #[command(about = "Replay an arm pick trace in 3D")]
 struct Cli {
-    /// Path to the trace JSON file
+    /// Path to the trace JSON file [default: output/arm_pick_dataset/dry_run_trace.json]
+    #[arg(default_value = "output/arm_pick_dataset/dry_run_trace.json")]
     trace: String,
 }
 
@@ -63,11 +65,8 @@ struct TracePlayback {
     dt: f32,
 }
 
-#[derive(Component)]
-struct BodyVisual(String);
-
 // ---------------------------------------------------------------------------
-// Startup: camera, ground, lights
+// Startup: camera + scene
 // ---------------------------------------------------------------------------
 
 fn spawn_camera_and_scene(
@@ -85,6 +84,7 @@ fn spawn_camera_and_scene(
         Camera3d::default(),
     ));
 
+    // Ground plane
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(5.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -107,123 +107,32 @@ fn spawn_camera_and_scene(
         brightness: 200.0,
         ..default()
     });
-}
 
-// ---------------------------------------------------------------------------
-// Startup: arm meshes + table + cube (each tagged with BodyVisual)
-// ---------------------------------------------------------------------------
-
-fn spawn_arm_meshes(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let base_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.3, 0.3, 0.35),
-        ..default()
-    });
-    let link_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.5, 0.8),
-        ..default()
-    });
-    let forearm_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.7, 0.3),
-        ..default()
-    });
-    let wrist_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.8, 0.2),
-        ..default()
-    });
-    let ee_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.4, 0.1),
-        ..default()
-    });
-    let gripper_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.6, 0.6, 0.65),
-        ..default()
-    });
+    // Table
     let table_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.76, 0.6, 0.42),
         ..default()
     });
+    commands.spawn((
+        LinkVisual("table"),
+        Mesh3d(meshes.add(Cuboid::new(0.6, 0.025, 0.4))),
+        MeshMaterial3d(table_mat),
+        Visibility::default(),
+        Transform::default(),
+    ));
+
+    // Red cube
     let red_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.15, 0.1),
         ..default()
     });
-
-    // Parent entity with BodyVisual + child mesh at local offset.
-    // Parent transform is updated each frame from the trace.
-    macro_rules! body {
-        ($name:expr, $mesh:expr, $mat:expr) => {
-            body!($name, $mesh, $mat, Transform::IDENTITY)
-        };
-        ($name:expr, $mesh:expr, $mat:expr, $offset:expr) => {
-            commands
-                .spawn((
-                    BodyVisual($name.to_string()),
-                    Visibility::default(),
-                    Transform::default(),
-                ))
-                .with_children(|p| {
-                    p.spawn((Mesh3d(meshes.add($mesh)), MeshMaterial3d($mat), $offset));
-                });
-        };
-    }
-
-    body!("base", Cylinder::new(0.08, 0.1), base_mat);
-    body!(
-        "shoulder_link",
-        Cylinder::new(0.04, 0.2),
-        link_mat.clone(),
-        Transform::from_xyz(0.0, 0.1, 0.0)
-    );
-    body!(
-        "upper_arm",
-        Cylinder::new(0.035, 0.3),
-        link_mat,
-        Transform::from_xyz(0.0, 0.15, 0.0)
-    );
-    body!(
-        "elbow_link",
-        Cylinder::new(0.03, 0.1),
-        forearm_mat.clone(),
-        Transform::from_xyz(0.0, 0.05, 0.0)
-    );
-    body!(
-        "forearm",
-        Cylinder::new(0.025, 0.2),
-        forearm_mat,
-        Transform::from_xyz(0.0, 0.1, 0.0)
-    );
-    body!(
-        "wrist_link",
-        Cylinder::new(0.02, 0.06),
-        wrist_mat,
-        Transform::from_xyz(0.0, 0.03, 0.0)
-    );
-    body!("end_effector", Sphere::new(0.025), ee_mat);
-    body!(
-        "gripper_base",
-        Cuboid::new(0.06, 0.02, 0.04),
-        gripper_mat.clone()
-    );
-    body!(
-        "finger_left",
-        Cuboid::new(0.01, 0.04, 0.01),
-        gripper_mat.clone(),
-        Transform::from_xyz(0.0, 0.02, 0.0)
-    );
-    body!(
-        "finger_right",
-        Cuboid::new(0.01, 0.04, 0.01),
-        gripper_mat,
-        Transform::from_xyz(0.0, 0.02, 0.0)
-    );
-
-    // Table: physics half-extents (0.3, 0.2, 0.0125) -> visual full (0.6, 0.025, 0.4)
-    body!("table", Cuboid::new(0.6, 0.025, 0.4), table_mat);
-    // Red cube: physics half-extents (0.0125^3) -> visual full (0.025^3)
-    body!("red_cube", Cuboid::new(0.025, 0.025, 0.025), red_mat);
+    commands.spawn((
+        LinkVisual("red_cube"),
+        Mesh3d(meshes.add(Cuboid::new(0.025, 0.025, 0.025))),
+        MeshMaterial3d(red_mat),
+        Visibility::default(),
+        Transform::default(),
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -257,11 +166,11 @@ fn playback_advance_system(time: Res<Time>, mut playback: ResMut<TracePlayback>)
 #[allow(clippy::needless_pass_by_value)]
 fn apply_body_poses_system(
     playback: Res<TracePlayback>,
-    mut query: Query<(&BodyVisual, &mut Transform)>,
+    mut query: Query<(&LinkVisual, &mut Transform)>,
 ) {
     let frame = &playback.frames[playback.cursor];
     for (body, mut tf) in &mut query {
-        if let Some(pose) = frame.get(&body.0) {
+        if let Some(pose) = frame.get(body.0) {
             let pos = Vec3::new(pose[0], pose[1], pose[2]);
             let rot = Quat::from_xyzw(pose[3], pose[4], pose[5], pose[6]);
             tf.translation = phys_to_vis(pos);
@@ -446,7 +355,7 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(PanOrbitCameraPlugin)
         .insert_resource(playback)
-        .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_meshes))
+        .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes))
         .add_systems(
             Update,
             (

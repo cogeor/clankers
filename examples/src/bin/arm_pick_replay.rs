@@ -7,6 +7,8 @@
 //!
 //! Use `--record <dir>` to capture each frame as a PNG during auto-playback.
 //! Add `--gif <path.gif>` to also assemble frames into an animated GIF.
+//! A second GIF (`*_robot.gif`) is automatically produced from the robot
+//! observation camera viewport.
 //!
 //! ```sh
 //! cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- trace.json --record frames/ --gif replay.gif
@@ -15,6 +17,7 @@
 //! Run: `cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- <trace.json>`
 
 use std::collections::HashMap;
+use std::f32::consts::FRAC_PI_2;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
@@ -22,6 +25,10 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
+use clankers_viz::camera::{
+    ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera,
+    sync_obs_camera_viewport,
+};
 use clankers_viz::{phys_rot_to_vis, phys_to_vis};
 use clap::Parser;
 use serde::Deserialize;
@@ -215,6 +222,29 @@ fn apply_body_poses_system(
             tf.translation = phys_to_vis(pos);
             tf.rotation = phys_rot_to_vis(&rot);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Update: observation camera follows end-effector
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::needless_pass_by_value)]
+fn sync_ee_camera_system(
+    links: Query<(&LinkVisual, &Transform), Without<ObservationCamera>>,
+    mut cam_q: Query<&mut Transform, With<ObservationCamera>>,
+) {
+    let Some((_, ee_tf)) = links.iter().find(|(lv, _)| lv.0 == "end_effector") else {
+        return;
+    };
+    let ee_pos = ee_tf.translation;
+    let ee_rot = ee_tf.rotation;
+    let cam_orient = Quat::from_rotation_x(FRAC_PI_2);
+    let ee_forward = ee_rot * Vec3::Y;
+
+    for mut tf in &mut cam_q {
+        tf.translation = ee_pos - ee_forward * 0.05;
+        tf.rotation = ee_rot * cam_orient;
     }
 }
 
@@ -433,18 +463,34 @@ fn replay_panel_system(mut contexts: EguiContexts, mut playback: ResMut<TracePla
 // GIF assembly (runs after app exits)
 // ---------------------------------------------------------------------------
 
-fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f32) {
-    use image::codecs::gif::{GifEncoder, Repeat};
-    use image::Frame;
-    use std::fs::File;
-
-    let mut frame_paths: Vec<PathBuf> = std::fs::read_dir(frames_dir)
+/// Collect sorted PNG frame paths from a directory.
+fn collect_frame_paths(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
         .expect("failed to read frames directory")
         .filter_map(std::result::Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "png"))
         .collect();
-    frame_paths.sort();
+    paths.sort();
+    paths
+}
+
+fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f32) {
+    assemble_gif_with_crop(frames_dir, gif_path, dt, None);
+}
+
+/// Assemble PNGs into a GIF, optionally cropping each frame to a sub-region.
+fn assemble_gif_with_crop(
+    frames_dir: &std::path::Path,
+    gif_path: &std::path::Path,
+    dt: f32,
+    crop: Option<(u32, u32, u32, u32)>, // (x, y, w, h)
+) {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use image::Frame;
+    use std::fs::File;
+
+    let frame_paths = collect_frame_paths(frames_dir);
 
     if frame_paths.is_empty() {
         eprintln!("No PNG frames found in {}", frames_dir.display());
@@ -452,9 +498,10 @@ fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f3
     }
 
     println!(
-        "Assembling {} frames into {}...",
+        "Assembling {} frames into {}{}...",
         frame_paths.len(),
-        gif_path.display()
+        gif_path.display(),
+        if crop.is_some() { " (cropped)" } else { "" },
     );
 
     if let Some(parent) = gif_path.parent()
@@ -473,12 +520,42 @@ fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f3
 
     for path in &frame_paths {
         let img = image::open(path).expect("failed to read frame PNG");
-        let rgba = img.to_rgba8();
+        let rgba = if let Some((x, y, w, h)) = crop {
+            image::imageops::crop_imm(&img.to_rgba8(), x, y, w, h).to_image()
+        } else {
+            img.to_rgba8()
+        };
         let frame = Frame::from_parts(rgba, 0, 0, delay);
         encoder.encode_frame(frame).expect("failed to encode frame");
     }
 
     println!("GIF saved to {}", gif_path.display());
+}
+
+/// Derive robot cam GIF path from the main GIF path (e.g. replay.gif → replay_robot.gif).
+fn robot_gif_path(main_gif: &std::path::Path) -> PathBuf {
+    let stem = main_gif
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let ext = main_gif
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("gif");
+    main_gif.with_file_name(format!("{stem}_robot.{ext}"))
+}
+
+/// Compute the viewport crop region for the observation camera.
+fn obs_cam_crop(window_w: u32, window_h: u32, config: &ObsCameraConfig) -> (u32, u32, u32, u32) {
+    let vp_w = (window_w as f32 * config.width_fraction) as u32;
+    let vp_h = (vp_w as f32 / config.aspect) as u32;
+    let (x, y) = match config.corner {
+        ViewportCorner::TopRight => (window_w.saturating_sub(vp_w), 0),
+        ViewportCorner::TopLeft => (0, 0),
+        ViewportCorner::BottomRight => (window_w.saturating_sub(vp_w), window_h.saturating_sub(vp_h)),
+        ViewportCorner::BottomLeft => (0, window_h.saturating_sub(vp_h)),
+    };
+    (x, y, vp_w, vp_h)
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +663,8 @@ fn main() {
         dt: 0.02,
     };
 
+    let window_res = (1280_u32, 720_u32);
+
     let recording = cli.record.as_ref().map(|dir| {
         std::fs::create_dir_all(dir).expect("failed to create recording directory");
         RecordingState {
@@ -611,11 +690,18 @@ fn main() {
         }
     }
 
+    let obs_config = ObsCameraConfig {
+        width_fraction: 0.3,
+        aspect: 4.0 / 3.0,
+        corner: ViewportCorner::TopRight,
+        fov: 70_f32.to_radians(),
+    };
+
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Clankers -- Arm Pick Replay".to_string(),
-            resolution: (1280, 720).into(),
+            resolution: window_res.into(),
             ..default()
         }),
         ..default()
@@ -623,12 +709,15 @@ fn main() {
     .add_plugins(EguiPlugin::default())
     .add_plugins(PanOrbitCameraPlugin)
     .insert_resource(playback)
-    .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes))
+    .insert_resource(obs_config.clone())
+    .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes, spawn_obs_camera))
     .add_systems(
         Update,
         (
             playback_advance_system,
             apply_body_poses_system.after(playback_advance_system),
+            sync_ee_camera_system.after(apply_body_poses_system),
+            sync_obs_camera_viewport,
             keyboard_system,
             egui_camera_gate,
         ),
@@ -650,11 +739,18 @@ fn main() {
         );
 
         let augment_path = cli.augment;
+        let obs_cfg = obs_config.clone();
+        let win_size = window_res;
         app.run();
 
         // After app exits, assemble GIF if requested
         if let Some(gif) = gif_path {
             assemble_gif(&frames_dir, &gif, dt);
+
+            // Robot cam GIF: crop the obs camera viewport from each frame
+            let robot_gif = robot_gif_path(&gif);
+            let crop = obs_cam_crop(win_size.0, win_size.1, &obs_cfg);
+            assemble_gif_with_crop(&frames_dir, &robot_gif, dt, Some(crop));
         }
 
         // Run augmentation pipeline if requested

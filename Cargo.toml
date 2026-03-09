@@ -47,6 +47,7 @@ toml = "0.8"
 urdf-rs = "0.9"
 clarabel = "0.11"
 rapier3d = "0.32"
+image = { version = "0.25", default-features = false, features = ["png", "gif"] }
 ndarray = "0.16"
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "load-dynamic", "tls-native"] }
 mcap = "0.24"

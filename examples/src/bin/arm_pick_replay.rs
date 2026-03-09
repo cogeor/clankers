@@ -3,11 +3,22 @@
 //! Loads a dry-run trace JSON and plays back body poses in a Bevy window.
 //! No physics simulation — transforms are set directly from recorded data.
 //!
+//! ## Recording
+//!
+//! Use `--record <dir>` to capture each frame as a PNG during auto-playback.
+//! Add `--gif <path.gif>` to also assemble frames into an animated GIF.
+//!
+//! ```sh
+//! cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- trace.json --record frames/ --gif replay.gif
+//! ```
+//!
 //! Run: `cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- <trace.json>`
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
@@ -25,6 +36,18 @@ struct Cli {
     /// Path to the trace JSON file [default: output/arm_pick_dataset/dry_run_trace.json]
     #[arg(default_value = "output/arm_pick_dataset/dry_run_trace.json")]
     trace: String,
+
+    /// Record frames to this directory as PNGs during auto-playback
+    #[arg(long)]
+    record: Option<PathBuf>,
+
+    /// Assemble recorded frames into an animated GIF at this path
+    #[arg(long)]
+    gif: Option<PathBuf>,
+
+    /// Frame skip for recording (capture every Nth frame). Default: 1 (every frame)
+    #[arg(long, default_value_t = 1)]
+    frame_skip: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +86,16 @@ struct TracePlayback {
     speed: f32,
     accumulator: f32,
     dt: f32,
+}
+
+/// Recording state — present only when `--record` is used.
+#[derive(Resource)]
+struct RecordingState {
+    output_dir: PathBuf,
+    frame_count: usize,
+    frame_skip: usize,
+    last_captured_cursor: Option<usize>,
+    gif_path: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +193,7 @@ fn playback_advance_system(time: Res<Time>, mut playback: ResMut<TracePlayback>)
 }
 
 // ---------------------------------------------------------------------------
-// Update: apply body poses from trace to BodyVisual entities
+// Update: apply body poses from trace to LinkVisual entities
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::needless_pass_by_value)]
@@ -221,6 +254,87 @@ fn egui_camera_gate(mut contexts: EguiContexts, mut cameras: Query<&mut PanOrbit
         .is_ok_and(|ctx| ctx.is_pointer_over_area() || ctx.wants_pointer_input());
     for mut cam in &mut cameras {
         cam.enabled = !egui_wants;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recording: capture frames as PNGs during playback
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::needless_pass_by_value)]
+fn record_frame_system(
+    mut commands: Commands,
+    playback: Res<TracePlayback>,
+    mut recording: ResMut<RecordingState>,
+) {
+    // Only record while playing
+    if !playback.playing {
+        // If playback just stopped and we were recording, signal completion
+        if recording.frame_count > 0
+            && recording
+                .last_captured_cursor
+                .is_some_and(|c| c == playback.frames.len() - 1)
+        {
+            println!(
+                "  Recording complete: {} frames saved to {}",
+                recording.frame_count,
+                recording.output_dir.display()
+            );
+        }
+        return;
+    }
+
+    // Skip frames per frame_skip setting
+    if recording.frame_skip > 1 && !playback.cursor.is_multiple_of(recording.frame_skip) {
+        return;
+    }
+
+    // Don't re-capture the same cursor position
+    if recording.last_captured_cursor == Some(playback.cursor) {
+        return;
+    }
+
+    let path = recording
+        .output_dir
+        .join(format!("frame_{:05}.png", recording.frame_count));
+    recording.frame_count += 1;
+    recording.last_captured_cursor = Some(playback.cursor);
+
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(path));
+}
+
+/// Auto-start playback and exit when done (only in record mode).
+#[allow(clippy::needless_pass_by_value)]
+fn record_autoplay_system(
+    mut playback: ResMut<TracePlayback>,
+    recording: Res<RecordingState>,
+    mut exit: MessageWriter<AppExit>,
+    mut started: Local<bool>,
+) {
+    // Auto-start playback on first frame
+    if !*started {
+        *started = true;
+        playback.playing = true;
+        playback.cursor = 0;
+        playback.accumulator = 0.0;
+        println!(
+            "  Auto-recording {} frames to {}",
+            playback.frames.len(),
+            recording.output_dir.display()
+        );
+        return;
+    }
+
+    // Auto-exit when playback finishes
+    if !playback.playing && recording.frame_count > 0 {
+        println!(
+            "  Recording done: {} frames in {}",
+            recording.frame_count,
+            recording.output_dir.display()
+        );
+        exit.write(AppExit::Success);
     }
 }
 
@@ -310,6 +424,58 @@ fn replay_panel_system(mut contexts: EguiContexts, mut playback: ResMut<TracePla
 }
 
 // ---------------------------------------------------------------------------
+// GIF assembly (runs after app exits)
+// ---------------------------------------------------------------------------
+
+fn assemble_gif(frames_dir: &std::path::Path, gif_path: &std::path::Path, dt: f32) {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use image::Frame;
+    use std::fs::File;
+
+    let mut frame_paths: Vec<PathBuf> = std::fs::read_dir(frames_dir)
+        .expect("failed to read frames directory")
+        .filter_map(std::result::Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "png"))
+        .collect();
+    frame_paths.sort();
+
+    if frame_paths.is_empty() {
+        eprintln!("No PNG frames found in {}", frames_dir.display());
+        return;
+    }
+
+    println!(
+        "Assembling {} frames into {}...",
+        frame_paths.len(),
+        gif_path.display()
+    );
+
+    if let Some(parent) = gif_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).expect("failed to create GIF output directory");
+    }
+
+    let file = File::create(gif_path).expect("failed to create GIF file");
+    let mut encoder = GifEncoder::new(file);
+    encoder.set_repeat(Repeat::Infinite).ok();
+
+    // GIF frame delay is in units of 10ms
+    let delay_ms = (dt * 1000.0) as u32;
+    let delay = image::Delay::from_numer_denom_ms(delay_ms, 1);
+
+    for path in &frame_paths {
+        let img = image::open(path).expect("failed to read frame PNG");
+        let rgba = img.to_rgba8();
+        let frame = Frame::from_parts(rgba, 0, 0, delay);
+        encoder.encode_frame(frame).expect("failed to encode frame");
+    }
+
+    println!("GIF saved to {}", gif_path.display());
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -338,33 +504,78 @@ fn main() {
         dt: 0.02,
     };
 
+    let recording = cli.record.as_ref().map(|dir| {
+        std::fs::create_dir_all(dir).expect("failed to create recording directory");
+        RecordingState {
+            output_dir: dir.clone(),
+            frame_count: 0,
+            frame_skip: cli.frame_skip,
+            last_captured_cursor: None,
+            gif_path: cli.gif.clone(),
+        }
+    });
+
     println!(
         "Arm Pick Replay -- {n} frames, {:.1}s",
         (n - 1) as f32 * 0.02
     );
+    if let Some(ref rec) = recording {
+        println!("  Recording to: {}", rec.output_dir.display());
+        if let Some(ref gif) = rec.gif_path {
+            println!("  GIF output: {}", gif.display());
+        }
+    }
 
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Clankers -- Arm Pick Replay".to_string(),
-                resolution: (1280, 720).into(),
-                ..default()
-            }),
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Clankers -- Arm Pick Replay".to_string(),
+            resolution: (1280, 720).into(),
             ..default()
-        }))
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(PanOrbitCameraPlugin)
-        .insert_resource(playback)
-        .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes))
-        .add_systems(
+        }),
+        ..default()
+    }))
+    .add_plugins(EguiPlugin::default())
+    .add_plugins(PanOrbitCameraPlugin)
+    .insert_resource(playback)
+    .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes))
+    .add_systems(
+        Update,
+        (
+            playback_advance_system,
+            apply_body_poses_system.after(playback_advance_system),
+            keyboard_system,
+            egui_camera_gate,
+        ),
+    )
+    .add_systems(EguiPrimaryContextPass, replay_panel_system);
+
+    // Add recording systems if --record was specified
+    if let Some(rec) = recording {
+        let gif_path = rec.gif_path.clone();
+        let frames_dir = rec.output_dir.clone();
+        let dt = 0.02_f32;
+        app.insert_resource(rec);
+        app.add_systems(
             Update,
             (
-                playback_advance_system,
-                apply_body_poses_system.after(playback_advance_system),
-                keyboard_system,
-                egui_camera_gate,
+                record_frame_system.after(apply_body_poses_system),
+                record_autoplay_system.after(record_frame_system),
             ),
-        )
-        .add_systems(EguiPrimaryContextPass, replay_panel_system)
-        .run();
+        );
+
+        app.run();
+
+        // After app exits, assemble GIF if requested
+        if let Some(gif) = gif_path {
+            assemble_gif(&frames_dir, &gif, dt);
+        }
+    } else if cli.gif.is_some() {
+        // --gif without --record: look for existing frames
+        eprintln!("--gif requires --record <dir> to specify frames directory");
+        eprintln!("Usage: arm_pick_replay trace.json --record frames/ --gif output.gif");
+        std::process::exit(1);
+    } else {
+        app.run();
+    }
 }

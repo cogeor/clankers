@@ -24,7 +24,7 @@ clankers-viz.workspace = true
 clankers-physics.workspace = true
 clankers-ik = { workspace = true, features = ["bevy"] }
 clankers-record = { workspace = true, features = ["camera"] }
-clankers-render = { workspace = true, features = ["gpu"] }
+clankers-render = { workspace = true, features = ["gpu", "cosmos-log"] }
 clankers-mpc = { workspace = true, features = ["bevy"] }
 clap.workspace = true
 bevy = { workspace = true, features = ["default"] }

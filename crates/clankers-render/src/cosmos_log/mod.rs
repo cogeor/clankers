@@ -93,5 +93,8 @@ impl Plugin for CosmosLogPlugin {
             )
                 .chain(),
         );
+
+        // Write metadata.json on app exit.
+        app.add_systems(Last, metadata::write_cosmos_metadata_on_exit);
     }
 }

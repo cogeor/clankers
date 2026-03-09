@@ -6,14 +6,27 @@ use serde_json::{Map, Value, json};
 use super::config::{CameraPlacement, CosmosLogConfig};
 use super::writer::CosmosWriterState;
 
-/// System that writes `metadata.json` to the run directory.
-///
-/// Should be called once after the app finishes recording (e.g., on exit).
+/// System that runs in [`Last`] and writes `metadata.json` once when
+/// [`AppExit`] has been sent (i.e., the app is shutting down).
 #[allow(clippy::needless_pass_by_value)]
-pub fn write_cosmos_metadata(
+pub fn write_cosmos_metadata_on_exit(
+    exit_events: MessageReader<AppExit>,
     config: Res<CosmosLogConfig>,
     state: Res<CosmosWriterState>,
+    mut written: Local<bool>,
 ) {
+    if *written || exit_events.is_empty() {
+        return;
+    }
+    *written = true;
+    write_cosmos_metadata(&config, &state);
+}
+
+/// Write `metadata.json` to the run directory.
+///
+/// Can also be called directly from example code after `app.run()` returns,
+/// but the preferred path is via the `Last` schedule system above.
+pub fn write_cosmos_metadata(config: &CosmosLogConfig, state: &CosmosWriterState) {
     let frame_count = state.frame_index;
     let fps = config.fps;
     let duration_s = if fps > 0 {

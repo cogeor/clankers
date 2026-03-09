@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use clankers_physics::rapier::RapierContext;
 
 use crate::arm_setup::ArmSetup;
+use clankers_render::segmentation::both_layers;
 use clankers_viz::{phys_rot_to_vis, phys_to_vis};
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,7 @@ pub fn spawn_arm_link_meshes(
         commands
             .spawn((
                 LinkVisual(name),
+                Name::new(name),
                 Visibility::default(),
                 Transform::default(),
             ))
@@ -97,6 +99,7 @@ pub fn spawn_arm_link_meshes(
                     Mesh3d(meshes.add(Cylinder::new(radius, height))),
                     MeshMaterial3d(mat.clone()),
                     Transform::from_xyz(0.0, y_off, 0.0),
+                    both_layers(),
                 ));
             });
     }
@@ -105,6 +108,7 @@ pub fn spawn_arm_link_meshes(
     commands
         .spawn((
             LinkVisual("end_effector"),
+            Name::new("end_effector"),
             Visibility::default(),
             Transform::default(),
         ))
@@ -113,6 +117,7 @@ pub fn spawn_arm_link_meshes(
                 Mesh3d(meshes.add(Sphere::new(0.025))),
                 MeshMaterial3d(ee_mat),
                 Transform::IDENTITY,
+                both_layers(),
             ));
         });
 
@@ -120,6 +125,7 @@ pub fn spawn_arm_link_meshes(
     commands
         .spawn((
             LinkVisual("gripper_base"),
+            Name::new("gripper_base"),
             Visibility::default(),
             Transform::default(),
         ))
@@ -128,6 +134,7 @@ pub fn spawn_arm_link_meshes(
                 Mesh3d(meshes.add(Cuboid::new(0.06, 0.02, 0.04))),
                 MeshMaterial3d(gripper_mat.clone()),
                 Transform::IDENTITY,
+                both_layers(),
             ));
         });
 
@@ -136,6 +143,7 @@ pub fn spawn_arm_link_meshes(
         commands
             .spawn((
                 LinkVisual(finger_name),
+                Name::new(finger_name),
                 Visibility::default(),
                 Transform::default(),
             ))
@@ -144,6 +152,7 @@ pub fn spawn_arm_link_meshes(
                     Mesh3d(meshes.add(Cuboid::new(0.01, 0.04, 0.01))),
                     MeshMaterial3d(gripper_mat.clone()),
                     Transform::from_xyz(0.0, 0.02, 0.0),
+                    both_layers(),
                 ));
             });
     }
@@ -167,6 +176,7 @@ pub fn spawn_arm_scene(
             base_color: Color::srgb(0.35, 0.38, 0.35),
             ..default()
         })),
+        both_layers(),
     ));
 
     // Directional light (sun)
@@ -177,6 +187,7 @@ pub fn spawn_arm_scene(
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
+        both_layers(),
     ));
 
     // Ambient light
@@ -197,6 +208,7 @@ pub fn spawn_arm_scene(
         MeshMaterial3d(table_mat),
         Visibility::default(),
         Transform::default(),
+        both_layers(),
     ));
 
     // Red cube
@@ -210,6 +222,7 @@ pub fn spawn_arm_scene(
         MeshMaterial3d(red_mat),
         Visibility::default(),
         Transform::default(),
+        both_layers(),
     ));
 }
 

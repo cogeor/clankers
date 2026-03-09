@@ -25,6 +25,10 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
+use clankers_render::cosmos_log::{
+    CameraPlacement, CameraSpec, CosmosLogConfig, CosmosLogPlugin,
+};
+use clankers_render::segmentation::both_layers;
 use clankers_viz::camera::{
     ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera,
     sync_obs_camera_viewport,
@@ -61,6 +65,15 @@ struct Cli {
     /// Requires: python -m clankers.augmentation
     #[arg(long)]
     augment: Option<PathBuf>,
+
+    /// Enable Cosmos-ready frame logging (RGB + depth + seg PNGs).
+    /// Outputs to data/{timestamp}-arm-pick/ with per-camera subdirectories.
+    #[arg(long)]
+    log: bool,
+
+    /// Output root for --log (default: data/)
+    #[arg(long, default_value = "data")]
+    log_dir: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +150,7 @@ fn spawn_camera_and_scene(
             base_color: Color::srgb(0.35, 0.38, 0.35),
             ..default()
         })),
+        both_layers(),
     ));
 
     commands.spawn((
@@ -146,6 +160,7 @@ fn spawn_camera_and_scene(
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
+        both_layers(),
     ));
 
     commands.insert_resource(AmbientLight {
@@ -161,10 +176,12 @@ fn spawn_camera_and_scene(
     });
     commands.spawn((
         LinkVisual("table"),
+        Name::new("table"),
         Mesh3d(meshes.add(Cuboid::new(0.6, 0.025, 0.4))),
         MeshMaterial3d(table_mat),
         Visibility::default(),
         Transform::default(),
+        both_layers(),
     ));
 
     // Red cube
@@ -174,10 +191,12 @@ fn spawn_camera_and_scene(
     });
     commands.spawn((
         LinkVisual("red_cube"),
+        Name::new("red_cube"),
         Mesh3d(meshes.add(Cuboid::new(0.025, 0.025, 0.025))),
         MeshMaterial3d(red_mat),
         Visibility::default(),
         Transform::default(),
+        both_layers(),
     ));
 }
 
@@ -723,6 +742,38 @@ fn main() {
         ),
     )
     .add_systems(EguiPrimaryContextPass, replay_panel_system);
+
+    // Add Cosmos logging if --log was specified
+    if cli.log {
+        app.insert_resource(CosmosLogConfig {
+            output_root: cli.log_dir.clone(),
+            run_name: Some("arm-pick".into()),
+            cameras: vec![
+                CameraSpec {
+                    label: "main".into(),
+                    resolution: (854, 480),
+                    fov_deg: 70.0,
+                    placement: CameraPlacement::Fixed {
+                        position: Vec3::new(0.8, 0.8, 0.8),
+                        target: Vec3::new(0.2, 0.4, 0.0),
+                    },
+                },
+                CameraSpec {
+                    label: "ee".into(),
+                    resolution: (424, 240),
+                    fov_deg: 90.0,
+                    placement: CameraPlacement::FollowLink {
+                        link_name: "end_effector".into(),
+                        offset: Vec3::new(0.0, -0.05, 0.0),
+                        orientation: Quat::from_rotation_x(FRAC_PI_2),
+                    },
+                },
+            ],
+            ..CosmosLogConfig::default()
+        });
+        app.add_plugins(CosmosLogPlugin);
+        println!("  Cosmos logging enabled → {}", cli.log_dir.display());
+    }
 
     // Add recording systems if --record was specified
     if let Some(rec) = recording {

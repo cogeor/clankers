@@ -102,6 +102,10 @@ pub fn init_seg_transform_colors(
 }
 
 /// PostUpdate system: write RGB, depth, and segmentation PNGs for each camera.
+///
+/// Only writes when the RGB buffer has received fresh GPU data (checked via
+/// `frame_counter()`). This prevents writing blank frames before the GPU
+/// readback pipeline has produced its first output.
 #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 pub fn write_cosmos_frames(
     cam_bufs: Res<CameraFrameBuffers>,
@@ -110,76 +114,93 @@ pub fn write_cosmos_frames(
     config: Res<CosmosLogConfig>,
     seg_colors: Res<SegTransformColors>,
     mut state: ResMut<CosmosWriterState>,
+    mut last_rgb_counters: Local<std::collections::HashMap<String, u64>>,
 ) {
     let frame_idx = state.frame_index;
+    let mut any_written = false;
 
     for (label, dir) in &state.camera_dirs {
         let rgb_key = format!("cosmos_{label}");
 
-        // --- RGB ---
-        if let Some(buf) = cam_bufs.get(&rgb_key) {
-            let w = buf.width();
-            let h = buf.height();
-            let data = buf.data();
-            // CameraFrameBuffers stores RGBA8; convert to RGB.
-            let rgb: Vec<u8> = data
-                .chunks_exact(4)
-                .flat_map(|px| [px[0], px[1], px[2]])
-                .collect();
-            if let Some(img) = RgbImage::from_raw(w, h, rgb) {
-                let path = dir.join(format!("rgb_{frame_idx:05}.png"));
-                if let Err(e) = img.save(&path) {
-                    eprintln!("CosmosLog: failed to save RGB frame: {e}");
-                }
+        // --- RGB (gate on freshness) ---
+        let Some(rgb_buf) = cam_bufs.get(&rgb_key) else {
+            continue;
+        };
+
+        // Skip if the GPU hasn't written a new frame since our last capture.
+        let prev_counter = last_rgb_counters.get(&rgb_key).copied().unwrap_or(0);
+        if rgb_buf.frame_counter() == 0 || rgb_buf.frame_counter() == prev_counter {
+            continue;
+        }
+        last_rgb_counters.insert(rgb_key.clone(), rgb_buf.frame_counter());
+        any_written = true;
+
+        let w = rgb_buf.width();
+        let h = rgb_buf.height();
+        let data = rgb_buf.data();
+        // CameraFrameBuffers stores RGBA8; convert to RGB.
+        let rgb: Vec<u8> = data
+            .chunks_exact(4)
+            .flat_map(|px| [px[0], px[1], px[2]])
+            .collect();
+        if let Some(img) = RgbImage::from_raw(w, h, rgb) {
+            let path = dir.join(format!("rgb_{frame_idx:05}.png"));
+            if let Err(e) = img.save(&path) {
+                eprintln!("CosmosLog: failed to save RGB frame: {e}");
             }
         }
 
-        // --- Depth ---
+        // --- Depth (only write if buffer has data) ---
         if let Some(buf) = depth_bufs.get(label) {
-            let w = buf.width();
-            let h = buf.height();
-            let max_depth = config.depth_max_m;
-            // Normalize f32 depth to u8 grayscale.
-            let gray: Vec<u8> = buf
-                .data()
-                .iter()
-                .map(|&d| {
-                    let normalized = (d / max_depth).clamp(0.0, 1.0);
-                    (normalized * 255.0) as u8
-                })
-                .collect();
-            if let Some(img) = GrayImage::from_raw(w, h, gray) {
-                let path = dir.join(format!("depth_{frame_idx:05}.png"));
-                if let Err(e) = img.save(&path) {
-                    eprintln!("CosmosLog: failed to save depth frame: {e}");
+            if buf.frame_counter() > 0 {
+                let dw = buf.width();
+                let dh = buf.height();
+                let max_depth = config.depth_max_m;
+                let gray: Vec<u8> = buf
+                    .data()
+                    .iter()
+                    .map(|&d| {
+                        let normalized = (d / max_depth).clamp(0.0, 1.0);
+                        (normalized * 255.0) as u8
+                    })
+                    .collect();
+                if let Some(img) = GrayImage::from_raw(dw, dh, gray) {
+                    let path = dir.join(format!("depth_{frame_idx:05}.png"));
+                    if let Err(e) = img.save(&path) {
+                        eprintln!("CosmosLog: failed to save depth frame: {e}");
+                    }
                 }
             }
         }
 
-        // --- Segmentation → binary mask ---
+        // --- Segmentation → binary mask (only write if buffer has data) ---
         if let Some(buf) = seg_bufs.get(label) {
-            let w = buf.width();
-            let h = buf.height();
-            let data = buf.data();
-            // Remap: if pixel matches a transform class → white, else black.
-            let mask: Vec<u8> = data
-                .chunks_exact(3)
-                .flat_map(|px| {
-                    let is_transform = seg_colors.0.iter().any(|c| c == px);
-                    let val = if is_transform { 255_u8 } else { 0_u8 };
-                    [val, val, val]
-                })
-                .collect();
-            if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(w, h, mask) {
-                let path = dir.join(format!("seg_{frame_idx:05}.png"));
-                if let Err(e) = img.save(&path) {
-                    eprintln!("CosmosLog: failed to save seg frame: {e}");
+            if buf.frame_counter() > 0 {
+                let sw = buf.width();
+                let sh = buf.height();
+                let seg_data = buf.data();
+                let mask: Vec<u8> = seg_data
+                    .chunks_exact(3)
+                    .flat_map(|px| {
+                        let is_transform = seg_colors.0.iter().any(|c| c == px);
+                        let val = if is_transform { 255_u8 } else { 0_u8 };
+                        [val, val, val]
+                    })
+                    .collect();
+                if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, mask) {
+                    let path = dir.join(format!("seg_{frame_idx:05}.png"));
+                    if let Err(e) = img.save(&path) {
+                        eprintln!("CosmosLog: failed to save seg frame: {e}");
+                    }
                 }
             }
         }
     }
 
-    state.frame_index += 1;
+    // Only increment frame index when at least one camera produced output.
+    if any_written {
+        state.frame_index += 1;
+    }
 }
 
 // ---------------------------------------------------------------------------

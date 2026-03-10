@@ -1,6 +1,6 @@
 """Entry point for python -m clankers.cosmos.
 
-Dispatches to subcommands: download, prepare, infer, run.
+Dispatches to subcommands: prepare, infer, run.
 """
 
 from __future__ import annotations
@@ -16,29 +16,27 @@ def _run_full_pipeline(remaining: list[str]) -> None:
     parser = argparse.ArgumentParser(description="Full Cosmos pipeline: prepare + infer")
     parser.add_argument("--input-dir", type=Path, required=True, help="Directory with PNG frames")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
-    parser.add_argument("--cosmos-repo", type=Path, default=None, help="Cosmos repo path")
-    parser.add_argument("--distilled", action="store_true", help="Use distilled model")
-    parser.add_argument("--num-gpus", type=int, default=1, help="Number of GPUs")
+    parser.add_argument("--model-id", type=str, default=None, help="HuggingFace model ID")
+    parser.add_argument("--control", type=str, default="edge", help="ControlNet variant")
     args = parser.parse_args(remaining)
 
     from clankers.cosmos.infer import infer
     from clankers.cosmos.prepare import prepare
 
     print("=== Step 1: Prepare ===\n")
-    num_steps = 4 if args.distilled else 35
     spec_path = prepare(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        num_steps=num_steps,
     )
 
     print("\n=== Step 2: Infer ===\n")
-    infer(
-        spec_path=spec_path,
-        cosmos_repo=args.cosmos_repo,
-        distilled=args.distilled,
-        num_gpus=args.num_gpus,
-    )
+    kwargs: dict[str, object] = {
+        "spec_path": spec_path,
+        "control_type": args.control,
+    }
+    if args.model_id:
+        kwargs["model_id"] = args.model_id
+    infer(**kwargs)
 
 
 def main() -> None:
@@ -48,9 +46,6 @@ def main() -> None:
         description="Cosmos-Transfer2.5 sim-to-real pipeline",
     )
     sub = parser.add_subparsers(dest="command")
-
-    # download
-    sub.add_parser("download", help="Download Cosmos-Transfer2.5-2B model")
 
     # prepare
     sub.add_parser("prepare", help="Convert PNG frames to Cosmos input (MP4 + spec)")
@@ -63,12 +58,7 @@ def main() -> None:
 
     args, remaining = parser.parse_known_args()
 
-    if args.command == "download":
-        from clankers.cosmos.download import main as download_main
-
-        sys.argv = [sys.argv[0], *remaining]
-        download_main()
-    elif args.command == "prepare":
+    if args.command == "prepare":
         from clankers.cosmos.prepare import main as prepare_main
 
         sys.argv = [sys.argv[0], *remaining]

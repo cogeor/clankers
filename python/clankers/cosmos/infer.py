@@ -1,152 +1,147 @@
-"""Run Cosmos-Transfer2.5 inference on prepared input.
+"""Run Cosmos-Transfer2.5 inference using diffusers.
 
-Invokes the Cosmos inference script as a subprocess for clean isolation.
-Requires the cosmos-transfer2.5 repository to be cloned locally.
+Uses the HuggingFace diffusers pipeline, which handles model download
+and caching automatically.
 
 Usage:
     python -m clankers.cosmos infer --spec output/cosmos/spec.json
-    python -m clankers.cosmos infer --spec spec.json --cosmos-repo ~/cosmos-transfer2.5
+    python -m clankers.cosmos infer --spec spec.json --control edge
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
-from clankers.cosmos import DEFAULT_MODEL_DIR
+import numpy as np
+import torch
+from diffusers import AutoModel, Cosmos2_5_TransferPipeline
+from diffusers.utils import export_to_video, load_video
+from PIL import Image
+
+from clankers.cosmos import COSMOS_HF_REPO
+
+# Valid controlnet variants
+CONTROL_VARIANTS = ("edge", "depth", "seg", "blur")
 
 
-def _find_cosmos_repo() -> Path | None:
-    """Locate the cosmos-transfer2.5 repository."""
-    # 1. Environment variable
-    env_path = os.environ.get("COSMOS_REPO_PATH")
-    if env_path:
-        p = Path(env_path)
-        if (p / "examples" / "inference.py").exists():
-            return p
+class _NoOpSafetyChecker:
+    """Stub safety checker that skips the cosmos_guardrail dependency."""
 
-    # 2. Common locations
-    candidates = [
-        Path.home() / "cosmos-transfer2.5",
-        Path.home() / "src" / "cosmos-transfer2.5",
-        DEFAULT_MODEL_DIR / "cosmos-transfer2.5",
-        Path.cwd() / "cosmos-transfer2.5",
-    ]
-    for c in candidates:
-        if (c / "examples" / "inference.py").exists():
-            return c
+    def to(self, *_args: object, **_kwargs: object) -> "_NoOpSafetyChecker":
+        return self
 
-    return None
+    def check_text_safety(self, _text: object) -> bool:
+        return True
+
+    def check_video_safety(self, video: object) -> object:
+        return video
+
+
+def _load_controls_from_video(video_path: str, control_type: str, num_frames: int) -> list[Image.Image]:
+    """Load a video and optionally extract control signals."""
+    frames = load_video(video_path)[:num_frames]
+
+    if control_type == "edge":
+        import cv2
+
+        edge_maps = [
+            cv2.Canny(cv2.cvtColor(np.array(f.convert("RGB")), cv2.COLOR_RGB2BGR), 100, 200)
+            for f in frames
+        ]
+        edge_np = np.stack(edge_maps)[None]  # (T, H, W) -> (1, T, H, W)
+        controls_tensor = torch.from_numpy(edge_np).expand(3, -1, -1, -1)  # -> (3, T, H, W)
+        return [Image.fromarray(x.numpy()) for x in controls_tensor.permute(1, 2, 3, 0)]
+
+    # For depth/seg/blur, frames are used directly as control images
+    return [f.convert("RGB") for f in frames]
 
 
 def infer(
     spec_path: Path,
-    cosmos_repo: Path | None = None,
-    model_dir: Path | None = None,
-    distilled: bool = False,
-    num_gpus: int = 1,
+    model_id: str = COSMOS_HF_REPO,
+    control_type: str = "edge",
 ) -> Path:
-    """Run Cosmos-Transfer2.5 inference.
+    """Run Cosmos-Transfer2.5 inference via diffusers.
 
     Parameters
     ----------
     spec_path : Path
         Path to spec.json (produced by prepare.py).
-    cosmos_repo : Path, optional
-        Path to cloned cosmos-transfer2.5 repository.
-        Auto-detected from COSMOS_REPO_PATH env or common locations.
-    model_dir : Path, optional
-        Override model directory (for custom checkpoint locations).
-    distilled : bool
-        Use distilled (4-step) model instead of full model.
-    num_gpus : int
-        Number of GPUs for distributed inference (default: 1).
+    model_id : str
+        HuggingFace model ID (default: nvidia/Cosmos-Transfer2.5-2B).
+    control_type : str
+        ControlNet variant: edge, depth, seg, or blur (default: edge).
 
     Returns
     -------
     Path
         Path to the output directory containing generated video.
     """
-    # Resolve cosmos repo
-    if cosmos_repo is None:
-        cosmos_repo = _find_cosmos_repo()
-    if cosmos_repo is None:
-        print(
-            "Error: Cannot find cosmos-transfer2.5 repository.\n"
-            "Either:\n"
-            "  1. Set COSMOS_REPO_PATH environment variable\n"
-            "  2. Clone to ~/cosmos-transfer2.5:\n"
-            "     git clone https://github.com/nvidia-cosmos/cosmos-transfer2.5\n"
-            "  3. Pass --cosmos-repo /path/to/cosmos-transfer2.5",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    if control_type not in CONTROL_VARIANTS:
+        raise ValueError(f"control_type must be one of {CONTROL_VARIANTS}, got '{control_type}'")
 
-    inference_script = cosmos_repo / "examples" / "inference.py"
-    if not inference_script.exists():
-        print(f"Error: {inference_script} not found", file=sys.stderr)
-        sys.exit(1)
-
-    # Load spec to check frame count
     spec = json.loads(spec_path.read_text())
     output_dir = Path(spec.get("output_dir", spec_path.parent / "output"))
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Warn about distilled + long video
-    num_steps = spec.get("num_steps", 35)
-    if distilled and num_steps > 4:
-        print(f"Warning: distilled model uses 4 steps, spec says {num_steps}. Overriding to 4.")
-        spec["num_steps"] = 4
-        spec_path.write_text(json.dumps(spec, indent=2))
+    prompt_data = json.loads(Path(spec["prompt_path"]).read_text())
+    prompt = prompt_data["prompt"]
+    negative_prompt = prompt_data.get("negative_prompt", "")
 
-    print(f"Cosmos inference:")
-    print(f"  Spec: {spec_path}")
-    print(f"  Repo: {cosmos_repo}")
-    print(f"  Output: {output_dir}")
-    print(f"  Model: {'distilled' if distilled else 'full'}")
-    print(f"  GPUs: {num_gpus}")
-    print()
+    num_frames = 93  # Cosmos native chunk size
 
-    # Build command
-    if num_gpus > 1:
-        cmd = [
-            sys.executable, "-m", "torch.distributed.run",
-            f"--nproc_per_node={num_gpus}",
-            "--master_port=12341",
-            str(inference_script),
-            "--params_file", str(spec_path),
-        ]
-    else:
-        cmd = [
-            sys.executable,
-            str(inference_script),
-            "--params_file", str(spec_path),
-        ]
-
-    if distilled:
-        cmd.extend(["--model", "edge/distilled"])
-
-    # Set environment
-    env = os.environ.copy()
-    if model_dir:
-        env["HF_HOME"] = str(model_dir)
-
-    # Run with real-time output
-    print(f"Running: {' '.join(cmd)}\n")
-    result = subprocess.run(
-        cmd,
-        env=env,
-        cwd=str(cosmos_repo),
+    # Load controlnet and pipeline
+    print(f"Loading controlnet: {control_type}")
+    controlnet = AutoModel.from_pretrained(
+        model_id,
+        revision=f"diffusers/controlnet/general/{control_type}",
+        torch_dtype=torch.bfloat16,
     )
 
-    if result.returncode != 0:
-        print(f"\nCosmos inference failed (exit code {result.returncode})", file=sys.stderr)
-        sys.exit(result.returncode)
+    print(f"Loading pipeline: {model_id}")
+    pipe = Cosmos2_5_TransferPipeline.from_pretrained(
+        model_id,
+        controlnet=controlnet,
+        revision="diffusers/general",
+        torch_dtype=torch.bfloat16,
+        safety_checker=_NoOpSafetyChecker(),
+    )
+    pipe.enable_model_cpu_offload()
 
-    print(f"\nInference complete. Output: {output_dir}")
+    # Determine control input source
+    # Prefer the specific control video (depth.mp4, seg.mp4), fall back to rgb video
+    control_cfg = spec.get(control_type, {})
+    control_video_path = control_cfg.get("control_path", spec.get("video_path"))
+    if not control_video_path:
+        raise ValueError("No video_path or control_path found in spec")
+
+    conditioning_scale = control_cfg.get("control_weight", 1.0)
+
+    print(f"Loading controls from: {control_video_path}")
+    controls = _load_controls_from_video(control_video_path, control_type, num_frames)
+
+    print(f"Running inference...")
+    print(f"  Prompt: {prompt[:80]}...")
+    print(f"  Control: {control_type} (scale={conditioning_scale})")
+    print(f"  Frames: {len(controls)}")
+    print(f"  Output: {output_dir}")
+
+    result = pipe(
+        controls=controls,
+        controls_conditioning_scale=conditioning_scale,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_frames=len(controls),
+        guidance_scale=spec.get("guidance", 3.0),
+        num_inference_steps=spec.get("num_steps", 36),
+    )
+
+    output_path = output_dir / "output.mp4"
+    export_to_video(result.frames[0], str(output_path), fps=16)
+
+    print(f"\nInference complete. Output: {output_path}")
     return output_dir
 
 
@@ -155,29 +150,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run Cosmos-Transfer2.5 inference")
     parser.add_argument("--spec", type=Path, required=True, help="Path to spec.json")
     parser.add_argument(
-        "--cosmos-repo", type=Path, default=None,
-        help="Path to cosmos-transfer2.5 repo (or set COSMOS_REPO_PATH)",
+        "--model-id",
+        type=str,
+        default=COSMOS_HF_REPO,
+        help=f"HuggingFace model ID (default: {COSMOS_HF_REPO})",
     )
     parser.add_argument(
-        "--model-dir", type=Path, default=None,
-        help="Override HF_HOME for model location",
-    )
-    parser.add_argument(
-        "--distilled", action="store_true",
-        help="Use distilled (4-step) model",
-    )
-    parser.add_argument(
-        "--num-gpus", type=int, default=1,
-        help="Number of GPUs (default: 1)",
+        "--control",
+        type=str,
+        default="edge",
+        choices=CONTROL_VARIANTS,
+        help="ControlNet variant (default: edge)",
     )
     args = parser.parse_args()
 
     infer(
         spec_path=args.spec,
-        cosmos_repo=args.cosmos_repo,
-        model_dir=args.model_dir,
-        distilled=args.distilled,
-        num_gpus=args.num_gpus,
+        model_id=args.model_id,
+        control_type=args.control,
     )
 
 

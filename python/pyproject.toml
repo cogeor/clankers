@@ -2,6 +2,10 @@
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["clankers*"]
+exclude = ["clankers_synthetic*"]
+
 [project]
 name = "clankers"
 version = "0.1.0"
@@ -32,8 +36,12 @@ train = [
     "onnxruntime>=1.15",
 ]
 cosmos = [
-    "huggingface_hub>=0.20",
+    "diffusers>=0.37",
     "torch>=2.0.0",
+    "accelerate>=0.26",
+    "transformers>=4.40",
+    "opencv-python>=4.8",
+    "sentencepiece>=0.2",
 ]
 dev = [
     "pytest>=7.0",

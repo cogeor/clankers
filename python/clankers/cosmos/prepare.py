@@ -75,7 +75,8 @@ def _pngs_to_mp4(
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         for p in png_paths:
             # ffmpeg concat format: file '/path/to/frame.png'
-            f.write(f"file '{p.as_posix()}'\n")
+            # Use absolute path so concat works regardless of temp file location.
+            f.write(f"file '{p.resolve().as_posix()}'\n")
             f.write(f"duration {1.0 / fps:.6f}\n")
         filelist = f.name
 

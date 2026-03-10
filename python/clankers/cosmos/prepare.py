@@ -84,14 +84,22 @@ def _pngs_to_mp4(
         cmd = [
             ffmpeg,
             "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", filelist,
-            "-c:v", "libx264",
-            "-profile:v", "baseline",
-            "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-r", str(fps),
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            filelist,
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "baseline",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
             str(output_mp4),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -253,7 +261,7 @@ def prepare(
 
     n_frames = len(rgb_frames)
     chunks = (n_frames + 92) // 93
-    print(f"\nReady for Cosmos inference:")
+    print("\nReady for Cosmos inference:")
     print(f"  Frames: {n_frames} ({n_frames / fps:.1f}s at {fps}fps)")
     print(f"  Chunks: {chunks} (93 frames each)")
     print(f"  Run: python -m clankers.cosmos infer --spec {spec_path}")
@@ -266,7 +274,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare Cosmos input from Bevy frames")
     parser.add_argument("--input-dir", type=Path, required=True, help="Directory with PNG frames")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory")
-    parser.add_argument("--fps", type=int, default=COSMOS_FPS, help=f"Framerate (default: {COSMOS_FPS})")
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=COSMOS_FPS,
+        help=f"Framerate (default: {COSMOS_FPS})",
+    )
     parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT, help="Generation prompt")
     parser.add_argument("--guidance", type=float, default=3.0, help="CFG scale (default: 3.0)")
     parser.add_argument("--num-steps", type=int, default=35, help="Diffusion steps (default: 35)")

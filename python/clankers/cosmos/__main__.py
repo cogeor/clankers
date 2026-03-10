@@ -30,13 +30,11 @@ def _run_full_pipeline(remaining: list[str]) -> None:
     )
 
     print("\n=== Step 2: Infer ===\n")
-    kwargs: dict[str, object] = {
-        "spec_path": spec_path,
-        "control_type": args.control,
-    }
-    if args.model_id:
-        kwargs["model_id"] = args.model_id
-    infer(**kwargs)
+    infer(
+        spec_path=spec_path,
+        control_type=args.control,
+        **({"model_id": args.model_id} if args.model_id else {}),
+    )
 
 
 def main() -> None:

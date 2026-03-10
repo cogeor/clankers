@@ -29,7 +29,7 @@ CONTROL_VARIANTS = ("edge", "depth", "seg", "blur")
 class _NoOpSafetyChecker:
     """Stub safety checker that skips the cosmos_guardrail dependency."""
 
-    def to(self, *_args: object, **_kwargs: object) -> "_NoOpSafetyChecker":
+    def to(self, *_args: object, **_kwargs: object) -> _NoOpSafetyChecker:
         return self
 
     def check_text_safety(self, _text: object) -> bool:
@@ -39,7 +39,11 @@ class _NoOpSafetyChecker:
         return video
 
 
-def _load_controls_from_video(video_path: str, control_type: str, num_frames: int) -> list[Image.Image]:
+def _load_controls_from_video(
+    video_path: str,
+    control_type: str,
+    num_frames: int,
+) -> list[Image.Image]:
     """Load a video and optionally extract control signals."""
     frames = load_video(video_path)[:num_frames]
 
@@ -122,7 +126,7 @@ def infer(
     print(f"Loading controls from: {control_video_path}")
     controls = _load_controls_from_video(control_video_path, control_type, num_frames)
 
-    print(f"Running inference...")
+    print("Running inference...")
     print(f"  Prompt: {prompt[:80]}...")
     print(f"  Control: {control_type} (scale={conditioning_scale})")
     print(f"  Frames: {len(controls)}")

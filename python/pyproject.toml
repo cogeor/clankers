@@ -82,5 +82,5 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*", "huggingface_hub", "huggingface_hub.*"]
+module = ["gymnasium.*", "stable_baselines3.*", "diffusers.*", "PIL.*", "torch", "torch.*", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*", "huggingface_hub", "huggingface_hub.*", "cv2", "cv2.*"]
 ignore_missing_imports = true

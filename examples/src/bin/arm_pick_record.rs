@@ -13,8 +13,8 @@ use clankers_actuator::components::JointState;
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::arm_setup::{
-    ArmIkState, ArmSetupConfig, arm_ik_solver, initial_motor_overrides, setup_arm, ARM_DAMPING,
-    ARM_STIFFNESS, EFFORT_LIMITS, GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+    ARM_DAMPING, ARM_STIFFNESS, ArmIkState, ArmSetupConfig, EFFORT_LIMITS, GRIPPER_DAMPING,
+    GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS, arm_ik_solver, initial_motor_overrides, setup_arm,
 };
 use clankers_examples::arm_visuals::{
     GripperEntities, spawn_arm_link_meshes, spawn_arm_scene, sync_link_visuals,

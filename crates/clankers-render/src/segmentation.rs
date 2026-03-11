@@ -210,7 +210,9 @@ mod gpu_impl {
     use bevy::render::gpu_readback::{GpuReadbackPlugin, Readback, ReadbackComplete};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
-    use crate::segmentation::{SegmentationFrameBuffer, SegmentationFrameBuffers, SegmentationPalette};
+    use crate::segmentation::{
+        SegmentationFrameBuffer, SegmentationFrameBuffers, SegmentationPalette,
+    };
 
     // wgpu guarantees rows in a texture-to-buffer copy are padded to 256 bytes.
     const COPY_BYTES_PER_ROW_ALIGNMENT: usize = 256;
@@ -327,7 +329,13 @@ mod gpu_impl {
     fn spawn_segmentation_shadows(
         mut commands: Commands,
         query: Query<
-            (Entity, &clankers_core::types::SegmentationClass, &Mesh3d, &Transform, Option<&ChildOf>),
+            (
+                Entity,
+                &clankers_core::types::SegmentationClass,
+                &Mesh3d,
+                &Transform,
+                Option<&ChildOf>,
+            ),
             (Without<SegShadowSpawned>, Without<SegShadow>),
         >,
         seg_materials: Res<SegmentationMaterials>,

@@ -1,6 +1,6 @@
-# Rust Best Practices for Clankerss
+# Rust Best Practices for CityBuilder
 
-A comprehensive reference for writing production-quality Rust in the Clankerss robotics
+A comprehensive reference for writing production-quality Rust in the CityBuilder robotics
 simulation library. Every contributor and AI agent working on this codebase must follow
 these conventions.
 
@@ -36,9 +36,9 @@ Each source file addresses exactly one concern. A crate's `lib.rs` re-exports th
 public surface and contains no logic beyond `mod` declarations and `pub use` items.
 
 ```
-crates/clankers-core/src/
+crates/citybuilder-core/src/
     lib.rs          # mod declarations, pub use, prelude
-    error.rs        # ClankersError enum
+    error.rs        # CityBuilderError enum
     config.rs       # SimConfig, builder
     time.rs         # SimTime, Tick, Duration
     types.rs        # JointId, LinkId, EntityHandle
@@ -50,7 +50,7 @@ A file should not exceed roughly 500 lines. When it grows beyond that, split it 
 submodule directory:
 
 ```
-crates/clankers-core/src/
+crates/citybuilder-core/src/
     config/
         mod.rs      # pub use, shared types
         builder.rs  # SimConfigBuilder
@@ -63,10 +63,10 @@ Every crate exposes a `prelude` module that contains the types most consumers ne
 Downstream crates import the prelude rather than cherry-picking individual types.
 
 ```rust
-// crates/clankers-core/src/lib.rs
+// crates/citybuilder-core/src/lib.rs
 pub mod prelude {
     pub use crate::config::SimConfig;
-    pub use crate::error::{ClankersError, ClankersResult};
+    pub use crate::error::{CityBuilderError, CityBuilderResult};
     pub use crate::time::{SimTime, Tick};
     pub use crate::traits::{Actuatable, Observable, Steppable};
     pub use crate::types::{EntityHandle, JointId, LinkId};
@@ -75,7 +75,7 @@ pub mod prelude {
 
 ```rust
 // downstream crate
-use clankers_core::prelude::*;
+use citybuilder_core::prelude::*;
 ```
 
 Only re-export types that belong to the crate's public API. Internal helpers, builder
@@ -158,7 +158,7 @@ later is a breaking change.
 
 | Approach      | When to use                                                    |
 |---------------|----------------------------------------------------------------|
-| Enum          | Finite, known set of variants. Preferred in Clankerss.          |
+| Enum          | Finite, known set of variants. Preferred in CityBuilder.          |
 | Generics      | Algorithmic abstraction where monomorphization is acceptable   |
 | Trait object  | Plugin-style extensibility where variants are truly open-ended |
 
@@ -177,7 +177,7 @@ pub enum ActuatorCommand {
 
 /// Policy inference. Open-ended, use a trait.
 pub trait PolicyBackend: Send + Sync {
-    fn infer(&self, obs: &Observation) -> ClankersResult<Action>;
+    fn infer(&self, obs: &Observation) -> CityBuilderResult<Action>;
 }
 ```
 
@@ -196,10 +196,10 @@ impl JointId {
     ///
     /// # Errors
     ///
-    /// Returns `ClankersError::InvalidId` if `raw` exceeds the maximum joint count.
-    pub fn new(raw: u32) -> ClankersResult<Self> {
+    /// Returns `CityBuilderError::InvalidId` if `raw` exceeds the maximum joint count.
+    pub fn new(raw: u32) -> CityBuilderResult<Self> {
         if raw > MAX_JOINTS {
-            return Err(ClankersError::InvalidId {
+            return Err(CityBuilderError::InvalidId {
                 kind: "joint",
                 value: raw,
             });
@@ -276,16 +276,16 @@ fn default_gravity() -> [f32; 3] {
 ### Library Errors with thiserror
 
 Every crate defines its own error enum using `thiserror`. The root crate
-(`clankers-core`) defines `ClankersError` and `ClankersResult<T>`. Other crates define
-crate-specific errors that convert into `ClankersError` via `#[from]`.
+(`citybuilder-core`) defines `CityBuilderError` and `CityBuilderResult<T>`. Other crates define
+crate-specific errors that convert into `CityBuilderError` via `#[from]`.
 
 ```rust
-// crates/clankers-core/src/error.rs
+// crates/citybuilder-core/src/error.rs
 use thiserror::Error;
 
-/// Top-level error type for the Clankerss library.
+/// Top-level error type for the CityBuilder library.
 #[derive(Debug, Error)]
-pub enum ClankersError {
+pub enum CityBuilderError {
     #[error("invalid {kind} id: {value}")]
     InvalidId { kind: &'static str, value: u32 },
 
@@ -306,11 +306,11 @@ pub enum ClankersError {
 }
 
 /// Convenience alias used throughout the library.
-pub type ClankersResult<T> = Result<T, ClankersError>;
+pub type CityBuilderResult<T> = Result<T, CityBuilderError>;
 ```
 
 ```rust
-// crates/clankers-urdf/src/error.rs
+// crates/citybuilder-urdf/src/error.rs
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -332,7 +332,7 @@ pub enum UrdfError {
    `unreachable!()` on reachable paths. Use `Result` for fallible operations and
    `debug_assert!` for invariants that should be impossible.
 
-3. **One error enum per crate.** Crate-level errors convert into `ClankersError` via the
+3. **One error enum per crate.** Crate-level errors convert into `CityBuilderError` via the
    `#[from]` attribute. Do not define separate error types per module unless the module
    is very large and the errors are truly disjoint.
 
@@ -342,14 +342,14 @@ pub enum UrdfError {
 
 ```rust
 impl SimConfigBuilder {
-    pub fn build(self) -> ClankersResult<SimConfig> {
+    pub fn build(self) -> CityBuilderResult<SimConfig> {
         if self.dt_ns == 0 {
-            return Err(ClankersError::Config(
+            return Err(CityBuilderError::Config(
                 "timestep dt_ns must be positive".into(),
             ));
         }
         if self.dt_ns > 1_000_000_000 {
-            return Err(ClankersError::Config(
+            return Err(CityBuilderError::Config(
                 "timestep dt_ns exceeds 1 second".into(),
             ));
         }
@@ -368,7 +368,7 @@ impl SimConfigBuilder {
 
 ```rust
 #[must_use = "this returns the result of the operation, not modifying in place"]
-pub fn validate(&self) -> ClankersResult<()> { ... }
+pub fn validate(&self) -> CityBuilderResult<()> { ... }
 ```
 
 ---
@@ -543,7 +543,7 @@ mod tests {
     fn public_types_are_send_sync() {
         assert_send_sync::<SimConfig>();
         assert_send_sync::<JointId>();
-        assert_send_sync::<ClankersError>();
+        assert_send_sync::<CityBuilderError>();
     }
 }
 ```
@@ -735,13 +735,13 @@ accumulate floating-point time.
 
 ### SystemSet for Ordering
 
-All Clankerss systems register into `ClankersSet` variants for deterministic ordering:
+All CityBuilder systems register into `CityBuilderSet` variants for deterministic ordering:
 
 ```rust
 use bevy::prelude::*;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ClankersSet {
+pub enum CityBuilderSet {
     /// Read inputs, apply commands.
     Input,
     /// Step physics.
@@ -759,11 +759,11 @@ impl Plugin for CorePlugin {
         app.configure_sets(
             FixedUpdate,
             (
-                ClankersSet::Input,
-                ClankersSet::Physics,
-                ClankersSet::Observe,
-                ClankersSet::Evaluate,
-                ClankersSet::Reset,
+                CityBuilderSet::Input,
+                CityBuilderSet::Physics,
+                CityBuilderSet::Observe,
+                CityBuilderSet::Evaluate,
+                CityBuilderSet::Reset,
             )
                 .chain(),
         );
@@ -776,7 +776,7 @@ Systems declare their set membership explicitly:
 ```rust
 app.add_systems(
     FixedUpdate,
-    apply_joint_commands.in_set(ClankersSet::Input),
+    apply_joint_commands.in_set(CityBuilderSet::Input),
 );
 ```
 
@@ -804,7 +804,7 @@ Each crate exposes exactly one plugin (or a small set of related plugins). The p
 registers all systems, resources, events, and components for that crate.
 
 ```rust
-// crates/clankers-env/src/plugin.rs
+// crates/citybuilder-env/src/plugin.rs
 pub struct EnvPlugin;
 
 impl Plugin for EnvPlugin {
@@ -814,9 +814,9 @@ impl Plugin for EnvPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    check_termination.in_set(ClankersSet::Evaluate),
+                    check_termination.in_set(CityBuilderSet::Evaluate),
                     reset_environment
-                        .in_set(ClankersSet::Reset)
+                        .in_set(CityBuilderSet::Reset)
                         .run_if(on_event::<EpisodeReset>),
                 ),
             );
@@ -824,13 +824,13 @@ impl Plugin for EnvPlugin {
 }
 ```
 
-The top-level `clankers-sim` crate composes all plugins:
+The top-level `citybuilder-sim` crate composes all plugins:
 
 ```rust
-// crates/clankers-sim/src/lib.rs
-pub struct ClankersPlugins;
+// crates/citybuilder-sim/src/lib.rs
+pub struct CityBuilderPlugins;
 
-impl PluginGroup for ClankersPlugins {
+impl PluginGroup for CityBuilderPlugins {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(CorePlugin)
@@ -853,7 +853,7 @@ Place unit tests in a `#[cfg(test)]` module at the bottom of the source file the
 Unit tests have access to `pub(crate)` items, so they can test internals.
 
 ```rust
-// crates/clankers-core/src/time.rs
+// crates/citybuilder-core/src/time.rs
 
 pub struct SimTime { ... }
 
@@ -883,8 +883,8 @@ Place integration tests in `tests/` at the crate root. They test the public API 
 and verify cross-module interactions.
 
 ```rust
-// crates/clankers-core/tests/config_validation.rs
-use clankers_core::prelude::*;
+// crates/citybuilder-core/tests/config_validation.rs
+use citybuilder_core::prelude::*;
 
 #[test]
 fn zero_timestep_rejected() {
@@ -938,11 +938,11 @@ fn physics_is_deterministic() {
 
 ### Shared Fixtures
 
-The `clankers-test-utils` crate provides shared test fixtures, builders, and assertion
+The `citybuilder-test-utils` crate provides shared test fixtures, builders, and assertion
 helpers. It is a `[dev-dependencies]` only crate and must never appear in non-test code.
 
 ```rust
-// crates/clankers-test-utils/src/lib.rs
+// crates/citybuilder-test-utils/src/lib.rs
 pub fn default_test_config() -> SimConfig {
     SimConfigBuilder::new()
         .dt_ns(1_000_000) // 1ms
@@ -993,7 +993,7 @@ Every `pub` function, struct, enum, trait, and module has a doc comment. No exce
 /// # Examples
 ///
 /// ```
-/// use clankers_core::prelude::*;
+/// use citybuilder_core::prelude::*;
 ///
 /// let link = Link::new(LinkId::new(0).unwrap(), "base_link");
 /// assert_eq!(link.name(), "base_link");
@@ -1090,7 +1090,7 @@ missing_panics_doc = "allow"
 Each crate inherits these lints:
 
 ```toml
-# crates/clankers-core/Cargo.toml
+# crates/citybuilder-core/Cargo.toml
 [lints]
 workspace = true
 ```
@@ -1099,7 +1099,7 @@ workspace = true
 
 There is no escape hatch. No `unsafe` block, no `unsafe fn`, no `unsafe impl`. If a
 dependency requires unsafe, it must be behind a well-audited wrapper. The Bevy and
-Rapier ecosystems handle low-level unsafe internally; Clankerss code stays safe.
+Rapier ecosystems handle low-level unsafe internally; CityBuilder code stays safe.
 
 ### rustfmt
 
@@ -1217,19 +1217,19 @@ impl SimConfigBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `ClankersError::Config` if:
+    /// Returns `CityBuilderError::Config` if:
     /// - `dt_ns` is zero.
     /// - `dt_ns` exceeds one second.
     /// - `max_steps` is zero.
-    pub fn build(self) -> ClankersResult<SimConfig> {
+    pub fn build(self) -> CityBuilderResult<SimConfig> {
         if self.dt_ns == 0 {
-            return Err(ClankersError::Config("dt_ns must be > 0".into()));
+            return Err(CityBuilderError::Config("dt_ns must be > 0".into()));
         }
         if self.dt_ns > 1_000_000_000 {
-            return Err(ClankersError::Config("dt_ns must be <= 1s".into()));
+            return Err(CityBuilderError::Config("dt_ns must be <= 1s".into()));
         }
         if self.max_steps == 0 {
-            return Err(ClankersError::Config("max_steps must be > 0".into()));
+            return Err(CityBuilderError::Config("max_steps must be > 0".into()));
         }
         Ok(SimConfig {
             dt_ns: self.dt_ns,
@@ -1292,7 +1292,7 @@ impl ObservationPipeline {
         self
     }
 
-    pub fn process(&self, raw: &mut Observation) -> ClankersResult<()> {
+    pub fn process(&self, raw: &mut Observation) -> CityBuilderResult<()> {
         for stage in &self.stages {
             stage.apply(raw)?;
         }
@@ -1332,17 +1332,17 @@ impl SimConfig {
     ///
     /// # Errors
     ///
-    /// Returns `ClankersError::Config` describing the first invalid field.
-    pub fn validate(&self) -> ClankersResult<()> {
+    /// Returns `CityBuilderError::Config` describing the first invalid field.
+    pub fn validate(&self) -> CityBuilderResult<()> {
         if self.dt_ns == 0 {
-            return Err(ClankersError::Config("dt_ns must be > 0".into()));
+            return Err(CityBuilderError::Config("dt_ns must be > 0".into()));
         }
         if self.dt_ns > 1_000_000_000 {
-            return Err(ClankersError::Config("dt_ns must be <= 1s".into()));
+            return Err(CityBuilderError::Config("dt_ns must be <= 1s".into()));
         }
         let mag_sq = self.gravity.iter().map(|g| g * g).sum::<f32>();
         if mag_sq < 1e-6 {
-            return Err(ClankersError::Config("gravity magnitude near zero".into()));
+            return Err(CityBuilderError::Config("gravity magnitude near zero".into()));
         }
         Ok(())
     }
@@ -1355,7 +1355,7 @@ When adding methods to foreign types (Bevy's `Transform`, Rapier's `RigidBody`),
 extension traits in a clearly named module:
 
 ```rust
-// crates/clankers-core/src/transform_ext.rs
+// crates/citybuilder-core/src/transform_ext.rs
 
 /// Extension methods for Bevy's `Transform`.
 pub trait TransformExt {
@@ -1399,7 +1399,7 @@ rand_chacha = "0.3"
 ```
 
 ```toml
-# crates/clankers-core/Cargo.toml
+# crates/citybuilder-core/Cargo.toml
 [dependencies]
 bevy = { workspace = true }
 serde = { workspace = true }
@@ -1447,7 +1447,7 @@ serde = "=1.0.197"
 
 ### Cargo.lock
 
-The `Cargo.lock` file is committed to version control. Even though Clankerss is a
+The `Cargo.lock` file is committed to version control. Even though CityBuilder is a
 library workspace, the lock file ensures CI builds are reproducible and developers get
 identical dependency trees.
 
@@ -1460,7 +1460,7 @@ do not affect downstream users.
 [dev-dependencies]
 rstest = "0.25"
 approx = "0.5"
-clankers-test-utils = { workspace = true }
+citybuilder-test-utils = { workspace = true }
 ```
 
 Never use `anyhow` in library code, but it is acceptable as a dev-dependency for test
@@ -1481,4 +1481,4 @@ These rules have no exceptions. Violating them blocks a merge.
 7. All public types are `Send + Sync`.
 8. All tests pass, all clippy warnings resolved before merge.
 9. `cargo fmt --check` passes with no diff.
-10. One plugin per crate, registered in `ClankersPlugins`.
+10. One plugin per crate, registered in `CityBuilderPlugins`.

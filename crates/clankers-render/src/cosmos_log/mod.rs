@@ -36,7 +36,7 @@ pub mod metadata;
 pub mod writer;
 
 pub use cameras::{CosmosLogCamera, CosmosModality};
-pub use config::{CameraPlacement, CameraSpec, CosmosLogConfig, COSMOS_480P, COSMOS_FPS};
+pub use config::{COSMOS_480P, COSMOS_FPS, CameraPlacement, CameraSpec, CosmosLogConfig};
 
 use bevy::prelude::*;
 

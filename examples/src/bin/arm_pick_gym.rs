@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
 use clankers_examples::arm_setup::{
-    ArmSetupConfig, initial_motor_overrides, setup_arm, ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS,
-    GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+    ARM_DAMPING, ARM_STIFFNESS, ArmSetupConfig, EFFORT_LIMITS, GRIPPER_DAMPING, GRIPPER_MAX_FORCE,
+    GRIPPER_STIFFNESS, initial_motor_overrides, setup_arm,
 };
 use clankers_gym::prelude::*;
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
@@ -29,7 +29,6 @@ struct PickJointEntities(Vec<Entity>);
 /// Initial positions of dynamic objects for reset.
 #[derive(Resource)]
 struct ObjectInitialPositions(Vec<(RigidBodyHandle, Vec3)>);
-
 
 /// Maps 8-dim action to `MotorOverrides` on the arm + gripper joint entities.
 ///

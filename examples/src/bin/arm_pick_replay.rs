@@ -24,15 +24,12 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
-use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
 use clankers_core::types::SegmentationClass;
-use clankers_render::cosmos_log::{
-    CameraPlacement, CameraSpec, CosmosLogConfig, CosmosLogPlugin,
-};
+use clankers_examples::arm_visuals::{LinkVisual, spawn_arm_link_meshes};
 use clankers_render::cosmos_log::writer::CosmosWriterState;
+use clankers_render::cosmos_log::{CameraPlacement, CameraSpec, CosmosLogConfig, CosmosLogPlugin};
 use clankers_viz::camera::{
-    ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera,
-    sync_obs_camera_viewport,
+    ObsCameraConfig, ObservationCamera, ViewportCorner, spawn_obs_camera, sync_obs_camera_viewport,
 };
 use clankers_viz::{phys_rot_to_vis, phys_to_vis};
 use clap::Parser;
@@ -505,8 +502,8 @@ fn assemble_gif_with_crop(
     dt: f32,
     crop: Option<(u32, u32, u32, u32)>, // (x, y, w, h)
 ) {
-    use image::codecs::gif::{GifEncoder, Repeat};
     use image::Frame;
+    use image::codecs::gif::{GifEncoder, Repeat};
     use std::fs::File;
 
     let frame_paths = collect_frame_paths(frames_dir);
@@ -571,7 +568,9 @@ fn obs_cam_crop(window_w: u32, window_h: u32, config: &ObsCameraConfig) -> (u32,
     let (x, y) = match config.corner {
         ViewportCorner::TopRight => (window_w.saturating_sub(vp_w), 0),
         ViewportCorner::TopLeft => (0, 0),
-        ViewportCorner::BottomRight => (window_w.saturating_sub(vp_w), window_h.saturating_sub(vp_h)),
+        ViewportCorner::BottomRight => {
+            (window_w.saturating_sub(vp_w), window_h.saturating_sub(vp_h))
+        }
         ViewportCorner::BottomLeft => (0, window_h.saturating_sub(vp_h)),
     };
     (x, y, vp_w, vp_h)
@@ -581,11 +580,7 @@ fn obs_cam_crop(window_w: u32, window_h: u32, config: &ObsCameraConfig) -> (u32,
 // Augmentation: run Python pipeline on frames, produce augmented GIF
 // ---------------------------------------------------------------------------
 
-fn augment_frames(
-    frames_dir: &std::path::Path,
-    augmented_gif_path: &std::path::Path,
-    dt: f32,
-) {
+fn augment_frames(frames_dir: &std::path::Path, augmented_gif_path: &std::path::Path, dt: f32) {
     let augmented_dir = frames_dir.join("augmented");
     std::fs::create_dir_all(&augmented_dir).expect("failed to create augmented directory");
 
@@ -599,7 +594,10 @@ fn augment_frames(
     frame_paths.sort();
 
     if frame_paths.is_empty() {
-        eprintln!("No PNG frames found for augmentation in {}", frames_dir.display());
+        eprintln!(
+            "No PNG frames found for augmentation in {}",
+            frames_dir.display()
+        );
         return;
     }
 
@@ -631,9 +629,7 @@ fn augment_frames(
                 std::fs::copy(path, &output_path).ok();
             }
             Err(e) => {
-                eprintln!(
-                    "  Warning: could not run augmentation for frame {i}: {e}"
-                );
+                eprintln!("  Warning: could not run augmentation for frame {i}: {e}");
                 eprintln!("  Falling back: copying frames as-is to augmented GIF");
                 // Copy all remaining frames and break
                 for (j, p) in frame_paths.iter().enumerate().skip(i) {
@@ -720,10 +716,7 @@ fn main() {
             ..default()
         }))
         .insert_resource(playback)
-        .add_systems(
-            Startup,
-            (spawn_camera_and_scene, spawn_arm_link_meshes),
-        )
+        .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes))
         .add_systems(Update, apply_body_poses_system);
 
         app.insert_resource(CosmosLogConfig {
@@ -767,9 +760,7 @@ fn main() {
         println!("  Capturing {n} frames...");
 
         for trace_frame in 0..n {
-            app.world_mut()
-                .resource_mut::<TracePlayback>()
-                .cursor = trace_frame;
+            app.world_mut().resource_mut::<TracePlayback>().cursor = trace_frame;
 
             // Pump until the cosmos writer captures this frame.
             let target = (trace_frame + 1) as u32;
@@ -820,7 +811,14 @@ fn main() {
     .add_plugins(PanOrbitCameraPlugin)
     .insert_resource(playback)
     .insert_resource(obs_config.clone())
-    .add_systems(Startup, (spawn_camera_and_scene, spawn_arm_link_meshes, spawn_obs_camera))
+    .add_systems(
+        Startup,
+        (
+            spawn_camera_and_scene,
+            spawn_arm_link_meshes,
+            spawn_obs_camera,
+        ),
+    )
     .add_systems(
         Update,
         (

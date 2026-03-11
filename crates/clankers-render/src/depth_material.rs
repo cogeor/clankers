@@ -122,11 +122,9 @@ fn spawn_depth_shadows(
         );
 
         if let Some(child_of) = maybe_parent {
-            commands
-                .entity(child_of.parent())
-                .with_children(|p| {
-                    p.spawn(shadow_bundle);
-                });
+            commands.entity(child_of.parent()).with_children(|p| {
+                p.spawn(shadow_bundle);
+            });
         } else {
             commands.spawn(shadow_bundle);
         }

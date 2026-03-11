@@ -1,7 +1,7 @@
 //! Diagnostic test: why does the arm collapse?
 
 use clankers_env::prelude::*;
-use clankers_examples::arm_setup::{initial_motor_overrides, setup_arm, ArmSetupConfig};
+use clankers_examples::arm_setup::{ArmSetupConfig, initial_motor_overrides, setup_arm};
 use clankers_physics::rapier::{MotorOverrides, RapierContext};
 
 fn run_arm(steps: usize, use_overrides: bool, stiffness: f32, remove_colliders: bool) -> f32 {
@@ -36,7 +36,8 @@ fn run_arm(steps: usize, use_overrides: bool, stiffness: f32, remove_colliders: 
         // Remove all colliders
         let handles: Vec<_> = ctx.collider_set.iter().map(|(h, _)| h).collect();
         for h in handles {
-            ctx.collider_set.remove(h, &mut Default::default(), &mut ctx.rigid_body_set, true);
+            ctx.collider_set
+                .remove(h, &mut Default::default(), &mut ctx.rigid_body_set, true);
         }
         world.insert_resource(ctx);
     }

@@ -19,13 +19,11 @@ use clankers_env::prelude::*;
 use nalgebra::Vector3;
 
 use clankers_examples::arm_setup::{
-    ArmIkState, ArmSetupConfig, REST_POSE, arm_ik_solver, initial_motor_overrides, setup_arm,
-    ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS, FINGER_TRAVEL, GRIPPER_DAMPING, GRIPPER_MAX_FORCE,
-    GRIPPER_STIFFNESS,
+    ARM_DAMPING, ARM_STIFFNESS, ArmIkState, ArmSetupConfig, EFFORT_LIMITS, FINGER_TRAVEL,
+    GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS, REST_POSE, arm_ik_solver,
+    initial_motor_overrides, setup_arm,
 };
-use clankers_examples::arm_visuals::{
-    GripperEntities, spawn_arm_link_meshes, sync_link_visuals,
-};
+use clankers_examples::arm_visuals::{GripperEntities, spawn_arm_link_meshes, sync_link_visuals};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_teleop::prelude::*;
 use clankers_viz::{
@@ -547,10 +545,7 @@ fn main() {
     let gripper_entities = GripperEntities::from_setup(&setup);
 
     // Pre-populate motor overrides so motors hold from the first physics step.
-    let motor_overrides = initial_motor_overrides(
-        &setup,
-        &gripper_entities.0,
-    );
+    let motor_overrides = initial_motor_overrides(&setup, &gripper_entities.0);
 
     let mut scene = setup.scene;
 

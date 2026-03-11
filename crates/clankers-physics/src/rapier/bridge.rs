@@ -6,8 +6,8 @@ use std::collections::{HashMap, VecDeque};
 use bevy::prelude::{EulerRot, Quat, Vec3, World};
 use rapier3d::dynamics::{GenericJointBuilder, JointAxesMask};
 use rapier3d::prelude::{
-    ColliderBuilder, GenericJoint, ImpulseJointHandle, JointAxis,
-    MassProperties, MotorModel, RigidBodyBuilder,
+    ColliderBuilder, GenericJoint, ImpulseJointHandle, JointAxis, MassProperties, MotorModel,
+    RigidBodyBuilder,
 };
 
 use clankers_urdf::spawner::SpawnedRobot;
@@ -115,11 +115,7 @@ pub fn register_robot(
                 .unwrap_or(0.0);
 
             // Apply initial joint angle: rotate around the joint axis
-            let joint_axis = Vec3::new(
-                joint_data.axis[0],
-                joint_data.axis[1],
-                joint_data.axis[2],
-            );
+            let joint_axis = Vec3::new(joint_data.axis[0], joint_data.axis[1], joint_data.axis[2]);
             let joint_rotation = if joint_data.joint_type.is_actuated()
                 && joint_data.joint_type != JointType::Prismatic
                 && initial_q.abs() > f32::EPSILON
@@ -352,7 +348,6 @@ fn build_rapier_joint(
 
     joint
 }
-
 
 /// Rotation to convert URDF's Z-up cylinder to Rapier's Y-up cylinder.
 ///

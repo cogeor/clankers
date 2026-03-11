@@ -169,9 +169,7 @@ pub fn sync_obs_camera_viewport(
     let pos = match config.corner {
         ViewportCorner::TopRight => UVec2::new(w.saturating_sub(vp_w), 0),
         ViewportCorner::TopLeft => UVec2::ZERO,
-        ViewportCorner::BottomRight => {
-            UVec2::new(w.saturating_sub(vp_w), h.saturating_sub(vp_h))
-        }
+        ViewportCorner::BottomRight => UVec2::new(w.saturating_sub(vp_w), h.saturating_sub(vp_h)),
         ViewportCorner::BottomLeft => UVec2::new(0, h.saturating_sub(vp_h)),
     };
 

@@ -45,16 +45,18 @@ pub fn create_run_directory(mut commands: Commands, config: Res<CosmosLogConfig>
     let second = time_of_day % 60;
 
     let run_name = config.run_name.clone().unwrap_or_else(|| "run".into());
-    let dir_name = format!(
-        "{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{run_name}"
-    );
+    let dir_name =
+        format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{run_name}");
     let run_dir = config.output_root.join(&dir_name);
 
     let mut camera_dirs = Vec::new();
     for spec in &config.cameras {
         let cam_dir = run_dir.join(&spec.label);
         std::fs::create_dir_all(&cam_dir).unwrap_or_else(|e| {
-            eprintln!("CosmosLog: failed to create directory {}: {e}", cam_dir.display());
+            eprintln!(
+                "CosmosLog: failed to create directory {}: {e}",
+                cam_dir.display()
+            );
         });
         camera_dirs.push((spec.label.clone(), cam_dir));
     }
@@ -90,11 +92,7 @@ pub fn init_seg_transform_colors(
     for name in &config.seg_transform_classes {
         if let Some(&id) = class_name_to_id.get(name.as_str()) {
             if let Some(&[r, g, b]) = palette.colors.get(&id) {
-                transform_colors.push([
-                    (r * 255.0) as u8,
-                    (g * 255.0) as u8,
-                    (b * 255.0) as u8,
-                ]);
+                transform_colors.push([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]);
             }
         }
     }
@@ -156,10 +154,7 @@ pub fn write_cosmos_frames(
                 let dh = depth_buf.height();
                 let depth_data = depth_buf.data();
                 // Depth material renders grayscale — extract R channel from RGBA.
-                let gray: Vec<u8> = depth_data
-                    .chunks_exact(4)
-                    .map(|px| px[0])
-                    .collect();
+                let gray: Vec<u8> = depth_data.chunks_exact(4).map(|px| px[0]).collect();
                 if let Some(img) = GrayImage::from_raw(dw, dh, gray) {
                     let path = dir.join(format!("depth_{frame_idx:05}.png"));
                     if let Err(e) = img.save(&path) {
@@ -175,9 +170,7 @@ pub fn write_cosmos_frames(
                 let sw = buf.width();
                 let sh = buf.height();
                 let seg_data = buf.data();
-                if let Some(img) =
-                    ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, seg_data.to_vec())
-                {
+                if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, seg_data.to_vec()) {
                     let path = dir.join(format!("seg_{frame_idx:05}.png"));
                     if let Err(e) = img.save(&path) {
                         eprintln!("CosmosLog: failed to save seg frame: {e}");

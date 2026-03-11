@@ -68,11 +68,7 @@ impl Default for CosmosLogConfig {
             run_name: None,
             fps: COSMOS_FPS,
             depth_max_m: 10.0,
-            seg_transform_classes: vec![
-                "robot".into(),
-                "obstacle".into(),
-                "table".into(),
-            ],
+            seg_transform_classes: vec!["robot".into(), "obstacle".into(), "table".into()],
             cameras: Vec::new(),
         }
     }

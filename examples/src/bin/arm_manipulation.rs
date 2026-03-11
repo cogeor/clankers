@@ -136,6 +136,7 @@ fn main() {
         max_episode_steps: 50_000,
         use_fixed_update: true,
         sensor_dof: 8,
+        ..ArmSetupConfig::default()
     });
     let mut scene = setup.scene;
 

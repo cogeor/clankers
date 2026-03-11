@@ -1,4 +1,4 @@
-# Clankers
+# CityBuilder
 
 Rust-based robotics simulator with LLM-driven synthetic data generation and a Gymnasium-compatible training interface. Built on Bevy ECS and Rapier 3D physics, with Python training via TCP protocol.
 
@@ -18,7 +18,7 @@ Python (training)                    Rust (simulation)
 -----------------                    ------------------
 SB3 / PyTorch                        Bevy ECS
     |                                    |
-Gymnasium env <---- TCP/JSON ----> clankers-gym server
+Gymnasium env <---- TCP/JSON ----> citybuilder-gym server
     |                                    |
 rewards.py                         +----+----+
 terminations.py                    | Rapier  |
@@ -38,27 +38,27 @@ Training happens in Python. Simulation happens in Rust. They communicate over TC
 
 ```
 crates/
-+-- clankers-core          System ordering, SimTime, Sensor/ActionApplicator traits
-+-- clankers-noise         Gaussian, uniform, bias, drift noise models
-+-- clankers-actuator-core Motor model math (transmission, friction) -- no Bevy
-+-- clankers-actuator      Bevy plugin: PD control, joint components, dynamics
-+-- clankers-env           Episode lifecycle, sensors (joint, IMU, contact, camera)
-+-- clankers-urdf          URDF parsing and Bevy entity spawning
-+-- clankers-physics       Rapier 3D backend with configurable solver
-+-- clankers-policy        ONNX inference runner for trained policies
-+-- clankers-domain-rand   Per-episode physics randomization for sim-to-real
-+-- clankers-gym           TCP server, Gymnasium protocol, VecEnv support
-+-- clankers-render        Headless GPU rendering for image observations
-+-- clankers-viz           Interactive 3D visualization with egui
-+-- clankers-teleop        Manual control interfaces for debugging
-+-- clankers-ik            Inverse kinematics solver
-+-- clankers-mpc           Centroidal convex MPC + whole-body controller
-+-- clankers-sim           Top-level plugin, SceneBuilder
-+-- clankers-record        MCAP episode recording with provenance
-+-- clankers-test-utils    Shared test fixtures
++-- citybuilder-core          System ordering, SimTime, Sensor/ActionApplicator traits
++-- citybuilder-noise         Gaussian, uniform, bias, drift noise models
++-- citybuilder-actuator-core Motor model math (transmission, friction) -- no Bevy
++-- citybuilder-actuator      Bevy plugin: PD control, joint components, dynamics
++-- citybuilder-env           Episode lifecycle, sensors (joint, IMU, contact, camera)
++-- citybuilder-urdf          URDF parsing and Bevy entity spawning
++-- citybuilder-physics       Rapier 3D backend with configurable solver
++-- citybuilder-policy        ONNX inference runner for trained policies
++-- citybuilder-domain-rand   Per-episode physics randomization for sim-to-real
++-- citybuilder-gym           TCP server, Gymnasium protocol, VecEnv support
++-- citybuilder-render        Headless GPU rendering for image observations
++-- citybuilder-viz           Interactive 3D visualization with egui
++-- citybuilder-teleop        Manual control interfaces for debugging
++-- citybuilder-ik            Inverse kinematics solver
++-- citybuilder-mpc           Centroidal convex MPC + whole-body controller
++-- citybuilder-sim           Top-level plugin, SceneBuilder
++-- citybuilder-record        MCAP episode recording with provenance
++-- citybuilder-test-utils    Shared test fixtures
 
 python/
-+-- clankers/              Training client library
++-- citybuilder/              Training client library
 |   +-- client.py          TCP client
 |   +-- gymnasium_env.py   Full Gymnasium interface
 |   +-- sb3_vec_env.py     Stable Baselines3 vectorized wrapper
@@ -68,7 +68,7 @@ python/
 |   +-- terminations.py    Episode termination conditions
 |   +-- augmentation/      Synthetic image augmentation with diffusion models
 |   ...
-+-- clankers_synthetic/    LLM-driven synthetic trajectory generation
++-- citybuilder_synthetic/    LLM-driven synthetic trajectory generation
 |   +-- pipeline.py        End-to-end: plan -> compile -> validate -> package
 |   +-- compiler.py        Skill execution through simulation
 |   +-- planner.py         LLM plan generation (GPT-4)
@@ -97,7 +97,7 @@ Run a CartPole gym server, then train PPO from Python:
 
 ```sh
 # Terminal 1: start the simulator
-cargo run -j 24 --release -p clankers-examples --bin cartpole_gym
+cargo run -j 24 --release -p citybuilder-examples --bin cartpole_gym
 
 # Terminal 2: train
 pip install -e "python[sb3]"
@@ -107,7 +107,7 @@ python python/examples/cartpole_train_ppo.py
 Run the quadruped with MPC:
 
 ```sh
-cargo run -j 24 --release -p clankers-examples --bin quadruped_mpc_viz
+cargo run -j 24 --release -p citybuilder-examples --bin quadruped_mpc_viz
 ```
 
 ## Robots
@@ -124,10 +124,10 @@ cargo run -j 24 --release -p clankers-examples --bin quadruped_mpc_viz
 **Online RL** — simulator runs a gym server, Python agent connects and trains:
 
 ```sh
-cargo run -j 24 -p clankers-examples --bin arm_gym
+cargo run -j 24 -p citybuilder-examples --bin arm_gym
 python python/examples/train_ppo.py --port 9879
 python python/examples/export_sb3_to_onnx.py  # export to ONNX
-cargo run -j 24 -p clankers-examples --bin arm_with_policy  # run in Rust
+cargo run -j 24 -p citybuilder-examples --bin arm_with_policy  # run in Rust
 ```
 
 **Offline BC** — train from recorded trajectory data:
@@ -135,7 +135,7 @@ cargo run -j 24 -p clankers-examples --bin arm_with_policy  # run in Rust
 ```sh
 python python/examples/train_joint_bc.py \
     --trace output/arm_pick_dataset/dry_run_trace.json \
-    --scene python/clankers_synthetic/scenes/arm_pick_cube.json \
+    --scene python/citybuilder_synthetic/scenes/arm_pick_cube.json \
     --mode velocity
 python python/examples/replay_policy.py \
     --model joint_bc.onnx \
@@ -145,9 +145,9 @@ python python/examples/replay_policy.py \
 **Synthetic data generation** — LLM plans a manipulation task, simulator executes and validates:
 
 ```sh
-python -m clankers_synthetic \
-    --scene python/clankers_synthetic/scenes/arm_pick_cube.json \
-    --task python/clankers_synthetic/scenes/arm_pick_cube_task.json
+python -m citybuilder_synthetic \
+    --scene python/citybuilder_synthetic/scenes/arm_pick_cube.json \
+    --task python/citybuilder_synthetic/scenes/arm_pick_cube_task.json
 ```
 
 ## Joint Encoder
@@ -155,7 +155,7 @@ python -m clankers_synthetic \
 Any robot's joints are encoded in alphabetical order for deterministic vector layout:
 
 ```python
-from clankers.joint_encoder import JointEncoder
+from citybuilder.joint_encoder import JointEncoder
 
 encoder = JointEncoder(["wrist", "elbow", "shoulder"])
 # Sorted: elbow, shoulder, wrist -> indices 0, 1, 2

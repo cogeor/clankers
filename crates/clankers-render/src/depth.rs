@@ -196,10 +196,7 @@ mod gpu_impl {
     /// actual pixel row. This function strips the padding before writing.
     pub fn handle_depth_readback_complete(
         trigger: On<ReadbackComplete>,
-        cameras: Query<
-            (&DepthImageHandle, Option<&DepthCameraLabel>),
-            With<DepthCamera>,
-        >,
+        cameras: Query<(&DepthImageHandle, Option<&DepthCameraLabel>), With<DepthCamera>>,
         depth_buf: Option<ResMut<DepthFrameBuffer>>,
         keyed_bufs: Option<ResMut<DepthFrameBuffers>>,
     ) {

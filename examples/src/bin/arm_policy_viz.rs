@@ -27,9 +27,10 @@ use clankers_actuator::components::JointState;
 use clankers_core::ClankersSet;
 use clankers_env::prelude::*;
 use clankers_examples::arm_setup::{
-    ArmSetupConfig, initial_motor_overrides, setup_arm, ARM_DAMPING, ARM_STIFFNESS, EFFORT_LIMITS,
-    FINGER_TRAVEL, GRIPPER_DAMPING, GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS,
+    ARM_DAMPING, ARM_STIFFNESS, ArmSetupConfig, EFFORT_LIMITS, FINGER_TRAVEL, GRIPPER_DAMPING,
+    GRIPPER_MAX_FORCE, GRIPPER_STIFFNESS, initial_motor_overrides, setup_arm,
 };
+use clankers_examples::arm_visuals::{GripperEntities, LinkVisual, sync_link_visuals};
 use clankers_physics::rapier::{MotorOverrideParams, MotorOverrides, RapierContext};
 use clankers_policy::prelude::*;
 use clankers_render::camera::spawn_camera_sensor;
@@ -62,7 +63,14 @@ struct Cli {
 
 /// Rest pose for all 8 joints: 6 arm + 2 gripper (fingers open at FINGER_TRAVEL).
 const REST_POSE_8: [f32; 8] = [
-    0.0, FRAC_PI_4, FRAC_PI_2, 0.0, FRAC_PI_4, 0.0, FINGER_TRAVEL, FINGER_TRAVEL,
+    0.0,
+    FRAC_PI_4,
+    FRAC_PI_2,
+    0.0,
+    FRAC_PI_4,
+    0.0,
+    FINGER_TRAVEL,
+    FINGER_TRAVEL,
 ];
 
 /// Effort limits for all 8 joints: 6 arm + 2 gripper.
@@ -85,10 +93,6 @@ const EFFORT_LIMITS_8: [f32; 8] = [
 #[derive(Resource)]
 struct ArmJointEntities(Vec<Entity>);
 
-/// The two prismatic finger joint entities (left, right).
-#[derive(Resource)]
-struct GripperEntities([Entity; 2]);
-
 /// Control timestep for velocity integration.
 #[derive(Resource)]
 struct ControlDt(f32);
@@ -99,10 +103,6 @@ struct ObsCameraConfig {
     width: u32,
     height: u32,
 }
-
-/// Visual marker for link mesh sync.
-#[derive(Component)]
-struct LinkVisual(&'static str);
 
 // ---------------------------------------------------------------------------
 // Startup: spawn observation camera
@@ -205,21 +205,6 @@ fn spawn_arm_meshes(
 // ---------------------------------------------------------------------------
 // Runtime systems
 // ---------------------------------------------------------------------------
-
-/// Sync link visual transforms from physics bodies.
-#[allow(clippy::needless_pass_by_value)]
-fn sync_link_visuals(ctx: Res<RapierContext>, mut query: Query<(&LinkVisual, &mut Transform)>) {
-    for (link, mut tf) in &mut query {
-        let Some(&handle) = ctx.body_handles.get(link.0) else {
-            continue;
-        };
-        let Some(body) = ctx.rigid_body_set.get(handle) else {
-            continue;
-        };
-        tf.translation = phys_to_vis(body.translation());
-        tf.rotation = phys_rot_to_vis(body.rotation());
-    }
-}
 
 /// Track the observation camera to the end-effector body.
 #[allow(clippy::needless_pass_by_value)]
@@ -351,17 +336,7 @@ fn main() {
     let joint_entities = setup.joint_entities.clone();
 
     // Extract gripper finger entities
-    let gripper_entities = {
-        let spawned = &setup.scene.robots["six_dof_arm"];
-        GripperEntities([
-            spawned
-                .joint_entity("j_finger_left")
-                .expect("j_finger_left not found"),
-            spawned
-                .joint_entity("j_finger_right")
-                .expect("j_finger_right not found"),
-        ])
-    };
+    let gripper_entities = GripperEntities::from_setup(&setup);
 
     // Pre-populate motor overrides so motors hold from the first physics step
     let motor_overrides = initial_motor_overrides(&setup, &gripper_entities.0);

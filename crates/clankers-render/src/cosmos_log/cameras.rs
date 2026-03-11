@@ -99,8 +99,7 @@ pub fn spawn_cosmos_cameras(
 
         // --- Segmentation camera ---
         seg_bufs.insert(spec.label.clone(), SegmentationFrameBuffer::new(w, h));
-        let (seg_entity, _) =
-            spawn_segmentation_camera_sensor(&mut commands, &mut images, w, h);
+        let (seg_entity, _) = spawn_segmentation_camera_sensor(&mut commands, &mut images, w, h);
         commands.entity(seg_entity).insert((
             transform,
             Projection::Perspective(PerspectiveProjection {

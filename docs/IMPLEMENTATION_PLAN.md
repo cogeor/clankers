@@ -1,8 +1,8 @@
-# Clankerss Implementation Plan
+# CityBuilder Implementation Plan
 
 ## 1. Overview
 
-Clankerss is a modular robotics simulation framework written in Rust, built on Bevy 0.17 and rapier3d 0.32. It replaces the role that Isaac Sim/Gym fills for NVIDIA hardware, running on commodity hardware with no vendor lock-in and shipping as a single binary. A user describes a robot and a task, Clankerss simulates the physics, and a Python training script on the other end of a TCP socket learns a policy. Once trained, the policy is exported to ONNX and runs natively in Rust.
+CityBuilder is a modular robotics simulation framework written in Rust, built on Bevy 0.17 and rapier3d 0.32. It replaces the role that Isaac Sim/Gym fills for NVIDIA hardware, running on commodity hardware with no vendor lock-in and shipping as a single binary. A user describes a robot and a task, CityBuilder simulates the physics, and a Python training script on the other end of a TCP socket learns a policy. Once trained, the policy is exported to ONNX and runs natively in Rust.
 
 The workspace contains 14 crates (13 library crates + 1 application binary) organized under `crates/` and `apps/`.
 
@@ -26,40 +26,40 @@ No module in a later phase begins until every module in the current phase meets 
 The workspace has a clear layered dependency structure. Leaf crates have zero internal dependencies. Higher-level crates compose them.
 
 ```
-clankers-sim (top-level plugin)
+citybuilder-sim (top-level plugin)
  |
- +-- clankers-core ................. (bevy, serde, thiserror, rand, rand_chacha, toml)
- +-- clankers-noise ................ (rand, rand_distr)
- +-- clankers-env .................. (core, noise, bevy, rapier3d)
- +-- clankers-actuator-core ........ (no deps -- pure math)
- +-- clankers-actuator ............. (actuator-core, bevy, rapier3d)
- +-- clankers-urdf ................. (core, urdf-rs, bevy_urdf)
- +-- clankers-gym .................. (core, env, noise)
- +-- clankers-domain-rand .......... (core, noise, rapier3d)
- +-- clankers-policy ............... (core, ort)
- +-- clankers-render ............... (core, bevy)
- +-- clankers-teleop ............... (core, bevy)
+ +-- citybuilder-core ................. (bevy, serde, thiserror, rand, rand_chacha, toml)
+ +-- citybuilder-noise ................ (rand, rand_distr)
+ +-- citybuilder-env .................. (core, noise, bevy, rapier3d)
+ +-- citybuilder-actuator-core ........ (no deps -- pure math)
+ +-- citybuilder-actuator ............. (actuator-core, bevy, rapier3d)
+ +-- citybuilder-urdf ................. (core, urdf-rs, bevy_urdf)
+ +-- citybuilder-gym .................. (core, env, noise)
+ +-- citybuilder-domain-rand .......... (core, noise, rapier3d)
+ +-- citybuilder-policy ............... (core, ort)
+ +-- citybuilder-render ............... (core, bevy)
+ +-- citybuilder-teleop ............... (core, bevy)
  |
-clankers-app (binary -- depends on clankers-sim)
-clankers-test-utils (dev-dependency for shared fixtures)
+citybuilder-app (binary -- depends on citybuilder-sim)
+citybuilder-test-utils (dev-dependency for shared fixtures)
 ```
 
 ### Dependency Matrix
 
 | Crate              | core | noise | env | act-core | actuator | urdf | gym | domain-rand | policy | render | teleop |
 |--------------------|:----:|:-----:|:---:|:--------:|:--------:|:----:|:---:|:-----------:|:------:|:------:|:------:|
-| clankers-core       | --   |       |     |          |          |      |     |             |        |        |        |
-| clankers-noise      |      | --    |     |          |          |      |     |             |        |        |        |
-| clankers-env        | X    | X     | --  |          |          |      |     |             |        |        |        |
-| clankers-actuator-core |   |       |     | --       |          |      |     |             |        |        |        |
-| clankers-actuator   |      |       |     | X        | --       |      |     |             |        |        |        |
-| clankers-urdf       | X    |       |     |          |          | --   |     |             |        |        |        |
-| clankers-gym        | X    | X     | X   |          |          |      | --  |             |        |        |        |
-| clankers-domain-rand| X    | X     |     |          |          |      |     | --          |        |        |        |
-| clankers-policy     | X    |       |     |          |          |      |     |             | --     |        |        |
-| clankers-render     | X    |       |     |          |          |      |     |             |        | --     |        |
-| clankers-teleop     | X    |       |     |          |          |      |     |             |        |        | --     |
-| clankers-sim        | X    | X     | X   | X        | X        | X    | X   | X           | X      | X      | X      |
+| citybuilder-core       | --   |       |     |          |          |      |     |             |        |        |        |
+| citybuilder-noise      |      | --    |     |          |          |      |     |             |        |        |        |
+| citybuilder-env        | X    | X     | --  |          |          |      |     |             |        |        |        |
+| citybuilder-actuator-core |   |       |     | --       |          |      |     |             |        |        |        |
+| citybuilder-actuator   |      |       |     | X        | --       |      |     |             |        |        |        |
+| citybuilder-urdf       | X    |       |     |          |          | --   |     |             |        |        |        |
+| citybuilder-gym        | X    | X     | X   |          |          |      | --  |             |        |        |        |
+| citybuilder-domain-rand| X    | X     |     |          |          |      |     | --          |        |        |        |
+| citybuilder-policy     | X    |       |     |          |          |      |     |             | --     |        |        |
+| citybuilder-render     | X    |       |     |          |          |      |     |             |        | --     |        |
+| citybuilder-teleop     | X    |       |     |          |          |      |     |             |        |        | --     |
+| citybuilder-sim        | X    | X     | X   | X        | X        | X    | X   | X           | X      | X      | X      |
 
 ---
 
@@ -67,70 +67,70 @@ clankers-test-utils (dev-dependency for shared fixtures)
 
 ### Phase 1: Foundation
 
-**Crates:** `clankers-core`, `clankers-noise`
+**Crates:** `citybuilder-core`, `citybuilder-noise`
 
-**Rationale:** These two crates have zero internal dependencies. `clankers-core` defines the vocabulary that every other crate imports: types (`Action`, `Observation`, `StepResult`), traits (`RLEnvironment`, `Sensor`), configuration (`SimConfig`, `SimTime`), system ordering (`ClankersSet`), and error types. `clankers-noise` provides the `NoiseModel` enum used by sensors, domain randomization, and action perturbation. Everything else in the workspace depends on one or both of these.
+**Rationale:** These two crates have zero internal dependencies. `citybuilder-core` defines the vocabulary that every other crate imports: types (`Action`, `Observation`, `StepResult`), traits (`RLEnvironment`, `Sensor`), configuration (`SimConfig`, `SimTime`), system ordering (`CityBuilderSet`), and error types. `citybuilder-noise` provides the `NoiseModel` enum used by sensors, domain randomization, and action perturbation. Everything else in the workspace depends on one or both of these.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-core | none | `Action`, `Observation`, `StepResult`, `SimConfig`, `SimTime`, `ClankersSet`, `RobotHandle`, `ObjectHandle`, error types, `ClankersCorePlugin` |
-| clankers-noise | none | `NoiseModel` enum (Gaussian, Uniform, Bias, Drift, Chain), `apply()`, deterministic seeding |
+| citybuilder-core | none | `Action`, `Observation`, `StepResult`, `SimConfig`, `SimTime`, `CityBuilderSet`, `RobotHandle`, `ObjectHandle`, error types, `CityBuilderCorePlugin` |
+| citybuilder-noise | none | `NoiseModel` enum (Gaussian, Uniform, Bias, Drift, Chain), `apply()`, deterministic seeding |
 
 ### Phase 2: Environment and Actuation
 
-**Crates:** `clankers-env`, `clankers-actuator-core`, `clankers-actuator`
+**Crates:** `citybuilder-env`, `citybuilder-actuator-core`, `citybuilder-actuator`
 
 **Rationale:** With core types and noise models in place, the environment crate can implement state management, sensor collection, and episode lifecycle. The actuator crates are split by design: `actuator-core` contains pure motor math (testable without Bevy), and `actuator` wraps it in a Bevy plugin. These three crates together define how the simulation reads state and applies actions.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-env | core, noise | State management, sensor systems (joint, IMU, camera, contact), `ObservationBuffer`, episode lifecycle |
-| clankers-actuator-core | none | `MotorModel` (DC, ideal), gear ratio, transmission, friction (Coulomb, viscous), PID controller |
-| clankers-actuator | actuator-core | `ActuatorPlugin`, `apply_actions` system, joint state sync |
+| citybuilder-env | core, noise | State management, sensor systems (joint, IMU, camera, contact), `ObservationBuffer`, episode lifecycle |
+| citybuilder-actuator-core | none | `MotorModel` (DC, ideal), gear ratio, transmission, friction (Coulomb, viscous), PID controller |
+| citybuilder-actuator | actuator-core | `ActuatorPlugin`, `apply_actions` system, joint state sync |
 
 ### Phase 3: Robot Loading
 
-**Crates:** `clankers-urdf`
+**Crates:** `citybuilder-urdf`
 
-**Rationale:** Before training infrastructure can be built, the system needs to load robot descriptions. URDF parsing depends on `clankers-core` types for `RobotHandle` and joint/link representations. This is a standalone phase because URDF loading is complex (mesh loading, joint configuration, collision geometry) and benefits from focused attention.
+**Rationale:** Before training infrastructure can be built, the system needs to load robot descriptions. URDF parsing depends on `citybuilder-core` types for `RobotHandle` and joint/link representations. This is a standalone phase because URDF loading is complex (mesh loading, joint configuration, collision geometry) and benefits from focused attention.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-urdf | core | URDF parsing (via `urdf-rs`), mesh loading, robot entity spawning, joint configuration, `RobotModel` |
+| citybuilder-urdf | core | URDF parsing (via `urdf-rs`), mesh loading, robot entity spawning, joint configuration, `RobotModel` |
 
 ### Phase 4: Training Infrastructure
 
-**Crates:** `clankers-gym`, `clankers-domain-rand`
+**Crates:** `citybuilder-gym`, `citybuilder-domain-rand`
 
-**Rationale:** With environment, actuation, and robot loading complete, the training pipeline can be assembled. `clankers-gym` implements the TCP server and Gymnasium-compatible protocol that Python training scripts connect to. `clankers-domain-rand` implements physics parameter randomization for sim-to-real transfer. Both depend on core and noise; gym additionally depends on env.
+**Rationale:** With environment, actuation, and robot loading complete, the training pipeline can be assembled. `citybuilder-gym` implements the TCP server and Gymnasium-compatible protocol that Python training scripts connect to. `citybuilder-domain-rand` implements physics parameter randomization for sim-to-real transfer. Both depend on core and noise; gym additionally depends on env.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-gym | core, env, noise | TCP server, length-prefixed JSON protocol (v1.0.0), `reset`/`step` handlers, reward/termination wiring, VecEnv batch interface |
-| clankers-domain-rand | core, noise | Mass/friction randomization, external force perturbation, per-environment randomization, `DomainRandPlugin` |
+| citybuilder-gym | core, env, noise | TCP server, length-prefixed JSON protocol (v1.0.0), `reset`/`step` handlers, reward/termination wiring, VecEnv batch interface |
+| citybuilder-domain-rand | core, noise | Mass/friction randomization, external force perturbation, per-environment randomization, `DomainRandPlugin` |
 
 ### Phase 5: Inference and Visualization
 
-**Crates:** `clankers-policy`, `clankers-render`, `clankers-teleop`
+**Crates:** `citybuilder-policy`, `citybuilder-render`, `citybuilder-teleop`
 
-**Rationale:** These crates enable deployment and debugging. They depend only on `clankers-core` (and Bevy for render/teleop), so they could theoretically be built earlier, but they are not needed until the training pipeline is functional. Building them in Phase 5 means they can be tested against a working simulation.
+**Rationale:** These crates enable deployment and debugging. They depend only on `citybuilder-core` (and Bevy for render/teleop), so they could theoretically be built earlier, but they are not needed until the training pipeline is functional. Building them in Phase 5 means they can be tested against a working simulation.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-policy | core | ONNX model loading (via `ort`), `policy_inference_system`, action generation from observations, feature flags for `cpu`/`cuda`/`tensorrt` |
-| clankers-render | core | Headless rendering, GPU-to-CPU image transfer, camera observation pipeline, resolution configuration |
-| clankers-teleop | core | Manual control trait, keyboard/gamepad input mapping, debug visualization |
+| citybuilder-policy | core | ONNX model loading (via `ort`), `policy_inference_system`, action generation from observations, feature flags for `cpu`/`cuda`/`tensorrt` |
+| citybuilder-render | core | Headless rendering, GPU-to-CPU image transfer, camera observation pipeline, resolution configuration |
+| citybuilder-teleop | core | Manual control trait, keyboard/gamepad input mapping, debug visualization |
 
 ### Phase 6: Integration
 
-**Crates:** `clankers-sim`, `clankers-app`
+**Crates:** `citybuilder-sim`, `citybuilder-app`
 
-**Rationale:** The top-level plugin wires every crate together into a single `ClankersPlugin` that users add to their Bevy app. It depends on all other crates and cannot be built until they are complete. `clankers-app` is the example binary that demonstrates the full stack.
+**Rationale:** The top-level plugin wires every crate together into a single `CityBuilderPlugin` that users add to their Bevy app. It depends on all other crates and cannot be built until they are complete. `citybuilder-app` is the example binary that demonstrates the full stack.
 
 | Crate | Internal Deps | Key Deliverables |
 |-------|---------------|------------------|
-| clankers-sim | all crates | `ClankersPlugin` (training/inference/visualization modes), system ordering enforcement, plugin composition, scene loading |
-| clankers-app | clankers-sim | Example application, CLI interface (`--mode`, `--scene`, `--port`, `--policy`), scene TOML loading |
+| citybuilder-sim | all crates | `CityBuilderPlugin` (training/inference/visualization modes), system ordering enforcement, plugin composition, scene loading |
+| citybuilder-app | citybuilder-sim | Example application, CLI interface (`--mode`, `--scene`, `--port`, `--policy`), scene TOML loading |
 
 ### Phase Diagram
 
@@ -149,20 +149,20 @@ noise -----+---> actuator-core -+              +--> domain-rand ---+--> render -
 
 | Crate | Phase | Key Types / Traits | External Dependencies | Complexity |
 |-------|:-----:|--------------------|-----------------------|:----------:|
-| clankers-core | 1 | `Action`, `Observation`, `StepResult`, `SimConfig`, `SimTime`, `ClankersSet`, `RobotHandle`, `ObjectHandle`, `RLEnvironment` trait, error types | bevy (app + ecs), serde, thiserror, rand, rand_chacha, toml | M |
-| clankers-noise | 1 | `NoiseModel` (Gaussian, Uniform, Bias, Drift, Chain), `apply()` | rand, rand_distr | S |
-| clankers-env | 2 | `ObservationBuffer`, `SensorPlugin`, joint/IMU/camera/contact sensors, episode state | bevy, rapier3d, clankers-core, clankers-noise | L |
-| clankers-actuator-core | 2 | `MotorModel`, `GearRatio`, `Transmission`, `FrictionModel`, PID | (none or minimal) | S |
-| clankers-actuator | 2 | `ActuatorPlugin`, `apply_actions`, `joint_state_sync_system` | bevy, rapier3d, clankers-actuator-core | M |
-| clankers-urdf | 3 | `RobotModel`, URDF parser adapter, mesh loader, entity spawner | urdf-rs, bevy_urdf, clankers-core | M |
-| clankers-gym | 4 | TCP server, protocol messages, `GymPlugin`, batch step/reset, reward/termination wiring | serde_json, clankers-core, clankers-env, clankers-noise | L |
-| clankers-domain-rand | 4 | `DomainRandPlugin`, `RandomizationConfig`, mass/friction/force randomizers | rapier3d, clankers-core, clankers-noise | M |
-| clankers-policy | 5 | `PolicyPlugin`, `OnnxPolicy`, `policy_inference_system` | ort, clankers-core | M |
-| clankers-render | 5 | `RenderPlugin`, headless camera, GPU-to-CPU pipeline | bevy (render), clankers-core | M |
-| clankers-teleop | 5 | `TeleopPlugin`, `ManualController` trait, input mapping | bevy (input), clankers-core | S |
-| clankers-sim | 6 | `ClankersPlugin`, mode constructors, plugin composition | all internal crates | L |
-| clankers-app | 6 | CLI args, scene loading, example setup | clankers-sim, clap | S |
-| clankers-test-utils | -- | Robot fixtures, sensor mocks, test harnesses | various | S |
+| citybuilder-core | 1 | `Action`, `Observation`, `StepResult`, `SimConfig`, `SimTime`, `CityBuilderSet`, `RobotHandle`, `ObjectHandle`, `RLEnvironment` trait, error types | bevy (app + ecs), serde, thiserror, rand, rand_chacha, toml | M |
+| citybuilder-noise | 1 | `NoiseModel` (Gaussian, Uniform, Bias, Drift, Chain), `apply()` | rand, rand_distr | S |
+| citybuilder-env | 2 | `ObservationBuffer`, `SensorPlugin`, joint/IMU/camera/contact sensors, episode state | bevy, rapier3d, citybuilder-core, citybuilder-noise | L |
+| citybuilder-actuator-core | 2 | `MotorModel`, `GearRatio`, `Transmission`, `FrictionModel`, PID | (none or minimal) | S |
+| citybuilder-actuator | 2 | `ActuatorPlugin`, `apply_actions`, `joint_state_sync_system` | bevy, rapier3d, citybuilder-actuator-core | M |
+| citybuilder-urdf | 3 | `RobotModel`, URDF parser adapter, mesh loader, entity spawner | urdf-rs, bevy_urdf, citybuilder-core | M |
+| citybuilder-gym | 4 | TCP server, protocol messages, `GymPlugin`, batch step/reset, reward/termination wiring | serde_json, citybuilder-core, citybuilder-env, citybuilder-noise | L |
+| citybuilder-domain-rand | 4 | `DomainRandPlugin`, `RandomizationConfig`, mass/friction/force randomizers | rapier3d, citybuilder-core, citybuilder-noise | M |
+| citybuilder-policy | 5 | `PolicyPlugin`, `OnnxPolicy`, `policy_inference_system` | ort, citybuilder-core | M |
+| citybuilder-render | 5 | `RenderPlugin`, headless camera, GPU-to-CPU pipeline | bevy (render), citybuilder-core | M |
+| citybuilder-teleop | 5 | `TeleopPlugin`, `ManualController` trait, input mapping | bevy (input), citybuilder-core | S |
+| citybuilder-sim | 6 | `CityBuilderPlugin`, mode constructors, plugin composition | all internal crates | L |
+| citybuilder-app | 6 | CLI args, scene loading, example setup | citybuilder-sim, clap | S |
+| citybuilder-test-utils | -- | Robot fixtures, sensor mocks, test harnesses | various | S |
 
 **Complexity key:** S = small (< 500 lines, straightforward), M = medium (500-2000 lines, moderate design decisions), L = large (2000+ lines, significant design surface)
 
@@ -172,7 +172,7 @@ noise -----+---> actuator-core -+              +--> domain-rand ---+--> render -
 
 ### Unit Tests
 
-Every module contains in-module unit tests using `#[cfg(test)]`. Tests live alongside the code they test. Pure-math crates (`clankers-noise`, `clankers-actuator-core`) have the highest unit test density because they are easy to test in isolation.
+Every module contains in-module unit tests using `#[cfg(test)]`. Tests live alongside the code they test. Pure-math crates (`citybuilder-noise`, `citybuilder-actuator-core`) have the highest unit test density because they are easy to test in isolation.
 
 ```rust
 #[cfg(test)]
@@ -188,13 +188,13 @@ mod tests {
 
 ### Integration Tests
 
-Each crate has a `tests/` directory for integration tests that exercise the public API. Crates with Bevy plugins (`clankers-env`, `clankers-actuator`, `clankers-sim`) use minimal Bevy app setups to test system behavior.
+Each crate has a `tests/` directory for integration tests that exercise the public API. Crates with Bevy plugins (`citybuilder-env`, `citybuilder-actuator`, `citybuilder-sim`) use minimal Bevy app setups to test system behavior.
 
 ```
-crates/clankers-core/tests/
+crates/citybuilder-core/tests/
     config_roundtrip.rs
     action_validation.rs
-crates/clankers-noise/tests/
+crates/citybuilder-noise/tests/
     noise_determinism.rs
     chain_composition.rs
 ```
@@ -203,7 +203,7 @@ crates/clankers-noise/tests/
 
 - **rstest** for `#[fixture]` and `#[case]` parameterized tests.
 - **cargo-tarpaulin** for coverage reports.
-- **clankers-test-utils** crate provides shared fixtures:
+- **citybuilder-test-utils** crate provides shared fixtures:
   - Pre-built `RobotModel` instances (UR5, simple 2-link arm).
   - Sensor mock data generators.
   - Minimal Bevy `App` builders for plugin testing.
@@ -211,7 +211,7 @@ crates/clankers-noise/tests/
 
 ### Workspace-Level End-to-End Tests
 
-Located in `tests/` at the workspace root (or in the `clankers-app` crate). These tests exercise the full pipeline:
+Located in `tests/` at the workspace root (or in the `citybuilder-app` crate). These tests exercise the full pipeline:
 
 1. Load a scene from TOML.
 2. Spawn a robot from URDF.
@@ -328,7 +328,7 @@ Before starting Phase N+1:
 ## Appendix B: File Layout Convention
 
 ```
-crates/clankers-{name}/
+crates/citybuilder-{name}/
     Cargo.toml
     src/
         lib.rs          # Public API re-exports, module declarations

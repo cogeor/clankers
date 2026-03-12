@@ -766,10 +766,10 @@ fn main() {
             let target = (trace_frame + 1) as u32;
             for _ in 0..10 {
                 app.update();
-                if let Some(state) = app.world().get_resource::<CosmosWriterState>() {
-                    if state.frame_index >= target {
-                        break;
-                    }
+                if let Some(state) = app.world().get_resource::<CosmosWriterState>()
+                    && state.frame_index >= target
+                {
+                    break;
                 }
             }
 
@@ -847,7 +847,7 @@ fn main() {
         );
 
         let augment_path = cli.augment;
-        let obs_cfg = obs_config.clone();
+        let obs_cfg = obs_config;
         let win_size = window_res;
         app.run();
 

@@ -37,7 +37,7 @@ pub struct DepthMaterialUniform {
 impl DepthMaterial {
     /// Create a depth material with the given maximum depth in metres.
     #[must_use]
-    pub fn new(max_depth: f32) -> Self {
+    pub const fn new(max_depth: f32) -> Self {
         Self {
             uniforms: DepthMaterialUniform { max_depth },
         }

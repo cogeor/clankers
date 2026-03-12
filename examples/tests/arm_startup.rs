@@ -35,6 +35,7 @@ fn run_arm(steps: usize, use_overrides: bool, stiffness: f32, remove_colliders: 
         let mut ctx = world.remove_resource::<RapierContext>().unwrap();
         // Remove all colliders
         let handles: Vec<_> = ctx.collider_set.iter().map(|(h, _)| h).collect();
+        #[allow(clippy::default_trait_access)]
         for h in handles {
             ctx.collider_set
                 .remove(h, &mut Default::default(), &mut ctx.rigid_body_set, true);

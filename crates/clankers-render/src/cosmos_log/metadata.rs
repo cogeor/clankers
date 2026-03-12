@@ -30,7 +30,7 @@ pub fn write_cosmos_metadata(config: &CosmosLogConfig, state: &CosmosWriterState
     let frame_count = state.frame_index;
     let fps = config.fps;
     let duration_s = if fps > 0 {
-        frame_count as f64 / fps as f64
+        f64::from(frame_count) / f64::from(fps)
     } else {
         0.0
     };
@@ -73,7 +73,7 @@ pub fn write_cosmos_metadata(config: &CosmosLogConfig, state: &CosmosWriterState
     match serde_json::to_string_pretty(&metadata) {
         Ok(json_str) => {
             if let Err(e) = std::fs::write(&path, json_str) {
-                eprintln!("CosmosLog: failed to write metadata: {e}");
+                error!("CosmosLog: failed to write metadata: {e}");
             } else {
                 println!(
                     "CosmosLog: metadata → {} ({} frames, {:.1}s)",
@@ -83,6 +83,6 @@ pub fn write_cosmos_metadata(config: &CosmosLogConfig, state: &CosmosWriterState
                 );
             }
         }
-        Err(e) => eprintln!("CosmosLog: failed to serialize metadata: {e}"),
+        Err(e) => error!("CosmosLog: failed to serialize metadata: {e}"),
     }
 }

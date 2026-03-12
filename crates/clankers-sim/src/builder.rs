@@ -329,8 +329,8 @@ fn shape_to_collider(shape: &Shape) -> ColliderBuilder {
         // Mesh shapes are not yet supported; fall back to a small sphere
         // so the build does not panic.
         Shape::ConvexMesh(_) | Shape::TriMesh(_) => {
-            eprintln!(
-                "warning: mesh shapes are not yet supported in with_object(); falling back to unit sphere collider"
+            warn!(
+                "mesh shapes are not yet supported in with_object(); falling back to unit sphere collider"
             );
             ColliderBuilder::ball(0.01)
         }

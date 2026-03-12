@@ -262,10 +262,10 @@ mod gpu_impl {
 
         // Write to the appropriate buffer.
         if let Some(label) = maybe_label {
-            if let Some(mut bufs) = keyed_bufs {
-                if let Some(buf) = bufs.get_mut(&label.0) {
-                    buf.write_depth_frame(depth_values);
-                }
+            if let Some(mut bufs) = keyed_bufs
+                && let Some(buf) = bufs.get_mut(&label.0)
+            {
+                buf.write_depth_frame(depth_values);
             }
         } else if let Some(mut buf) = depth_buf {
             buf.write_depth_frame(depth_values);

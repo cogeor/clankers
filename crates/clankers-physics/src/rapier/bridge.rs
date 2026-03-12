@@ -418,7 +418,7 @@ fn geometry_to_collider(geometry: &Geometry) -> Option<ColliderBuilder> {
             Some(ColliderBuilder::cylinder(*length / 2.0, *radius))
         }
         Geometry::Mesh { .. } => {
-            eprintln!("warning: URDF mesh collision geometry not yet supported; skipping collider");
+            bevy::log::warn!("URDF mesh collision geometry not yet supported; skipping collider");
             None
         }
     }

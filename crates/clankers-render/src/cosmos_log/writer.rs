@@ -53,7 +53,7 @@ pub fn create_run_directory(mut commands: Commands, config: Res<CosmosLogConfig>
     for spec in &config.cameras {
         let cam_dir = run_dir.join(&spec.label);
         std::fs::create_dir_all(&cam_dir).unwrap_or_else(|e| {
-            eprintln!(
+            error!(
                 "CosmosLog: failed to create directory {}: {e}",
                 cam_dir.display()
             );
@@ -90,21 +90,26 @@ pub fn init_seg_transform_colors(
 
     let mut transform_colors = Vec::new();
     for name in &config.seg_transform_classes {
-        if let Some(&id) = class_name_to_id.get(name.as_str()) {
-            if let Some(&[r, g, b]) = palette.colors.get(&id) {
-                transform_colors.push([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]);
-            }
+        if let Some(&id) = class_name_to_id.get(name.as_str())
+            && let Some(&[r, g, b]) = palette.colors.get(&id)
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            transform_colors.push([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]);
         }
     }
     commands.insert_resource(SegTransformColors(transform_colors));
 }
 
-/// PostUpdate system: write RGB, depth, and segmentation PNGs for each camera.
+/// `PostUpdate` system: write RGB, depth, and segmentation PNGs for each camera.
 ///
 /// Only writes when the RGB buffer has received fresh GPU data (checked via
 /// `frame_counter()`). This prevents writing blank frames before the GPU
 /// readback pipeline has produced its first output.
-#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_arguments,
+    clippy::implicit_hasher
+)]
 pub fn write_cosmos_frames(
     cam_bufs: Res<CameraFrameBuffers>,
     seg_bufs: Res<SegmentationFrameBuffers>,
@@ -142,39 +147,39 @@ pub fn write_cosmos_frames(
         if let Some(img) = RgbImage::from_raw(w, h, rgb) {
             let path = dir.join(format!("rgb_{frame_idx:05}.png"));
             if let Err(e) = img.save(&path) {
-                eprintln!("CosmosLog: failed to save RGB frame: {e}");
+                error!("CosmosLog: failed to save RGB frame: {e}");
             }
         }
 
         // --- Depth (from depth-material RGB camera on layer 2) ---
         let depth_key = format!("cosmos_{label}_depth");
-        if let Some(depth_buf) = cam_bufs.get(&depth_key) {
-            if depth_buf.frame_counter() > 0 {
-                let dw = depth_buf.width();
-                let dh = depth_buf.height();
-                let depth_data = depth_buf.data();
-                // Depth material renders grayscale — extract R channel from RGBA.
-                let gray: Vec<u8> = depth_data.chunks_exact(4).map(|px| px[0]).collect();
-                if let Some(img) = GrayImage::from_raw(dw, dh, gray) {
-                    let path = dir.join(format!("depth_{frame_idx:05}.png"));
-                    if let Err(e) = img.save(&path) {
-                        eprintln!("CosmosLog: failed to save depth frame: {e}");
-                    }
+        if let Some(depth_buf) = cam_bufs.get(&depth_key)
+            && depth_buf.frame_counter() > 0
+        {
+            let dw = depth_buf.width();
+            let dh = depth_buf.height();
+            let depth_data = depth_buf.data();
+            // Depth material renders grayscale — extract R channel from RGBA.
+            let gray: Vec<u8> = depth_data.chunks_exact(4).map(|px| px[0]).collect();
+            if let Some(img) = GrayImage::from_raw(dw, dh, gray) {
+                let path = dir.join(format!("depth_{frame_idx:05}.png"));
+                if let Err(e) = img.save(&path) {
+                    error!("CosmosLog: failed to save depth frame: {e}");
                 }
             }
         }
 
         // --- Segmentation → save raw palette-coloured image ---
-        if let Some(buf) = seg_bufs.get(label) {
-            if buf.frame_counter() > 0 {
-                let sw = buf.width();
-                let sh = buf.height();
-                let seg_data = buf.data();
-                if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, seg_data.to_vec()) {
-                    let path = dir.join(format!("seg_{frame_idx:05}.png"));
-                    if let Err(e) = img.save(&path) {
-                        eprintln!("CosmosLog: failed to save seg frame: {e}");
-                    }
+        if let Some(buf) = seg_bufs.get(label)
+            && buf.frame_counter() > 0
+        {
+            let sw = buf.width();
+            let sh = buf.height();
+            let seg_data = buf.data();
+            if let Some(img) = ImageBuffer::<Rgb<u8>, _>::from_raw(sw, sh, seg_data.to_vec()) {
+                let path = dir.join(format!("seg_{frame_idx:05}.png"));
+                if let Err(e) = img.save(&path) {
+                    error!("CosmosLog: failed to save seg frame: {e}");
                 }
             }
         }
@@ -191,7 +196,7 @@ pub fn write_cosmos_frames(
 // ---------------------------------------------------------------------------
 
 /// Convert days since Unix epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+const fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     // Algorithm from http://howardhinnant.github.io/date_algorithms.html
     let z = days + 719_468;
     let era = z / 146_097;

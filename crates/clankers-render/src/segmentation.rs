@@ -561,10 +561,10 @@ mod gpu_impl {
 
         // Write to the appropriate buffer.
         if let Some(label) = maybe_label {
-            if let Some(mut bufs) = keyed_bufs {
-                if let Some(buf) = bufs.get_mut(&label.0) {
-                    buf.write_frame(rgb_bytes);
-                }
+            if let Some(mut bufs) = keyed_bufs
+                && let Some(buf) = bufs.get_mut(&label.0)
+            {
+                buf.write_frame(rgb_bytes);
             }
         } else if let Some(mut buf) = seg_buf {
             buf.write_frame(rgb_bytes);

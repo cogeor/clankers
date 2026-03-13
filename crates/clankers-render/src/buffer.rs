@@ -246,7 +246,7 @@ impl Default for DepthFrameBuffer {
 /// Resource holding one [`DepthFrameBuffer`] per named camera.
 ///
 /// Analogous to [`CameraFrameBuffers`] but for depth data. When a depth
-/// camera is spawned with a [`DepthCameraLabel`][crate::depth::DepthCameraLabel],
+/// camera is spawned with a `DepthCameraLabel`,
 /// the readback system routes depth data into the buffer keyed by that label.
 ///
 /// # Example

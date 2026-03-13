@@ -35,7 +35,7 @@ pub enum CosmosModality {
     Seg,
 }
 
-/// Startup system: spawn one camera triplet (RGB + depth + seg) per [`CameraSpec`].
+/// Startup system: spawn one camera triplet (RGB + depth + seg) per [`super::CameraSpec`].
 #[allow(clippy::needless_pass_by_value)]
 pub fn spawn_cosmos_cameras(
     mut commands: Commands,

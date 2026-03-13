@@ -97,12 +97,12 @@ class VisionPositionDataset:
     @property
     def joint_dim(self) -> int:
         """Number of joint dimensions."""
-        return self._positions.shape[1]
+        return int(self._positions.shape[1])
 
     @property
     def velocity_dim(self) -> int:
         """Number of velocity dimensions (same as joint_dim)."""
-        return self._velocities.shape[1]
+        return int(self._velocities.shape[1])
 
     # -- Factories -----------------------------------------------------------
 

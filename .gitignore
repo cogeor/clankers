@@ -36,6 +36,3 @@ mpc_gait_root_cause_report.md
 quadruped_mpc_report.md
 aug_report.md
 output/
-
-# Vendored binaries (downloaded per-platform)
-vendor/ort/

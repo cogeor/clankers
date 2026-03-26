@@ -6,5 +6,3 @@ jobs = 24
 [alias]
 t = "test --workspace --exclude clankers-examples"
 
-[env]
-ORT_DYLIB_PATH = { value = "vendor/ort/onnxruntime.dll", relative = true }

@@ -524,9 +524,12 @@ pub mod camera {
         recorder: Option<NonSendMut<Recorder>>,
         mut cam_channels: ResMut<CameraChannelIds>,
         sim_time: Res<SimTime>,
-        frame_buffers: Res<CameraFrameBuffers>,
+        frame_buffers: Option<Res<CameraFrameBuffers>>,
     ) {
         let Some(mut recorder) = recorder else {
+            return;
+        };
+        let Some(frame_buffers) = frame_buffers else {
             return;
         };
 

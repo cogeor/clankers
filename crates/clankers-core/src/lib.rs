@@ -2,7 +2,9 @@
 
 pub mod config;
 pub mod error;
+pub mod layout;
 pub mod physics;
+pub mod schema;
 pub mod seed;
 pub mod time;
 pub mod traits;
@@ -90,10 +92,17 @@ pub mod prelude {
         config::{ObjectConfig, RobotConfig, SceneConfig, Shape, SimConfig, TaskConfig},
         // Errors
         error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
+        // Layout (W1)
+        layout::{JointLayout, JointSpec},
         // Physics
         physics::{
             ContactData, EndEffectorState, ExternalForce, ImuData, LidarConfig, Mass,
             RaycastResult, SurfaceFriction,
+        },
+        // Schema (W1)
+        schema::{
+            ActionSchema, ActionSemantics, FrameSchema, ObservationSchema, ObservationSlot,
+            RecorderSchema, SchemaMismatch,
         },
         // Seeds
         seed::{SeedHierarchy, derive_seed, derive_seed_indexed},

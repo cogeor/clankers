@@ -17,6 +17,7 @@ toml.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+clankers-urdf = { workspace = true }
 
 [lints]
 workspace = true

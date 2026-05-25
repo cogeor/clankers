@@ -60,11 +60,23 @@ fn convert_robot(robot: &urdf_rs::Robot) -> Result<RobotModel, UrdfError> {
         .ok_or(UrdfError::NoRootLink)?
         .clone();
 
+    // Alphabetic order of actuated joint names — pre-computed once so
+    // `RobotModel::actuated_joints` is deterministic regardless of the
+    // `joints` HashMap's iteration order. See `docs/plans/WS1-plan.md`
+    // § 9 PR2.
+    let mut actuated_joints_ordered: Vec<String> = joints
+        .values()
+        .filter(|j| j.joint_type.is_actuated())
+        .map(|j| j.name.clone())
+        .collect();
+    actuated_joints_ordered.sort();
+
     Ok(RobotModel {
         name: robot.name.clone(),
         links,
         joints,
         root_link,
+        actuated_joints_ordered,
     })
 }
 

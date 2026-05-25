@@ -230,6 +230,10 @@ pub struct RobotModel {
     pub joints: HashMap<String, JointData>,
     /// Name of the root link (the one never referenced as a child).
     pub root_link: String,
+    /// Joint names in alphabetic order, filtered to actuated joints.
+    /// Populated by the parser at `RobotModel` construction time.
+    /// Drives the iteration order of [`RobotModel::actuated_joints`].
+    pub(crate) actuated_joints_ordered: Vec<String>,
 }
 
 impl RobotModel {
@@ -247,9 +251,18 @@ impl RobotModel {
             .ok_or_else(|| UrdfError::MissingJoint(name.into()))
     }
 
-    /// Iterate over actuatable joints (revolute, continuous, prismatic).
+    /// Iterate over actuatable joints (revolute, continuous, prismatic)
+    /// in alphabetic name order.
+    ///
+    /// Order is fixed at parse time by populating
+    /// [`Self::actuated_joints_ordered`]; the underlying `joints`
+    /// `HashMap` is consulted only for value lookup. This makes the
+    /// iteration deterministic regardless of `HashMap` insertion order
+    /// or hasher state — see `docs/plans/WS1-plan.md` § 1.
     pub fn actuated_joints(&self) -> impl Iterator<Item = &JointData> {
-        self.joints.values().filter(|j| j.joint_type.is_actuated())
+        self.actuated_joints_ordered
+            .iter()
+            .filter_map(|n| self.joints.get(n))
     }
 
     /// Number of actuatable degrees of freedom.
@@ -265,10 +278,47 @@ impl RobotModel {
     }
 
     /// Names of actuated joints, sorted alphabetically.
+    #[deprecated(
+        note = "use JointLayout::from_robot_model via RobotModel::to_layout() — see docs/plans/WS1-plan.md"
+    )]
     pub fn actuated_joint_names(&self) -> Vec<&str> {
         let mut names: Vec<&str> = self.actuated_joints().map(|j| j.name.as_str()).collect();
         names.sort_unstable();
         names
+    }
+
+    /// Build a [`clankers_core::layout::JointLayout`] from this model.
+    ///
+    /// The layout iterates the same actuated joints exposed by
+    /// [`Self::actuated_joints`], in the same alphabetic order, and is
+    /// safe to share across processes (serialisable, hashable, versioned).
+    pub fn to_layout(&self) -> clankers_core::layout::JointLayout {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+
+        let mut builder = JointLayoutBuilder::default();
+        for joint in self.actuated_joints() {
+            let kind = match joint.joint_type {
+                JointType::Revolute => JointKind::Revolute,
+                JointType::Continuous => JointKind::Continuous,
+                JointType::Prismatic => JointKind::Prismatic,
+                JointType::Fixed => JointKind::Fixed,
+                JointType::Floating => JointKind::Floating,
+                JointType::Planar => JointKind::Planar,
+            };
+            builder = builder.push(JointSpec {
+                name: joint.name.clone(),
+                entity: None,
+                joint_type: kind,
+                limits: JointSpecLimits {
+                    lower: joint.limits.lower,
+                    upper: joint.limits.upper,
+                    effort: joint.limits.effort,
+                    velocity: joint.limits.velocity,
+                },
+                axis: joint.axis,
+            });
+        }
+        builder.build()
     }
 }
 
@@ -319,11 +369,19 @@ mod tests {
             },
         );
 
+        let mut actuated_joints_ordered: Vec<String> = joints
+            .values()
+            .filter(|j| j.joint_type.is_actuated())
+            .map(|j| j.name.clone())
+            .collect();
+        actuated_joints_ordered.sort();
+
         RobotModel {
             name: "test_robot".into(),
             links,
             joints,
             root_link: "base".into(),
+            actuated_joints_ordered,
         }
     }
 
@@ -391,6 +449,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn model_actuated_joint_names() {
         let model = sample_model();
         let names = model.actuated_joint_names();
@@ -418,5 +477,57 @@ mod tests {
         let dyn_ = JointDynamics::default();
         assert!((dyn_.damping).abs() < f32::EPSILON);
         assert!((dyn_.friction).abs() < f32::EPSILON);
+    }
+
+    // -- Layout-ordered actuated_joints + to_layout (WS1 PR2) --
+
+    #[test]
+    fn actuated_joints_iteration_is_alphabetic() {
+        use crate::parser::parse_string;
+        // Document-order is c, a, b — alphabetic should be a, b, c.
+        const URDF: &str = r#"
+            <robot name="ordered">
+                <link name="base"/><link name="l1"/><link name="l2"/><link name="l3"/>
+                <joint name="c_joint" type="revolute">
+                    <parent link="base"/><child link="l1"/>
+                    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+                </joint>
+                <joint name="a_joint" type="revolute">
+                    <parent link="l1"/><child link="l2"/>
+                    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+                </joint>
+                <joint name="b_joint" type="revolute">
+                    <parent link="l2"/><child link="l3"/>
+                    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+                </joint>
+            </robot>
+        "#;
+        let model = parse_string(URDF).expect("parse");
+        let names: Vec<&str> = model.actuated_joints().map(|j| j.name.as_str()).collect();
+        assert_eq!(names, vec!["a_joint", "b_joint", "c_joint"]);
+    }
+
+    #[test]
+    fn to_layout_round_trips_through_clankers_core() {
+        use crate::parser::parse_string;
+        const URDF: &str = r#"
+            <robot name="rt">
+                <link name="base"/><link name="l1"/><link name="l2"/>
+                <joint name="shoulder" type="revolute">
+                    <parent link="base"/><child link="l1"/>
+                    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+                </joint>
+                <joint name="elbow" type="revolute">
+                    <parent link="l1"/><child link="l2"/>
+                    <limit lower="-2" upper="2" effort="1" velocity="1"/>
+                </joint>
+            </robot>
+        "#;
+        let model = parse_string(URDF).expect("parse");
+        let layout = model.to_layout();
+        let layout_names: Vec<&str> = layout.joint_names().collect();
+        let actuated_names: Vec<&str> = model.actuated_joints().map(|j| j.name.as_str()).collect();
+        assert_eq!(layout_names, actuated_names);
+        assert_eq!(layout_names, vec!["elbow", "shoulder"]);
     }
 }

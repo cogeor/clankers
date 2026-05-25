@@ -254,11 +254,10 @@ impl RobotModel {
     /// Iterate over actuatable joints (revolute, continuous, prismatic)
     /// in alphabetic name order.
     ///
-    /// Order is fixed at parse time by populating
-    /// [`Self::actuated_joints_ordered`]; the underlying `joints`
-    /// `HashMap` is consulted only for value lookup. This makes the
-    /// iteration deterministic regardless of `HashMap` insertion order
-    /// or hasher state — see `docs/plans/WS1-plan.md` § 1.
+    /// Order is fixed at parse time by a private name-sorted index; the
+    /// underlying `joints` `HashMap` is consulted only for value lookup.
+    /// This makes the iteration deterministic regardless of `HashMap`
+    /// insertion order or hasher state — see `docs/plans/WS1-plan.md` § 1.
     pub fn actuated_joints(&self) -> impl Iterator<Item = &JointData> {
         self.actuated_joints_ordered
             .iter()

@@ -5,9 +5,10 @@
 # Cargo lock is committed for the workspace (binary + library)
 # See: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 
-# IDE
+# IDE / editor
 .idea/
 .vscode/
+.gemini/
 *.swp
 *.swo
 *~
@@ -21,18 +22,27 @@ __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# Delegate
-.delegate/
-
+# Local secrets / env
 .env
 
-# Scratch / report files
-*.report.md
-data_gen.txt
-task.txt
-gemini_report*.md
-mpc_gait_root_cause_report.md
-quadruped_mpc_report.md
-aug_report.md
+# Delegate (spec-driven workflow scratch)
+.delegate/
+
+# Notes, scratch reports, ad-hoc captures.
+# Anything experimental or one-off lives here. Promote to docs/ when it earns its place.
+notes/
+
+# Generated simulation captures / datasets.
+# Keep small fixtures under crates/*/tests/fixtures/ or a dedicated fixtures/ tree.
+data/
 output/
+*.mcap
+
+# Recorded media
+*.gif
+!docs/**/*.gif
+*.mp4
+*.webm

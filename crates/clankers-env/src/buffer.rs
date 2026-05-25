@@ -4,7 +4,9 @@
 //! converted to an [`Observation`] once all sensors have written.
 
 use bevy::prelude::*;
+use clankers_core::schema::SchemaDtype;
 use clankers_core::types::Observation;
+use clankers_core::view::ObservationView;
 
 // ---------------------------------------------------------------------------
 // SensorSlot
@@ -38,6 +40,12 @@ pub struct ObservationBuffer {
     slots: Vec<SensorSlot>,
     /// Total dimension (sum of all sensor dims).
     total_dim: usize,
+    /// Single-element shape storage for [`ObservationView`].
+    ///
+    /// Held inline (rather than a heap `Vec<usize>`) so [`Self::view`] can
+    /// borrow a stable `&[usize]` without per-call allocation. Updated in
+    /// lockstep with `total_dim` in [`Self::register`].
+    shape_storage: [usize; 1],
 }
 
 impl Default for ObservationBuffer {
@@ -53,6 +61,7 @@ impl ObservationBuffer {
             data: Vec::new(),
             slots: Vec::new(),
             total_dim: 0,
+            shape_storage: [0],
         }
     }
 
@@ -66,6 +75,7 @@ impl ObservationBuffer {
             offset,
         });
         self.total_dim += dim;
+        self.shape_storage[0] = self.total_dim;
         self.data.resize(self.total_dim, 0.0);
         index
     }
@@ -128,12 +138,24 @@ impl ObservationBuffer {
         Observation::new(self.data.clone())
     }
 
+    /// Zero-copy borrow view of the entire buffer.
+    ///
+    /// The returned [`ObservationView`] borrows `&self.data` directly (no
+    /// clone, no allocation) with dtype [`SchemaDtype::F32`] and flat shape
+    /// `&[total_dim]`. Use this on hot paths (sensor write→read,
+    /// vec-runner row copy, MPC read-back) in place of the cloning
+    /// [`Self::as_observation`].
+    pub fn view(&self) -> ObservationView<'_> {
+        ObservationView::new(&self.data, SchemaDtype::F32, &self.shape_storage)
+    }
+
     /// Clear the buffer (fill with zeros). Slots remain registered.
     pub fn clear(&mut self) {
         self.data.fill(0.0);
     }
 
     /// Raw data slice.
+    #[deprecated(since = "0.1.0", note = "use view()")]
     pub fn as_slice(&self) -> &[f32] {
         &self.data
     }
@@ -246,6 +268,21 @@ mod tests {
     fn default_is_empty() {
         let buf = ObservationBuffer::default();
         assert_eq!(buf.dim(), 0);
+    }
+
+    #[test]
+    fn view_byte_equals_as_observation_clone() {
+        let mut buf = ObservationBuffer::new();
+        let a = buf.register("pos", 3);
+        let b = buf.register("vel", 2);
+        buf.write(a, &[1.0, 2.0, 3.0]);
+        buf.write(b, &[4.0, 5.0]);
+
+        let view = buf.view();
+        let owned = buf.as_observation();
+        assert_eq!(view.as_f32(), owned.as_slice());
+        assert_eq!(view.shape(), &[5][..]);
+        assert_eq!(view.dtype(), SchemaDtype::F32);
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

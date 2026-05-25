@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::ecs::entity::Entity;
 use serde::{Deserialize, Serialize};
 
-use crate::error::ValidationError;
+use crate::error::{ActionKindError, ValidationError};
 
 // ---------------------------------------------------------------------------
 // Observation
@@ -117,7 +117,59 @@ impl Action {
         self.len() == 0
     }
 
+    /// Fallible slice view: returns `Some(&[f32])` for [`Self::Continuous`],
+    /// `None` for any other variant. The non-panicking replacement for
+    /// [`Self::as_slice`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use clankers_core::types::Action;
+    ///
+    /// assert_eq!(Action::Continuous(vec![1.0, 2.0]).as_continuous(), Some(&[1.0, 2.0][..]));
+    /// assert!(Action::Discrete(0).as_continuous().is_none());
+    /// ```
+    pub const fn as_continuous(&self) -> Option<&[f32]> {
+        match self {
+            Self::Continuous(v) => Some(v.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// Fallible owning conversion: returns `Ok(Vec<f32>)` for
+    /// [`Self::Continuous`], `Err(ActionKindError::ExpectedContinuous { .. })`
+    /// otherwise. The non-panicking replacement for [`Self::into_vec`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use clankers_core::error::ActionKindError;
+    /// use clankers_core::types::Action;
+    ///
+    /// assert_eq!(
+    ///     Action::Continuous(vec![1.0, 2.0]).try_into_continuous().unwrap(),
+    ///     vec![1.0, 2.0],
+    /// );
+    /// let err = Action::Discrete(7).try_into_continuous().unwrap_err();
+    /// assert!(matches!(err, ActionKindError::ExpectedContinuous { .. }));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionKindError::ExpectedContinuous`] if the action is not
+    /// `Action::Continuous`. The `got` field names the actual variant.
+    pub fn try_into_continuous(self) -> Result<Vec<f32>, ActionKindError> {
+        match self {
+            Self::Continuous(v) => Ok(v),
+            Self::Discrete(_) => Err(ActionKindError::ExpectedContinuous { got: "Discrete" }),
+            Self::MultiDiscrete(_) => Err(ActionKindError::ExpectedContinuous {
+                got: "MultiDiscrete",
+            }),
+        }
+    }
+
     /// Slice view for continuous actions. Panics on discrete variants.
+    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
     pub fn as_slice(&self) -> &[f32] {
         match self {
             Self::Continuous(v) => v.as_slice(),
@@ -125,12 +177,21 @@ impl Action {
         }
     }
 
-    /// Alias for `as_slice()`.
-    pub fn values(&self) -> &[f32] {
-        self.as_slice()
+    /// Alias for [`Self::as_continuous`] that retains the legacy panicking
+    /// contract for `Discrete` / `MultiDiscrete` inputs. The body uses the
+    /// new fallible accessor internally so the library itself does not
+    /// trigger its own deprecation warning; the panic message is kept
+    /// byte-equal to the pre-W3 `as_slice()` message so downstream tests
+    /// that snapshot it continue to pass.
+    pub const fn values(&self) -> &[f32] {
+        match self.as_continuous() {
+            Some(v) => v,
+            None => panic!("as_slice() only valid for Action::Continuous"),
+        }
     }
 
     /// Mutable slice for continuous actions. Panics on discrete variants.
+    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
     pub fn as_mut_slice(&mut self) -> &mut [f32] {
         match self {
             Self::Continuous(v) => v.as_mut_slice(),
@@ -139,6 +200,7 @@ impl Action {
     }
 
     /// Consume into `Vec<f32>`. Panics on discrete variants.
+    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
     pub fn into_vec(self) -> Vec<f32> {
         match self {
             Self::Continuous(v) => v,
@@ -156,8 +218,17 @@ impl Action {
     }
 
     /// Scale continuous values from [-1, 1] to [low, high].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the action is not [`Self::Continuous`]. The internal call
+    /// site uses <code>[Self::as_continuous]().expect(...)</code> rather than
+    /// the deprecated [`Self::as_slice`] so the library does not emit a
+    /// self-deprecation warning when callers invoke `scale`.
     pub fn scale(&self, low: &[f32], high: &[f32]) -> Vec<f32> {
-        let s = self.as_slice();
+        let s = self
+            .as_continuous()
+            .expect("scale() requires Action::Continuous");
         s.iter()
             .zip(low.iter().zip(high.iter()))
             .map(|(a, (l, h))| l + ((a + 1.0) / 2.0) * (h - l))

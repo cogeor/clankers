@@ -9,6 +9,7 @@ pub mod seed;
 pub mod time;
 pub mod traits;
 pub mod types;
+pub mod view;
 
 use bevy::prelude::*;
 
@@ -91,7 +92,9 @@ pub mod prelude {
         // Config
         config::{ObjectConfig, RobotConfig, SceneConfig, Shape, SimConfig, TaskConfig},
         // Errors
-        error::{ClankersError, ConfigError, SimError, SpaceError, ValidationError},
+        error::{
+            ActionKindError, ClankersError, ConfigError, SimError, SpaceError, ValidationError,
+        },
         // Layout (W1 + W2)
         layout::{JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits},
         // Physics
@@ -120,6 +123,8 @@ pub mod prelude {
             ResetResult, RobotGroup, RobotHandle, RobotId, RobotInfo, SegmentationClass,
             SensorHandle, StepInfo, StepResult,
         },
+        // View (W3)
+        view::ObservationView,
     };
 }
 

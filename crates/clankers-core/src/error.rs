@@ -70,6 +70,33 @@ pub enum SpaceError {
     InvalidDefinition(String),
 }
 
+/// Returned by [`crate::types::Action::try_into_continuous`] when the variant
+/// is not [`Action::Continuous`](crate::types::Action::Continuous).
+///
+/// Promotes the panic in the deprecated `Action::{as_slice, as_mut_slice,
+/// into_vec}` accessors to a typed `Result` so callers can decide how to
+/// recover (e.g. the gym server's `Step` handler can return a
+/// `ProtocolError::DiscreteActionForContinuousSpace` rather than crash the
+/// worker thread).
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::error::ActionKindError;
+/// use clankers_core::types::Action;
+///
+/// let action = Action::Discrete(0);
+/// let err = action.try_into_continuous().unwrap_err();
+/// assert!(matches!(err, ActionKindError::ExpectedContinuous { .. }));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ActionKindError {
+    /// Caller required a `Continuous` action but received a different variant.
+    /// `got` names the actual variant (`"Discrete"` or `"MultiDiscrete"`).
+    #[error("expected Action::Continuous, got Action::{got}")]
+    ExpectedContinuous { got: &'static str },
+}
+
 /// Action/observation validation errors.
 ///
 /// Copy + static messages for cheap propagation in hot paths.
@@ -225,6 +252,14 @@ mod tests {
             SimError::EntityNotFound("robot_arm".into()).to_string(),
             "Entity not found: robot_arm"
         );
+    }
+
+    #[test]
+    fn action_kind_error_display_names_variant() {
+        let err = ActionKindError::ExpectedContinuous { got: "Discrete" };
+        let msg = err.to_string();
+        assert!(msg.contains("Continuous"), "missing Continuous in: {msg}");
+        assert!(msg.contains("Discrete"), "missing Discrete in: {msg}");
     }
 
     #[test]

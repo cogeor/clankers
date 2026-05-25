@@ -4,7 +4,9 @@
 //! for efficient batched training: `[num_envs, dim]` for observations,
 //! `[num_envs]` for flags.
 
+use clankers_core::schema::SchemaDtype;
 use clankers_core::types::Observation;
+use clankers_core::view::ObservationView;
 
 // ---------------------------------------------------------------------------
 // VecObsBuffer
@@ -29,6 +31,12 @@ pub struct VecObsBuffer {
     data: Vec<f32>,
     num_envs: usize,
     obs_dim: usize,
+    /// Single-element shape storage for per-row [`ObservationView`].
+    ///
+    /// Each row of the `SoA` buffer has the same `obs_dim`; held inline so
+    /// [`Self::row`] can borrow a stable `&[usize]` without per-call
+    /// allocation. Initialised once in [`Self::new`].
+    shape_storage: [usize; 1],
 }
 
 impl VecObsBuffer {
@@ -39,6 +47,7 @@ impl VecObsBuffer {
             data: vec![0.0; num_envs * obs_dim],
             num_envs,
             obs_dim,
+            shape_storage: [obs_dim],
         }
     }
 
@@ -82,6 +91,29 @@ impl VecObsBuffer {
         assert!(env_idx < self.num_envs, "env_idx out of bounds");
         let start = env_idx * self.obs_dim;
         Observation::new(self.data[start..start + self.obs_dim].to_vec())
+    }
+
+    /// Zero-copy borrow of the row for environment `env_idx`.
+    ///
+    /// Returns an [`ObservationView`] over
+    /// `&self.data[env_idx * obs_dim .. (env_idx + 1) * obs_dim]` with
+    /// dtype [`SchemaDtype::F32`] and shape `&[obs_dim]`. The non-cloning
+    /// replacement for [`Self::get`] on hot read paths (e.g. policy batch
+    /// rollouts that previously allocated one `Observation` per env per
+    /// step).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `env_idx >= num_envs`.
+    #[must_use]
+    pub fn row(&self, env_idx: usize) -> ObservationView<'_> {
+        assert!(env_idx < self.num_envs, "env_idx out of bounds");
+        let start = env_idx * self.obs_dim;
+        ObservationView::new(
+            &self.data[start..start + self.obs_dim],
+            SchemaDtype::F32,
+            &self.shape_storage,
+        )
     }
 
     /// Raw flat buffer `[num_envs * obs_dim]`.
@@ -205,6 +237,22 @@ mod tests {
         let buf = VecObsBuffer::new(4, 10);
         assert_eq!(buf.num_envs(), 4);
         assert_eq!(buf.obs_dim(), 10);
+    }
+
+    #[test]
+    fn row_matches_get() {
+        let mut buf = VecObsBuffer::new(3, 2);
+        buf.set(0, &Observation::new(vec![1.0, 2.0]));
+        buf.set(1, &Observation::new(vec![3.0, 4.0]));
+        buf.set(2, &Observation::new(vec![5.0, 6.0]));
+
+        for env_idx in 0..3 {
+            let row = buf.row(env_idx);
+            let got = buf.get(env_idx);
+            assert_eq!(row.as_f32(), got.as_slice());
+            assert_eq!(row.shape(), &[2][..]);
+            assert_eq!(row.dtype(), SchemaDtype::F32);
+        }
     }
 
     // ---- VecDoneBuffer ----

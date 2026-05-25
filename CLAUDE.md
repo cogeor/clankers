@@ -2,6 +2,7 @@
 
 - Always limit parallelism when running cargo: `cargo test -j 24` / `cargo build -j 24`
 - Never use full CPU cores (machine has 32) — leave headroom for the OS
+- **Exception:** `cargo build --workspace` (link-heavy step that mmaps large rlibs + runs LLVM codegen) can exhaust the Windows paging file at `-j 24`. Use `-j 8` for full-workspace builds: `cargo build -j 8 --workspace`. Per-crate builds and all `check`/`test`/`clippy` invocations stay at `-j 24`.
 
 ## Delegate
 

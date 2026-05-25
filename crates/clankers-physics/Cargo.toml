@@ -11,7 +11,7 @@ rust-version.workspace = true
 clankers-core.workspace = true
 clankers-actuator.workspace = true
 clankers-urdf.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_log"] }
 thiserror.workspace = true
 rapier3d.workspace = true
 

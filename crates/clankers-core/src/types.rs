@@ -675,6 +675,69 @@ impl RobotGroup {
 }
 
 // ---------------------------------------------------------------------------
+// MissingJoints
+// ---------------------------------------------------------------------------
+
+/// Error returned when a [`RobotGroup`]'s motor overrides do not cover
+/// every joint declared by the
+/// [`JointLayout`](crate::layout::JointLayout).
+///
+/// Produced by
+/// [`clankers_sim::builder::validate_motor_coverage`](https://docs.rs/clankers-sim)
+/// (a free function — `clankers-core` cannot depend on
+/// `clankers-physics::MotorOverrides`, so the validator lives in
+/// `clankers-sim`). The error names every layout joint whose entity was
+/// not present in the override set so operators get an actionable
+/// message rather than a count mismatch.
+///
+/// See `docs/plans/WS2-plan.md` § 5 PR1-5 for the motivation: the
+/// project's `MEMORY.md` rule "`MotorOverrides` — ALL Joints Must Be
+/// Overridden" was previously a prose comment; this error promotes it to
+/// a setup-time invariant.
+///
+/// # Example
+///
+/// ```
+/// use clankers_core::types::MissingJoints;
+///
+/// let err = MissingJoints {
+///     layout_joint_names: vec!["gripper_right".to_string()],
+///     override_joint_count: 7,
+/// };
+/// let msg = format!("{err}");
+/// assert!(msg.contains("gripper_right"));
+/// assert!(msg.contains("7"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingJoints {
+    /// Names of the layout joints whose entities are absent from the
+    /// motor-override set, in layout order.
+    pub layout_joint_names: Vec<String>,
+    /// Number of joints actually covered by the motor overrides.
+    pub override_joint_count: usize,
+}
+
+impl std::fmt::Display for MissingJoints {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "motor overrides cover {} joint(s), but {} layout joint(s) are uncovered: [",
+            self.override_joint_count,
+            self.layout_joint_names.len()
+        )?;
+        for (i, name) in self.layout_joint_names.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{name}")?;
+        }
+        write!(f, "]")
+    }
+}
+
+impl std::error::Error for MissingJoints {}
+
+// ---------------------------------------------------------------------------
 // Entity Handles
 // ---------------------------------------------------------------------------
 
@@ -1782,5 +1845,59 @@ mod tests {
         let group = RobotGroup::default();
         assert!(group.is_empty());
         assert_eq!(group.len(), 0);
+    }
+
+    // ---- MissingJoints ----
+
+    #[test]
+    fn missing_joints_display_lists_every_name() {
+        let err = MissingJoints {
+            layout_joint_names: vec!["arm_5".into(), "gripper_right".into()],
+            override_joint_count: 6,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("arm_5"), "missing arm_5 in: {msg}");
+        assert!(
+            msg.contains("gripper_right"),
+            "missing gripper_right in: {msg}"
+        );
+        assert!(msg.contains('6'), "missing override count in: {msg}");
+        assert!(msg.contains('2'), "missing uncovered count in: {msg}");
+    }
+
+    #[test]
+    fn missing_joints_display_empty_list() {
+        let err = MissingJoints {
+            layout_joint_names: vec![],
+            override_joint_count: 8,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("[]"), "expected empty bracket list in: {msg}");
+        assert!(msg.contains('0'), "expected uncovered count 0 in: {msg}");
+    }
+
+    #[test]
+    fn missing_joints_is_std_error() {
+        fn assert_error<E: std::error::Error>(_e: &E) {}
+        let err = MissingJoints {
+            layout_joint_names: vec!["x".into()],
+            override_joint_count: 0,
+        };
+        assert_error(&err);
+    }
+
+    #[test]
+    fn missing_joints_equality_and_clone() {
+        let a = MissingJoints {
+            layout_joint_names: vec!["a".into()],
+            override_joint_count: 1,
+        };
+        let b = a.clone();
+        assert_eq!(a, b);
+        let c = MissingJoints {
+            layout_joint_names: vec!["b".into()],
+            override_joint_count: 1,
+        };
+        assert_ne!(a, c);
     }
 }

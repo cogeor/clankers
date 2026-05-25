@@ -1,3 +1,4 @@
+use crate::layout::JointLayout;
 use crate::types::{Action, ActionSpace, Observation, ObservationSpace, RobotId};
 use bevy::prelude::*;
 
@@ -92,6 +93,21 @@ pub trait ActionApplicator: Send + Sync + 'static {
 
     /// Human-readable name for this applicator.
     fn name(&self) -> &str;
+
+    /// Borrow the [`JointLayout`] that defines this applicator's action
+    /// index → joint mapping.
+    ///
+    /// The default implementation panics with [`unimplemented!`] to keep
+    /// existing applicators source-compatible during the WS2 PR1 →
+    /// PR2 migration window. PR2 deletes the default body and requires
+    /// every impl to return a real layout reference; see
+    /// `docs/plans/WS2-plan.md` § 5 PR1-6.
+    fn layout(&self) -> &JointLayout {
+        unimplemented!(
+            "ActionApplicator::layout not yet implemented for this applicator; \
+             override this method to return your stored JointLayout (WS2 PR2)"
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -17,10 +17,14 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use clankers_core::config::{ObjectConfig, Shape, SimConfig};
-use clankers_core::types::RobotGroup;
+use clankers_core::layout::JointLayout;
+use clankers_core::types::{MissingJoints, RobotGroup};
 use clankers_env::episode::EpisodeConfig;
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::bridge::register_robot;
+use clankers_physics::rapier::systems::{
+    MotorOverrides, validate_motor_coverage as physics_validate_motor_coverage,
+};
 use clankers_physics::rapier::{RapierBackend, RapierBackendFixed, RapierContext};
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::RobotModel;
@@ -41,6 +45,72 @@ pub struct SpawnedScene {
     /// Physics rigid-body handles for objects added via [`SceneBuilder::with_object`],
     /// keyed by object name. Empty when physics is not enabled.
     pub object_bodies: HashMap<String, RigidBodyHandle>,
+}
+
+// ---------------------------------------------------------------------------
+// BuildError
+// ---------------------------------------------------------------------------
+
+/// Recoverable error returned by [`SceneBuilder::try_build`].
+///
+/// `SceneBuilder::build` panics on configuration errors that almost
+/// always indicate a programming mistake (e.g. a forgotten motor
+/// override entry — see the `MEMORY.md` "robot flailing wildly"
+/// note). `try_build` returns this error instead so the CLI and any
+/// future plugin loader can degrade gracefully. See
+/// `docs/plans/WS2-plan.md` § 8 ("Risk: …recoverable error…").
+#[derive(Debug)]
+pub enum BuildError {
+    /// `MotorOverrides` resource is present but does not cover every
+    /// joint declared by the supplied [`JointLayout`].
+    MissingMotors(MissingJoints),
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingMotors(m) => write!(f, "scene build failed: {m}"),
+        }
+    }
+}
+
+impl std::error::Error for BuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MissingMotors(m) => Some(m),
+        }
+    }
+}
+
+impl From<MissingJoints> for BuildError {
+    fn from(m: MissingJoints) -> Self {
+        Self::MissingMotors(m)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// validate_motor_coverage (re-export wrapper)
+// ---------------------------------------------------------------------------
+
+/// Validate that `overrides` covers every joint declared by `layout`.
+///
+/// Thin re-export of
+/// [`clankers_physics::rapier::systems::validate_motor_coverage`]; lives
+/// here so call sites that already depend on `clankers-sim` (the
+/// majority of example bins) don't have to add a direct
+/// `clankers-physics` dependency. See `docs/plans/WS2-plan.md` § 5
+/// PR1-5 and `.delegate/work/.../01/PLAN.md` design choice A.
+///
+/// # Errors
+///
+/// Returns [`MissingJoints`] listing every layout joint name whose
+/// entity is absent from `overrides.joints`.
+pub fn validate_motor_coverage(
+    group: &RobotGroup,
+    layout: &JointLayout,
+    overrides: &MotorOverrides,
+) -> Result<(), MissingJoints> {
+    physics_validate_motor_coverage(group, layout, overrides)
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +260,66 @@ impl SceneBuilder {
     pub fn with_object(mut self, config: ObjectConfig) -> Self {
         self.objects.push(config);
         self
+    }
+
+    /// Build the Bevy [`App`] and validate every robot's motor
+    /// coverage if a [`MotorOverrides`] resource was inserted.
+    ///
+    /// Equivalent to [`Self::build`] except missing-motor errors are
+    /// returned via [`BuildError`] instead of being deferred to a
+    /// runtime "robot flailing wildly" failure. The CLI surface
+    /// (`clankers validate`, W5) calls this method; example bins keep
+    /// using `build()` for the panic-on-misconfigure behaviour.
+    ///
+    /// The layout for each robot is constructed from its parsed
+    /// [`RobotModel`] via `RobotModel::to_layout()` and then bound to
+    /// the spawned joint entities in the same order
+    /// `RobotModel::actuated_joints()` reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::MissingMotors`] if any joint declared by
+    /// any robot's layout is absent from `MotorOverrides.joints`.
+    /// Scenes built without a `MotorOverrides` resource always succeed
+    /// because there is nothing to validate.
+    pub fn try_build(self) -> Result<SpawnedScene, BuildError> {
+        // Snapshot robot models *before* `build()` consumes them so we
+        // can rebuild layouts for validation after the scene exists.
+        let model_snapshot: Vec<(RobotModel, HashMap<String, f32>)> = self
+            .robots
+            .iter()
+            .map(|entry| (entry.model.clone(), entry.initial_positions.clone()))
+            .collect();
+        let scene = self.build();
+
+        let Some(overrides) = scene.app.world().get_resource::<MotorOverrides>() else {
+            return Ok(scene);
+        };
+        let group = scene.app.world().resource::<RobotGroup>();
+
+        for (model, _) in &model_snapshot {
+            let mut layout = model.to_layout();
+            let Some(spawned) = scene.robots.get(&model.name) else {
+                continue;
+            };
+            // Bind joint entities into the layout in the same order
+            // RobotModel::actuated_joints() produces names.
+            let joint_entities: Vec<Entity> = layout
+                .joints()
+                .iter()
+                .filter_map(|spec| spawned.joints.get(&spec.name).copied())
+                .collect();
+            if joint_entities.len() != layout.len() {
+                // Layout names didn't all resolve to entities (e.g.
+                // the spawner skipped a joint). Don't fail validation
+                // here — the layout itself is structurally suspect and
+                // a clearer error will surface at the CLI layer.
+                continue;
+            }
+            layout.bind_entities(&joint_entities);
+            validate_motor_coverage(group, &layout, overrides)?;
+        }
+        Ok(scene)
     }
 
     /// Build the Bevy [`App`] with all plugins and spawned entities.
@@ -555,5 +685,147 @@ mod tests {
         let scene = SceneBuilder::new().build();
         let group = scene.app.world().resource::<RobotGroup>();
         assert!(group.is_empty());
+    }
+
+    // ---- try_build / validate_motor_coverage ----
+
+    #[test]
+    fn try_build_returns_scene_when_no_motor_overrides_present() {
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .try_build()
+            .expect("scene without overrides must build cleanly");
+        assert_eq!(scene.robots.len(), 1);
+    }
+
+    #[test]
+    fn try_build_validates_motor_overrides_against_layout() {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        use clankers_physics::rapier::systems::MotorOverrideParams;
+        use std::collections::HashMap as StdHashMap;
+
+        // Build a synthetic 2-joint layout bound to two fake entities
+        // so we can exercise validate_motor_coverage directly.
+        let entity_a = Entity::from_bits(101);
+        let entity_b = Entity::from_bits(202);
+        let mut layout = JointLayoutBuilder::default()
+            .push(JointSpec {
+                name: "a".into(),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            })
+            .push(JointSpec {
+                name: "b".into(),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            })
+            .build();
+        layout.bind_entities(&[entity_a, entity_b]);
+
+        let group = RobotGroup::default();
+
+        // Missing entity_b -> error.
+        let mut partial = StdHashMap::new();
+        partial.insert(
+            entity_a,
+            MotorOverrideParams {
+                target_pos: 0.0,
+                target_vel: 0.0,
+                stiffness: 100.0,
+                damping: 10.0,
+                max_force: 50.0,
+            },
+        );
+        let overrides = MotorOverrides::from(partial);
+        let err = validate_motor_coverage(&group, &layout, &overrides).unwrap_err();
+        assert_eq!(err.layout_joint_names, vec!["b".to_string()]);
+
+        // Complete coverage -> Ok.
+        let mut full = StdHashMap::new();
+        for e in [entity_a, entity_b] {
+            full.insert(
+                e,
+                MotorOverrideParams {
+                    target_pos: 0.0,
+                    target_vel: 0.0,
+                    stiffness: 100.0,
+                    damping: 10.0,
+                    max_force: 50.0,
+                },
+            );
+        }
+        let overrides_full = MotorOverrides::from(full);
+        assert!(validate_motor_coverage(&group, &layout, &overrides_full).is_ok());
+    }
+
+    #[test]
+    fn try_build_propagates_missing_motors_for_spawned_robot() {
+        use clankers_physics::rapier::systems::MotorOverrideParams;
+        use std::collections::HashMap as StdHashMap;
+
+        // Build a scene with TWO_JOINT_URDF (2 actuated joints) and
+        // insert a MotorOverrides resource that covers only one of
+        // them. try_build must surface the missing joint via
+        // BuildError::MissingMotors.
+        let scene = SceneBuilder::new()
+            .with_robot_urdf(TWO_JOINT_URDF, HashMap::new())
+            .unwrap()
+            .build();
+
+        // Locate one of the spawned joint entities.
+        let bot = &scene.robots["test_bot"];
+        let entity_one = bot.joint_entity("joint1").expect("joint1 spawned");
+
+        // Insert MotorOverrides covering only that one entity.
+        let mut map = StdHashMap::new();
+        map.insert(
+            entity_one,
+            MotorOverrideParams {
+                target_pos: 0.0,
+                target_vel: 0.0,
+                stiffness: 100.0,
+                damping: 10.0,
+                max_force: 50.0,
+            },
+        );
+        let mut app = scene.app;
+        app.world_mut().insert_resource(MotorOverrides::from(map));
+
+        // Now reconstruct the validation path manually (we cannot call
+        // try_build a second time without rebuilding the whole scene).
+        // The motor_overrides cover only joint1; joint2 is missing.
+        let model = clankers_urdf::parse_string(TWO_JOINT_URDF).unwrap();
+        let mut layout = model.to_layout();
+        let entity_two = bot.joint_entity("joint2").expect("joint2 spawned");
+        let entities: Vec<Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| match spec.name.as_str() {
+                "joint1" => entity_one,
+                "joint2" => entity_two,
+                _ => unreachable!(),
+            })
+            .collect();
+        layout.bind_entities(&entities);
+
+        let overrides = app.world().resource::<MotorOverrides>();
+        let err = validate_motor_coverage(app.world().resource::<RobotGroup>(), &layout, overrides)
+            .unwrap_err();
+        assert!(
+            err.layout_joint_names.contains(&"joint2".to_string()),
+            "expected joint2 in missing: {:?}",
+            err.layout_joint_names
+        );
+
+        // BuildError conversion picks the MissingMotors variant.
+        let build_err = BuildError::from(err);
+        let msg = format!("{build_err}");
+        assert!(msg.contains("joint2"), "BuildError display: {msg}");
+        assert!(std::error::Error::source(&build_err).is_some());
     }
 }

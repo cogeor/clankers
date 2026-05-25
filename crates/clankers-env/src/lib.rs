@@ -127,6 +127,12 @@ pub mod prelude {
         vec_episode::{AutoResetMode, EnvEpisodeMap},
         vec_runner::{VecEnvInstance, VecEnvRunner},
     };
+    // Re-exports from clankers-core — the layout types travel with the
+    // sensor prelude so call sites don't have to import them from two
+    // crates (WS2 PR1 § 5 PR1-8).
+    pub use clankers_core::layout::{
+        JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Uses deprecated count-based ctor — PR2 migrates these.
     fn sensor_registry_register_and_len() {
         let mut registry = SensorRegistry::new();
         let mut buffer = buffer::ObservationBuffer::new();
@@ -175,6 +182,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Uses deprecated count-based ctor — PR2 migrates these.
     fn sensor_registry_multiple() {
         let mut registry = SensorRegistry::new();
         let mut buffer = buffer::ObservationBuffer::new();

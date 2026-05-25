@@ -15,5 +15,9 @@ bevy.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 
+[dev-dependencies]
+# Layout-conformance integration test parses a real URDF fixture.
+clankers-urdf.workspace = true
+
 [lints]
 workspace = true

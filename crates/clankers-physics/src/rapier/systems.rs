@@ -1,12 +1,15 @@
 //! Rapier physics step system.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::prelude::*;
-use rapier3d::prelude::JointAxis;
+use rapier3d::prelude::{ImpulseJointHandle, JointAxis};
 
 use clankers_actuator::components::{JointState, JointTorque};
+use clankers_core::layout::JointLayout;
 use clankers_core::physics::ContactData;
+use clankers_core::types::{MissingJoints, RobotGroup};
 
 use super::context::RapierContext;
 
@@ -44,13 +47,179 @@ pub struct MotorOverrideParams {
 /// oscillate on light links.  This is the most common cause of "robot
 /// flailing wildly" in arm visualization binaries.
 ///
+/// Use [`validate_motor_coverage`] at scene-build time to promote this
+/// rule from a prose comment to a setup-time invariant.
+///
 /// See `arm_ik_viz.rs` and `arm_pick_gym.rs` for the canonical pattern:
 /// arm joints use stiffness=100/damping=10, gripper fingers use softer
 /// stiffness=50/damping=5.
+///
+/// # Storage (WS2 PR1)
+///
+/// The resource carries two storage paths that coexist for the
+/// migration window:
+///
+/// - `joints` — the existing legacy `HashMap<Entity, …>` used by every
+///   current call site. Keeps PR1 source-compatible with the 4
+///   `MotorOverrides::default()` insertion sites in examples.
+/// - `ordered` + `layout` — the new dense layout-ordered path the
+///   `rapier_step_system` will prefer once PR2 migrates all call sites.
+///   Built via [`Self::with_layout`] or [`Self::from_legacy_map`].
+///
+/// PR2 deletes the legacy `joints` field and switches the step system
+/// to consume `ordered` exclusively.
 #[derive(Resource, Default)]
 pub struct MotorOverrides {
-    /// Map from joint entity to position motor parameters.
+    /// Legacy per-entity override map (consumed by today's
+    /// `rapier_step_system`).
     pub joints: HashMap<Entity, MotorOverrideParams>,
+    /// Dense layout-ordered overrides keyed by Rapier
+    /// `ImpulseJointHandle`. Populated by callers that build via
+    /// [`Self::with_layout`] after a [`RapierContext`] is available.
+    /// Empty when the override set is built via the legacy
+    /// `joints` `HashMap` path.
+    pub ordered: Vec<(ImpulseJointHandle, MotorOverrideParams)>,
+    /// The shared layout the `ordered` storage was built against.
+    /// `None` when the legacy `joints` `HashMap` path is in use.
+    pub layout: Option<Arc<JointLayout>>,
+}
+
+impl MotorOverrides {
+    /// Build an empty `MotorOverrides` pinned to a [`JointLayout`].
+    ///
+    /// The returned resource has empty `joints` and `ordered`
+    /// collections; callers populate `joints` per-entity (legacy path)
+    /// or feed an [`ImpulseJointHandle`]-indexed dense vector into
+    /// `ordered` once the Rapier context exists. The bound layout is
+    /// later checked by [`validate_motor_coverage`].
+    #[must_use]
+    pub fn with_layout(layout: Arc<JointLayout>) -> Self {
+        Self {
+            joints: HashMap::new(),
+            ordered: Vec::new(),
+            layout: Some(layout),
+        }
+    }
+
+    /// Construct from a legacy `HashMap<Entity, MotorOverrideParams>`.
+    ///
+    /// Equivalent to setting `MotorOverrides::default().joints = map`
+    /// but without exposing the internal field name. Use
+    /// [`Self::with_layout`] for the new layout-bound path.
+    #[must_use]
+    pub const fn from_legacy_map(map: HashMap<Entity, MotorOverrideParams>) -> Self {
+        Self {
+            joints: map,
+            ordered: Vec::new(),
+            layout: None,
+        }
+    }
+}
+
+impl From<HashMap<Entity, MotorOverrideParams>> for MotorOverrides {
+    /// Convert a per-entity override map into a `MotorOverrides`
+    /// resource. Convenience for the 4 example sites that build the
+    /// override map ad-hoc before scene insertion. After PR2 deletes
+    /// the legacy path, this `From` impl goes away.
+    fn from(map: HashMap<Entity, MotorOverrideParams>) -> Self {
+        Self::from_legacy_map(map)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// validate_motor_coverage
+// ---------------------------------------------------------------------------
+
+/// Validate that `overrides` covers every joint declared by `layout`.
+///
+/// # Why a free function
+///
+/// `clankers-core` (where [`RobotGroup`] lives) cannot depend on
+/// `clankers-physics::MotorOverrides` without creating a reverse
+/// dependency cycle, and `clankers-sim` (which depends on both) cannot
+/// be a dev-dependency of `clankers-physics` (cargo would reject the
+/// implicit cycle through the regular dep). So the validator lives in
+/// `clankers-physics` next to [`MotorOverrides`]; `clankers-sim`'s
+/// [`SceneBuilder::try_build`](../../../../clankers_sim/builder/struct.SceneBuilder.html#method.try_build)
+/// re-exports the same surface.
+///
+/// The `group` argument is accepted for future extensibility (e.g.
+/// per-robot validation in multi-robot scenes). The current
+/// implementation only consults `layout` and `overrides`.
+///
+/// # Errors
+///
+/// Returns [`MissingJoints`] listing every layout joint whose entity is
+/// absent from `overrides.joints`. Layout slots that have not been
+/// bound to an entity yet (where `JointSpec.entity` is `None`) are
+/// silently skipped — the layout owner must call
+/// [`JointLayout::bind_entities`](clankers_core::layout::JointLayout::bind_entities)
+/// before validation.
+///
+/// # Example
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use bevy::ecs::entity::Entity;
+/// use clankers_core::layout::{
+///     JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits,
+/// };
+/// use clankers_core::types::RobotGroup;
+/// use clankers_physics::rapier::systems::{
+///     MotorOverrideParams, MotorOverrides, validate_motor_coverage,
+/// };
+///
+/// let mut layout = JointLayoutBuilder::default()
+///     .push(JointSpec {
+///         name: "joint_a".into(),
+///         entity: None,
+///         joint_type: JointKind::Revolute,
+///         limits: JointSpecLimits::default(),
+///         axis: [0.0, 0.0, 1.0],
+///     })
+///     .build();
+/// let entity = Entity::from_bits(1);
+/// layout.bind_entities(&[entity]);
+///
+/// let mut map = HashMap::new();
+/// map.insert(entity, MotorOverrideParams {
+///     target_pos: 0.0, target_vel: 0.0,
+///     stiffness: 100.0, damping: 10.0, max_force: 50.0,
+/// });
+/// let overrides = MotorOverrides::from(map);
+///
+/// assert!(validate_motor_coverage(
+///     &RobotGroup::default(), &layout, &overrides,
+/// ).is_ok());
+/// ```
+pub fn validate_motor_coverage(
+    _group: &RobotGroup,
+    layout: &JointLayout,
+    overrides: &MotorOverrides,
+) -> Result<(), MissingJoints> {
+    let missing: Vec<String> = layout
+        .joints()
+        .iter()
+        .filter_map(|spec| {
+            spec.entity.and_then(|entity| {
+                if overrides.joints.contains_key(&entity) {
+                    None
+                } else {
+                    Some(spec.name.clone())
+                }
+            })
+        })
+        .collect();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(MissingJoints {
+            layout_joint_names: missing,
+            override_joint_count: overrides.joints.len(),
+        })
+    }
 }
 
 /// Per-joint motor command rate limiting.

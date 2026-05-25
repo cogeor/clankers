@@ -178,6 +178,61 @@ impl JointLayout {
             .count()
     }
 
+    /// Total number of joint slots in the layout (actuated or not).
+    ///
+    /// This is the dimension callers should use to size sensor and
+    /// action buffers indexed by layout slot. Contrast with
+    /// [`Self::dof`], which counts only actuated joints.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.joints.len()
+    }
+
+    /// Whether the layout has zero joints.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.joints.is_empty()
+    }
+
+    /// Iterate the per-slot Bevy entities, in layout order.
+    ///
+    /// Each yielded value is `Some(entity)` once the layout has been
+    /// bound to a spawned robot via [`Self::bind_entities`], or `None`
+    /// otherwise (e.g. for layouts built from a URDF prior to spawning).
+    pub fn entities(&self) -> impl Iterator<Item = Option<Entity>> + '_ {
+        self.joints.iter().map(|j| j.entity)
+    }
+
+    /// Iterate only the joint entities that have been bound, in layout
+    /// order. Skips slots where `entity` is `None`.
+    pub fn bound_entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.joints.iter().filter_map(|j| j.entity)
+    }
+
+    /// Bind a Bevy entity to each joint slot, in layout order.
+    ///
+    /// Writes `entities[i]` into the `entity` field of joint slot `i`
+    /// for every slot. Callers are responsible for ensuring that the
+    /// `entities` slice is in the same order as [`Self::joints`].
+    ///
+    /// # Panics
+    ///
+    /// Debug builds panic if `entities.len() != self.len()`. Release
+    /// builds bind as many slots as are provided and ignore the
+    /// remainder (caller error).
+    pub fn bind_entities(&mut self, entities: &[Entity]) {
+        debug_assert_eq!(
+            entities.len(),
+            self.joints.len(),
+            "bind_entities: expected {} entities, got {}",
+            self.joints.len(),
+            entities.len()
+        );
+        for (slot, &entity) in self.joints.iter_mut().zip(entities.iter()) {
+            slot.entity = Some(entity);
+        }
+    }
+
     /// Look up the index of a joint by name.
     #[must_use]
     pub fn index_of(&self, name: &str) -> Option<usize> {
@@ -370,5 +425,76 @@ mod tests {
             spec("e", JointKind::Continuous),
         ]);
         assert_eq!(layout.dof(), 3);
+    }
+
+    #[test]
+    fn joint_layout_len_and_is_empty() {
+        let empty = JointLayout::new(vec![]);
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+
+        let layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Fixed),
+        ]);
+        assert_eq!(layout.len(), 2);
+        assert!(!layout.is_empty());
+    }
+
+    #[test]
+    fn joint_layout_entities_returns_options_in_order() {
+        let layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Revolute),
+        ]);
+        let entities: Vec<Option<Entity>> = layout.entities().collect();
+        assert_eq!(entities.len(), 2);
+        assert!(entities.iter().all(Option::is_none));
+        // bound_entities yields nothing when nothing has been bound.
+        assert_eq!(layout.bound_entities().count(), 0);
+    }
+
+    #[test]
+    fn joint_layout_bind_entities_round_trips() {
+        let mut layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Revolute),
+            spec("c", JointKind::Revolute),
+        ]);
+        let bound = [
+            Entity::from_bits(11),
+            Entity::from_bits(22),
+            Entity::from_bits(33),
+        ];
+        layout.bind_entities(&bound);
+
+        let entities: Vec<Option<Entity>> = layout.entities().collect();
+        assert_eq!(
+            entities,
+            bound.iter().copied().map(Some).collect::<Vec<_>>()
+        );
+
+        let bound_only: Vec<Entity> = layout.bound_entities().collect();
+        assert_eq!(bound_only, bound);
+    }
+
+    #[test]
+    #[should_panic(expected = "bind_entities: expected 3 entities, got 2")]
+    fn joint_layout_bind_entities_wrong_count_panics_in_debug() {
+        let mut layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Revolute),
+            spec("c", JointKind::Revolute),
+        ]);
+        layout.bind_entities(&[Entity::from_bits(1), Entity::from_bits(2)]);
+    }
+
+    #[test]
+    fn joint_layout_bind_entities_overwrites_previous_binding() {
+        let mut layout = JointLayout::new(vec![spec("a", JointKind::Revolute)]);
+        layout.bind_entities(&[Entity::from_bits(1)]);
+        layout.bind_entities(&[Entity::from_bits(99)]);
+        let bound: Vec<Entity> = layout.bound_entities().collect();
+        assert_eq!(bound, vec![Entity::from_bits(99)]);
     }
 }

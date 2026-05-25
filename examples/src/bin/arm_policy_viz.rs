@@ -334,6 +334,7 @@ fn main() {
         ..ArmSetupConfig::default()
     });
     let joint_entities = setup.joint_entities.clone();
+    let setup_joint_layout = setup.joint_layout.clone();
 
     // Extract gripper finger entities
     let gripper_entities = GripperEntities::from_setup(&setup);
@@ -379,7 +380,14 @@ fn main() {
             )),
             &mut buffer,
         );
-        registry.register(Box::new(JointStateSensor::new(sensor_dof)), &mut buffer);
+        // Layout-bound sensor (WS2 PR2): walk the same JointLayout the
+        // arm_setup helper built. sensor_dof informs the action dim
+        // upstream but no longer the sensor size.
+        let _ = sensor_dof;
+        registry.register(
+            Box::new(JointStateSensor::new(setup_joint_layout)),
+            &mut buffer,
+        );
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

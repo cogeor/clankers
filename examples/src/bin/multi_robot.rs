@@ -6,6 +6,7 @@
 //! Run: `cargo run -p clankers-examples --bin multi_robot`
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::traits::Sensor;
@@ -20,14 +21,18 @@ fn main() {
     // ---------------------------------------------------------------
     // 1. Build scene with 3 different robots
     // ---------------------------------------------------------------
+    let pendulum_model =
+        clankers_urdf::parse_string(PENDULUM_URDF).expect("failed to parse pendulum URDF");
+    let two_arm_model =
+        clankers_urdf::parse_string(TWO_LINK_ARM_URDF).expect("failed to parse arm URDF");
+    let six_arm_model =
+        clankers_urdf::parse_string(SIX_DOF_ARM_URDF).expect("failed to parse 6-DOF arm URDF");
+
     let mut scene = SceneBuilder::new()
         .with_max_episode_steps(30)
-        .with_robot_urdf(PENDULUM_URDF, HashMap::new())
-        .expect("failed to parse pendulum URDF")
-        .with_robot_urdf(TWO_LINK_ARM_URDF, HashMap::new())
-        .expect("failed to parse arm URDF")
-        .with_robot_urdf(SIX_DOF_ARM_URDF, HashMap::new())
-        .expect("failed to parse 6-DOF arm URDF")
+        .with_robot(pendulum_model.clone(), HashMap::new())
+        .with_robot(two_arm_model.clone(), HashMap::new())
+        .with_robot(six_arm_model.clone(), HashMap::new())
         .build();
 
     println!("Robots in scene: {}", scene.robots.len());
@@ -132,8 +137,29 @@ fn main() {
     // ---------------------------------------------------------------
     println!("\n--- Robot-scoped sensor reads ---");
 
+    // Build per-robot layouts bound to spawned joint entities.
+    let build_layout = |model: &clankers_urdf::RobotModel, robot_name: &str| {
+        let bot = &scene.robots[robot_name];
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in {}", spec.name, robot_name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
+
+    let pend_layout = build_layout(&pendulum_model, "pendulum");
+    let two_arm_layout = build_layout(&two_arm_model, "two_link_arm");
+    let six_arm_layout = build_layout(&six_arm_model, "six_dof_arm");
+
     // Pendulum (RobotId 0): 1 joint -> 2 state values
-    let mut pend_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(0), 1);
+    let mut pend_sensor =
+        RobotJointStateSensor::new(clankers_core::types::RobotId(0), pend_layout.clone());
     let pend_obs = pend_sensor.read(scene.app.world_mut());
     println!(
         "Pendulum state sensor:  {} values — pos={:.3} vel={:.3}",
@@ -143,7 +169,8 @@ fn main() {
     );
 
     // 2-link arm (RobotId 1): 2 joints -> 4 state values
-    let mut arm_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(1), 2);
+    let mut arm_sensor =
+        RobotJointStateSensor::new(clankers_core::types::RobotId(1), two_arm_layout.clone());
     let arm_obs = arm_sensor.read(scene.app.world_mut());
     println!(
         "Arm state sensor:       {} values — {:?}",
@@ -152,12 +179,14 @@ fn main() {
     );
 
     // 6-DOF arm (RobotId 2): 6 joints -> 12 state values
-    let mut six_sensor = RobotJointStateSensor::new(clankers_core::types::RobotId(2), 6);
+    let mut six_sensor =
+        RobotJointStateSensor::new(clankers_core::types::RobotId(2), six_arm_layout);
     let six_obs = six_sensor.read(scene.app.world_mut());
     println!("6-DOF arm state sensor: {} values", six_obs.len(),);
 
     // Robot-scoped command sensors
-    let mut pend_cmd_sensor = RobotJointCommandSensor::new(clankers_core::types::RobotId(0), 1);
+    let mut pend_cmd_sensor =
+        RobotJointCommandSensor::new(clankers_core::types::RobotId(0), pend_layout);
     let pend_cmd = pend_cmd_sensor.read(scene.app.world_mut());
     println!(
         "Pendulum cmd sensor:    {} values — cmd={:.2}",
@@ -166,7 +195,8 @@ fn main() {
     );
 
     // Robot-scoped torque sensors
-    let mut arm_torque_sensor = RobotJointTorqueSensor::new(clankers_core::types::RobotId(1), 2);
+    let mut arm_torque_sensor =
+        RobotJointTorqueSensor::new(clankers_core::types::RobotId(1), two_arm_layout);
     let arm_torques = arm_torque_sensor.read(scene.app.world_mut());
     println!(
         "Arm torque sensor:      {} values — {:?}",

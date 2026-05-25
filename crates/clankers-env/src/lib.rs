@@ -167,14 +167,36 @@ mod tests {
         assert!(app.world().get_resource::<SensorRegistry>().is_some());
     }
 
+    fn empty_layout_with(n: usize) -> std::sync::Arc<clankers_core::layout::JointLayout> {
+        use bevy::prelude::Entity;
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        let mut builder = JointLayoutBuilder::default();
+        for i in 0..n {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        let entities: Vec<Entity> = (0..n).map(|i| Entity::from_bits(1000 + i as u64)).collect();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    }
+
     #[test]
-    #[allow(deprecated)] // Uses deprecated count-based ctor — PR2 migrates these.
     fn sensor_registry_register_and_len() {
         let mut registry = SensorRegistry::new();
         let mut buffer = buffer::ObservationBuffer::new();
         assert!(registry.is_empty());
 
-        let idx = registry.register(Box::new(sensors::JointStateSensor::new(3)), &mut buffer);
+        let layout = empty_layout_with(3);
+        let idx = registry.register(
+            Box::new(sensors::JointStateSensor::new(layout)),
+            &mut buffer,
+        );
         assert_eq!(idx, 0);
         assert_eq!(registry.len(), 1);
         assert!(!registry.is_empty());
@@ -182,13 +204,19 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // Uses deprecated count-based ctor — PR2 migrates these.
     fn sensor_registry_multiple() {
         let mut registry = SensorRegistry::new();
         let mut buffer = buffer::ObservationBuffer::new();
 
-        registry.register(Box::new(sensors::JointStateSensor::new(2)), &mut buffer);
-        registry.register(Box::new(sensors::JointCommandSensor::new(2)), &mut buffer);
+        let layout = empty_layout_with(2);
+        registry.register(
+            Box::new(sensors::JointStateSensor::new(layout.clone())),
+            &mut buffer,
+        );
+        registry.register(
+            Box::new(sensors::JointCommandSensor::new(layout)),
+            &mut buffer,
+        );
 
         assert_eq!(registry.len(), 2);
         assert_eq!(buffer.dim(), 6); // 4 + 2

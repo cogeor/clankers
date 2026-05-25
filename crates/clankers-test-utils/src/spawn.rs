@@ -1,7 +1,10 @@
 //! Entity spawn helpers for tests.
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
+use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
 use clankers_env::SensorRegistry;
 use clankers_env::buffer::ObservationBuffer;
 use clankers_env::sensors::JointStateSensor;
@@ -25,16 +28,36 @@ pub fn spawn_joints(world: &mut World, n: usize) -> Vec<Entity> {
     (0..n).map(|_| spawn_joint(world, 0.0, 0.0)).collect()
 }
 
-/// Register a [`JointStateSensor`] for `n_joints` into the app's sensor
-/// registry and observation buffer.
+/// Register a layout-bound [`JointStateSensor`] for `n_joints` into the
+/// app's sensor registry and observation buffer.
 ///
-/// Must be called after the `ClankersEnvPlugin` has been added (so that
-/// `SensorRegistry` and `ObservationBuffer` exist as resources).
+/// Spawns `n_joints` synthetic joint entities (via [`spawn_joints`]) and
+/// builds a [`JointLayout`](clankers_core::layout::JointLayout) bound to
+/// them, so the sensor produces a deterministic
+/// `2 * n_joints`-dimensional observation. Must be called after
+/// `ClankersEnvPlugin` has been added so the registry resources exist.
 pub fn register_state_sensor(app: &mut App, n_joints: usize) {
     let world = app.world_mut();
+    let entities = spawn_joints(world, n_joints);
+    let layout = {
+        let mut builder = JointLayoutBuilder::default();
+        for i in 0..n_joints {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
+
     let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
     let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-    registry.register(Box::new(JointStateSensor::new(n_joints)), &mut buffer);
+    registry.register(Box::new(JointStateSensor::new(layout)), &mut buffer);
     world.insert_resource(buffer);
     world.insert_resource(registry);
 }
@@ -74,7 +97,8 @@ mod tests {
     #[test]
     fn register_sensor_works() {
         let mut app = full_test_app();
-        spawn_joint(app.world_mut(), 0.0, 0.0);
+        // register_state_sensor now spawns the synthetic joint(s) itself
+        // and binds them into the layout.
         register_state_sensor(&mut app, 1);
 
         app.world_mut().resource_mut::<Episode>().reset(None);

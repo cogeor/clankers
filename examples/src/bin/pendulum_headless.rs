@@ -6,6 +6,7 @@
 //! Run: `cargo run -p clankers-examples --bin pendulum_headless`
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::traits::Sensor;
@@ -19,10 +20,10 @@ fn main() {
     // ---------------------------------------------------------------
     // 1. Parse URDF and build scene
     // ---------------------------------------------------------------
+    let model = clankers_urdf::parse_string(PENDULUM_URDF).expect("failed to parse pendulum URDF");
     let mut scene = SceneBuilder::new()
         .with_max_episode_steps(50)
-        .with_robot_urdf(PENDULUM_URDF, HashMap::new())
-        .expect("failed to parse pendulum URDF")
+        .with_robot(model.clone(), HashMap::new())
         .build();
 
     let bot = &scene.robots["pendulum"];
@@ -34,14 +35,31 @@ fn main() {
     );
 
     // ---------------------------------------------------------------
-    // 2. Register sensors
+    // 2. Build layout (bound to the pivot entity) and register sensors
     // ---------------------------------------------------------------
+    let layout = {
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in spawned robot", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
+
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(1)), &mut buffer);
-        registry.register(Box::new(JointTorqueSensor::new(1)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
+        registry.register(
+            Box::new(JointTorqueSensor::new(layout.clone())),
+            &mut buffer,
+        );
         println!("Observation dimension: {}", buffer.dim());
         world.insert_resource(buffer);
         world.insert_resource(registry);
@@ -93,7 +111,7 @@ fn main() {
         }
 
         // Also test the sensor read path
-        let mut sensor = JointStateSensor::new(1);
+        let mut sensor = JointStateSensor::new(layout.clone());
         let obs = sensor.read(scene.app.world_mut());
         println!("  Sensor read: [pos={:.3}, vel={:.3}]", obs[0], obs[1]);
     }

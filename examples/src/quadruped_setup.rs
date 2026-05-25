@@ -66,6 +66,11 @@ pub struct QuadrupedSetup {
     pub init_joint_angles: Vec<Vec<f32>>,
     pub desired_height: f64,
     pub n_feet: usize,
+    /// Layout bound to the 12 quadruped joint entities (4 legs × 3 DOF),
+    /// in [`JointLayout`] alphabetic order. Suitable for constructing
+    /// layout-bound sensors and motor overrides via
+    /// [`validate_motor_coverage`].
+    pub joint_layout: std::sync::Arc<clankers_core::layout::JointLayout>,
 }
 
 /// Build a fully configured quadruped scene: URDF, physics, colliders, warmup,
@@ -443,12 +448,32 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         }
     }
 
-    // 6. Register sensors (12 DOF)
+    // 6. Build layout bound to the 12 quadruped joint entities.
+    let joint_layout = {
+        let spawned = &scene.robots["quadruped"];
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                spawned
+                    .joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in spawned quadruped", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    };
+
+    // 7. Register sensors (12 DOF)
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(12)), &mut buffer);
+        registry.register(
+            Box::new(JointStateSensor::new(joint_layout.clone())),
+            &mut buffer,
+        );
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -494,5 +519,6 @@ pub fn setup_quadruped(config: QuadrupedSetupConfig) -> QuadrupedSetup {
         init_joint_angles,
         desired_height,
         n_feet,
+        joint_layout,
     }
 }

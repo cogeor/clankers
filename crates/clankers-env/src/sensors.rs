@@ -3,25 +3,21 @@
 //! Sensors implement [`ObservationSensor`] from `clankers-core` and can
 //! be registered with an [`ObservationBuffer`](crate::buffer::ObservationBuffer).
 //!
-//! # Layout-bound vs count-based constructors (WS2 PR1)
+//! # Layout-bound constructors (WS2 PR2)
 //!
 //! Each joint sensor (`JointStateSensor`, `JointCommandSensor`,
-//! `JointTorqueSensor`, and their `Robot*` variants) ships **two**
-//! constructors:
+//! `JointTorqueSensor`, and their `Robot*` variants) ships a single
+//! canonical constructor:
 //!
-//! - `new(layout: Arc<JointLayout>)` — the canonical, deterministic
-//!   constructor. Walks a layout-ordered `Vec<Entity>` snapshot taken at
-//!   construction; missing components fill `NaN` so configuration drift
-//!   is visible in the observation vector. The layout MUST be bound
-//!   (have `entity = Some(_)` slots) BEFORE the sensor is built; see
+//! - `new(layout: Arc<JointLayout>)` (or `new(RobotId, Arc<JointLayout>)`
+//!   for the robot variants). Walks a layout-ordered `Vec<Entity>`
+//!   snapshot taken at construction; missing components fill `NaN` so
+//!   configuration drift is visible in the observation vector. The
+//!   layout MUST be bound (have `entity = Some(_)` slots) BEFORE the
+//!   sensor is built; see
 //!   [`JointLayout::bind_entities`](clankers_core::layout::JointLayout::bind_entities).
-//! - `new(n_joints: usize)` (or `new(RobotId, usize)` for the robot
-//!   variants) — **deprecated**. Iterates Bevy queries in
-//!   archetype/insertion order, which is non-deterministic across
-//!   robots and reset cycles. Kept for one release as a migration
-//!   convenience; PR2 of WS2 deletes it.
 //!
-//! See `docs/plans/WS2-plan.md` § 5 PR1-1..PR1-3.
+//! See `docs/plans/WS2-plan.md` § 5 PR2-1..PR2-3.
 
 use std::sync::Arc;
 
@@ -60,73 +56,32 @@ use bevy::prelude::*;
 /// observation vector rather than a silent skip.
 pub struct JointStateSensor {
     /// Shared layout — kept alive so callers can introspect joint
-    /// names / kinds via the sensor at runtime. `None` for sensors
-    /// built via the deprecated [`Self::new`] ctor.
-    layout: Option<Arc<JointLayout>>,
+    /// names / kinds via the sensor at runtime.
+    layout: Arc<JointLayout>,
     /// Cached entity snapshot in layout order.
     entities: Vec<Entity>,
-    /// Cached observation dimension (`2 * entities.len()` for the
-    /// layout-bound path; `2 * n_joints` for the legacy path).
+    /// Cached observation dimension (`2 * entities.len()`).
     dim: usize,
-    /// Legacy count for the deprecated `new(n_joints)` ctor. `None`
-    /// when constructed from a layout.
-    legacy_n: Option<usize>,
 }
 
 impl JointStateSensor {
-    /// Build a sensor sized for `n_joints` that iterates the world in
-    /// Bevy query order.
-    ///
-    /// # Deprecated
-    ///
-    /// Use [`Self::with_layout`] instead. Bevy's archetype iteration
-    /// order is not deterministic across reset cycles, so this
-    /// constructor can silently re-bind sensor slot `k` to a different
-    /// joint mid-episode. See `docs/plans/WS2-plan.md` § 5 PR1-1.
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `JointStateSensor::with_layout(Arc<JointLayout>)` for deterministic slot ordering"
-    )]
-    #[must_use]
-    pub const fn new(n_joints: usize) -> Self {
-        // Layout slot left empty; the legacy_n branch in `read` uses
-        // archetype iteration. Constructing the placeholder `Arc` lazily
-        // is not possible in a const fn, so `with_layout` is the only
-        // path that materialises a real `Arc<JointLayout>`.
-        #[allow(clippy::needless_update)]
-        Self {
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints * 2,
-            legacy_n: Some(n_joints),
-        }
-    }
-
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order, on every `read()`.
-    ///
-    /// This is the canonical layout-bound constructor introduced in
-    /// WS2 PR1. PR2 renames it back to `new` once every call site has
-    /// migrated and the deprecated `new(usize)` ctor is deleted.
     #[must_use]
-    pub fn with_layout(layout: Arc<JointLayout>) -> Self {
+    pub fn new(layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len() * 2;
         Self {
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
-    ///
-    /// Returns `None` for sensors built via the deprecated
-    /// [`Self::new`] ctor (no layout was supplied).
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -134,17 +89,6 @@ impl Sensor for JointStateSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            // Legacy path: archetype-order iteration. Tracked for
-            // deprecation; not used when a layout is supplied.
-            let mut data = Vec::with_capacity(n * 2);
-            let mut query = world.query::<&JointState>();
-            for state in query.iter(world) {
-                data.push(state.position);
-                data.push(state.velocity);
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             if let Some(state) = world.get::<JointState>(entity) {
@@ -181,45 +125,29 @@ impl ObservationSensor for JointStateSensor {
 /// `JointCommand` components fill `NaN`. See [`JointStateSensor`] for
 /// the constructor contract; this sensor mirrors it.
 pub struct JointCommandSensor {
-    layout: Option<Arc<JointLayout>>,
+    layout: Arc<JointLayout>,
     entities: Vec<Entity>,
     dim: usize,
-    legacy_n: Option<usize>,
 }
 
 impl JointCommandSensor {
-    /// Count-based constructor (deprecated); see [`JointStateSensor::new`].
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `JointCommandSensor::with_layout(Arc<JointLayout>)` for deterministic slot ordering"
-    )]
+    /// Build a sensor that walks the supplied layout's bound entities,
+    /// in layout order, on every `read()`.
     #[must_use]
-    pub const fn new(n_joints: usize) -> Self {
-        Self {
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints,
-            legacy_n: Some(n_joints),
-        }
-    }
-
-    /// Layout-bound constructor; mirrors [`JointStateSensor::with_layout`].
-    #[must_use]
-    pub fn with_layout(layout: Arc<JointLayout>) -> Self {
+    pub fn new(layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len();
         Self {
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -227,14 +155,6 @@ impl Sensor for JointCommandSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            let mut data = Vec::with_capacity(n);
-            let mut query = world.query::<&JointCommand>();
-            for cmd in query.iter(world) {
-                data.push(cmd.value);
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             if let Some(cmd) = world.get::<JointCommand>(entity) {
@@ -269,45 +189,29 @@ impl ObservationSensor for JointCommandSensor {
 /// `JointTorque` components fill `NaN`. Mirrors [`JointStateSensor`]'s
 /// constructor contract.
 pub struct JointTorqueSensor {
-    layout: Option<Arc<JointLayout>>,
+    layout: Arc<JointLayout>,
     entities: Vec<Entity>,
     dim: usize,
-    legacy_n: Option<usize>,
 }
 
 impl JointTorqueSensor {
-    /// Count-based constructor (deprecated); see [`JointStateSensor::new`].
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `JointTorqueSensor::with_layout(Arc<JointLayout>)` for deterministic slot ordering"
-    )]
+    /// Build a sensor that walks the supplied layout's bound entities,
+    /// in layout order, on every `read()`.
     #[must_use]
-    pub const fn new(n_joints: usize) -> Self {
-        Self {
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints,
-            legacy_n: Some(n_joints),
-        }
-    }
-
-    /// Layout-bound constructor; mirrors [`JointStateSensor::with_layout`].
-    #[must_use]
-    pub fn with_layout(layout: Arc<JointLayout>) -> Self {
+    pub fn new(layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len();
         Self {
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -315,14 +219,6 @@ impl Sensor for JointTorqueSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            let mut data = Vec::with_capacity(n);
-            let mut query = world.query::<&JointTorque>();
-            for torque in query.iter(world) {
-                data.push(torque.value);
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             if let Some(torque) = world.get::<JointTorque>(entity) {
@@ -359,50 +255,31 @@ impl ObservationSensor for JointTorqueSensor {
 /// multi-robot pitfall where two layouts share entity ids by accident.
 pub struct RobotJointStateSensor {
     robot_id: RobotId,
-    layout: Option<Arc<JointLayout>>,
+    layout: Arc<JointLayout>,
     entities: Vec<Entity>,
     dim: usize,
-    legacy_n: Option<usize>,
 }
 
 impl RobotJointStateSensor {
-    /// Count-based constructor (deprecated). Iterates the world by
-    /// Bevy query order, filtered by `robot_id`.
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `RobotJointStateSensor::with_layout(RobotId, Arc<JointLayout>)` for deterministic slot ordering"
-    )]
+    /// Build a sensor that walks the supplied layout's bound entities,
+    /// in layout order. Pins the `RobotId` so [`Sensor::read`] can
+    /// debug-assert every layout entity belongs to the expected robot.
     #[must_use]
-    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
-        Self {
-            robot_id,
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints * 2,
-            legacy_n: Some(n_joints),
-        }
-    }
-
-    /// Layout-bound constructor; mirrors [`JointStateSensor::with_layout`].
-    /// Also pins the `RobotId` so [`Sensor::read`] can debug-assert
-    /// every layout entity belongs to the expected robot.
-    #[must_use]
-    pub fn with_layout(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
+    pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len() * 2;
         Self {
             robot_id,
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 
     /// The robot this sensor reads from.
@@ -416,17 +293,6 @@ impl Sensor for RobotJointStateSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            let mut data = Vec::with_capacity(n * 2);
-            let mut query = world.query::<(&JointState, &RobotId)>();
-            for (state, &id) in query.iter(world) {
-                if id == self.robot_id {
-                    data.push(state.position);
-                    data.push(state.velocity);
-                }
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             debug_assert!(
@@ -462,48 +328,30 @@ impl ObservationSensor for RobotJointStateSensor {
 /// to a specific robot. Mirrors [`RobotJointStateSensor`].
 pub struct RobotJointCommandSensor {
     robot_id: RobotId,
-    layout: Option<Arc<JointLayout>>,
+    layout: Arc<JointLayout>,
     entities: Vec<Entity>,
     dim: usize,
-    legacy_n: Option<usize>,
 }
 
 impl RobotJointCommandSensor {
-    /// Count-based constructor (deprecated). Iterates the world by
-    /// Bevy query order, filtered by `robot_id`.
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `RobotJointCommandSensor::with_layout(RobotId, Arc<JointLayout>)` for deterministic slot ordering"
-    )]
+    /// Build a sensor that walks the supplied layout's bound entities,
+    /// in layout order.
     #[must_use]
-    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
-        Self {
-            robot_id,
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints,
-            legacy_n: Some(n_joints),
-        }
-    }
-
-    /// Layout-bound constructor; mirrors [`JointStateSensor::with_layout`].
-    #[must_use]
-    pub fn with_layout(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
+    pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len();
         Self {
             robot_id,
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 
     /// The robot this sensor reads from.
@@ -517,16 +365,6 @@ impl Sensor for RobotJointCommandSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            let mut data = Vec::with_capacity(n);
-            let mut query = world.query::<(&JointCommand, &RobotId)>();
-            for (cmd, &id) in query.iter(world) {
-                if id == self.robot_id {
-                    data.push(cmd.value);
-                }
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             debug_assert!(
@@ -560,48 +398,30 @@ impl ObservationSensor for RobotJointCommandSensor {
 /// a specific robot. Mirrors [`RobotJointStateSensor`].
 pub struct RobotJointTorqueSensor {
     robot_id: RobotId,
-    layout: Option<Arc<JointLayout>>,
+    layout: Arc<JointLayout>,
     entities: Vec<Entity>,
     dim: usize,
-    legacy_n: Option<usize>,
 }
 
 impl RobotJointTorqueSensor {
-    /// Count-based constructor (deprecated). Iterates the world by
-    /// Bevy query order, filtered by `robot_id`.
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `RobotJointTorqueSensor::with_layout(RobotId, Arc<JointLayout>)` for deterministic slot ordering"
-    )]
+    /// Build a sensor that walks the supplied layout's bound entities,
+    /// in layout order.
     #[must_use]
-    pub const fn new(robot_id: RobotId, n_joints: usize) -> Self {
-        Self {
-            robot_id,
-            layout: None,
-            entities: Vec::new(),
-            dim: n_joints,
-            legacy_n: Some(n_joints),
-        }
-    }
-
-    /// Layout-bound constructor; mirrors [`JointStateSensor::with_layout`].
-    #[must_use]
-    pub fn with_layout(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
+    pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
         let entities: Vec<Entity> = layout.bound_entities().collect();
         let dim = entities.len();
         Self {
             robot_id,
-            layout: Some(layout),
+            layout,
             entities,
             dim,
-            legacy_n: None,
         }
     }
 
-    /// Borrow the layout this sensor was built from, if any.
+    /// Borrow the layout this sensor was built from.
     #[must_use]
-    pub fn layout(&self) -> Option<&JointLayout> {
-        self.layout.as_deref()
+    pub fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 
     /// The robot this sensor reads from.
@@ -615,16 +435,6 @@ impl Sensor for RobotJointTorqueSensor {
     type Output = Observation;
 
     fn read(&mut self, world: &mut World) -> Observation {
-        if let Some(n) = self.legacy_n {
-            let mut data = Vec::with_capacity(n);
-            let mut query = world.query::<(&JointTorque, &RobotId)>();
-            for (torque, &id) in query.iter(world) {
-                if id == self.robot_id {
-                    data.push(torque.value);
-                }
-            }
-            return Observation::new(data);
-        }
         let mut data = Vec::with_capacity(self.dim);
         for &entity in &self.entities {
             debug_assert!(
@@ -1236,13 +1046,30 @@ impl<S: ObservationSensor> NoisySensor<S> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(deprecated)] // Existing count-based ctor tests stay green during PR1.
-// PR2 deletes the deprecated ctors and migrates these tests.
 mod tests {
     use super::*;
     use clankers_actuator::components::Actuator;
+    use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+
+    /// Build a synthetic layout of `n` revolute joints bound to the
+    /// supplied entity list. Used by tests that don't parse URDF.
+    fn synthetic_layout(entities: &[Entity]) -> Arc<JointLayout> {
+        let mut builder = JointLayoutBuilder::default();
+        for (i, _) in entities.iter().enumerate() {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        layout.bind_entities(entities);
+        Arc::new(layout)
+    }
 
     fn spawn_joint(world: &mut World, pos: f32, vel: f32, cmd: f32) -> Entity {
         world
@@ -1263,37 +1090,61 @@ mod tests {
     #[test]
     fn joint_state_sensor_reads_correctly() {
         let mut world = World::new();
-        spawn_joint(&mut world, 1.0, 2.0, 0.0);
-        spawn_joint(&mut world, 3.0, 4.0, 0.0);
+        let e0 = spawn_joint(&mut world, 1.0, 2.0, 0.0);
+        let e1 = spawn_joint(&mut world, 3.0, 4.0, 0.0);
 
-        let mut sensor = JointStateSensor::new(2);
+        let layout = synthetic_layout(&[e0, e1]);
+        let mut sensor = JointStateSensor::new(layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         let vals: Vec<f32> = obs.as_slice().to_vec();
-        assert!(vals.contains(&1.0));
-        assert!(vals.contains(&2.0));
-        assert!(vals.contains(&3.0));
-        assert!(vals.contains(&4.0));
+        // Layout-ordered: [pos_0, vel_0, pos_1, vel_1]
+        assert!((vals[0] - 1.0).abs() < f32::EPSILON);
+        assert!((vals[1] - 2.0).abs() < f32::EPSILON);
+        assert!((vals[2] - 3.0).abs() < f32::EPSILON);
+        assert!((vals[3] - 4.0).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn joint_state_sensor_empty_world() {
+    fn joint_state_sensor_empty_layout() {
         let mut world = World::new();
-        let mut sensor = JointStateSensor::new(0);
+        let layout = synthetic_layout(&[]);
+        let mut sensor = JointStateSensor::new(layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
 
     #[test]
     fn joint_state_sensor_dim() {
-        let sensor = JointStateSensor::new(5);
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..5)
+            .map(|_| spawn_joint(&mut world, 0.0, 0.0, 0.0))
+            .collect();
+        let layout = synthetic_layout(&entities);
+        let sensor = JointStateSensor::new(layout);
         assert_eq!(sensor.observation_dim(), 10);
     }
 
     #[test]
     fn joint_state_sensor_name() {
-        let sensor = JointStateSensor::new(1);
+        let mut world = World::new();
+        let e = spawn_joint(&mut world, 0.0, 0.0, 0.0);
+        let layout = synthetic_layout(&[e]);
+        let sensor = JointStateSensor::new(layout);
         assert_eq!(sensor.name(), "JointStateSensor");
+    }
+
+    #[test]
+    fn joint_state_sensor_missing_component_fills_nan() {
+        let mut world = World::new();
+        // Spawn an entity without JointState — sensor must fill NaN.
+        let bare = world.spawn(()).id();
+        let layout = synthetic_layout(&[bare]);
+        let mut sensor = JointStateSensor::new(layout);
+        let obs = sensor.read(&mut world);
+        assert_eq!(obs.len(), 2);
+        assert!(obs[0].is_nan());
+        assert!(obs[1].is_nan());
     }
 
     // -- JointCommandSensor --
@@ -1301,20 +1152,26 @@ mod tests {
     #[test]
     fn joint_command_sensor_reads() {
         let mut world = World::new();
-        spawn_joint(&mut world, 0.0, 0.0, 5.0);
-        spawn_joint(&mut world, 0.0, 0.0, 10.0);
+        let e0 = spawn_joint(&mut world, 0.0, 0.0, 5.0);
+        let e1 = spawn_joint(&mut world, 0.0, 0.0, 10.0);
 
-        let mut sensor = JointCommandSensor::new(2);
+        let layout = synthetic_layout(&[e0, e1]);
+        let mut sensor = JointCommandSensor::new(layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2);
         let vals: Vec<f32> = obs.as_slice().to_vec();
-        assert!(vals.contains(&5.0));
-        assert!(vals.contains(&10.0));
+        assert!((vals[0] - 5.0).abs() < f32::EPSILON);
+        assert!((vals[1] - 10.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn joint_command_sensor_dim() {
-        let sensor = JointCommandSensor::new(3);
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..3)
+            .map(|_| spawn_joint(&mut world, 0.0, 0.0, 0.0))
+            .collect();
+        let layout = synthetic_layout(&entities);
+        let sensor = JointCommandSensor::new(layout);
         assert_eq!(sensor.observation_dim(), 3);
     }
 
@@ -1323,15 +1180,16 @@ mod tests {
     #[test]
     fn joint_torque_sensor_reads() {
         let mut world = World::new();
-        world.spawn(JointTorque { value: 7.5 });
-        world.spawn(JointTorque { value: -3.0 });
+        let e0 = world.spawn(JointTorque { value: 7.5 }).id();
+        let e1 = world.spawn(JointTorque { value: -3.0 }).id();
 
-        let mut sensor = JointTorqueSensor::new(2);
+        let layout = synthetic_layout(&[e0, e1]);
+        let mut sensor = JointTorqueSensor::new(layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 2);
         let vals: Vec<f32> = obs.as_slice().to_vec();
-        assert!(vals.contains(&7.5));
-        assert!(vals.contains(&-3.0));
+        assert!((vals[0] - 7.5).abs() < f32::EPSILON);
+        assert!((vals[1] + 3.0).abs() < f32::EPSILON);
     }
 
     // -- ImuSensor --
@@ -1674,10 +1532,11 @@ mod tests {
     #[test]
     fn noisy_sensor_applies_noise() {
         let mut world = World::new();
-        spawn_joint(&mut world, 1.0, 2.0, 0.0);
+        let e = spawn_joint(&mut world, 1.0, 2.0, 0.0);
 
+        let layout = synthetic_layout(&[e]);
         let noise = NoiseModel::gaussian(0.0, 0.1).unwrap();
-        let mut sensor = NoisySensor::new(JointStateSensor::new(1), noise);
+        let mut sensor = NoisySensor::new(JointStateSensor::new(layout), noise);
 
         let mut rng = ChaCha8Rng::seed_from_u64(42);
         let obs = sensor.read_noisy(&mut world, &mut rng);
@@ -1690,15 +1549,16 @@ mod tests {
     #[test]
     fn noisy_sensor_deterministic_with_same_seed() {
         let mut world = World::new();
-        spawn_joint(&mut world, 5.0, 10.0, 0.0);
+        let e = spawn_joint(&mut world, 5.0, 10.0, 0.0);
 
+        let layout = synthetic_layout(&[e]);
         let noise = NoiseModel::gaussian(0.0, 1.0).unwrap();
-        let mut sensor = NoisySensor::new(JointStateSensor::new(1), noise);
+        let mut sensor = NoisySensor::new(JointStateSensor::new(layout.clone()), noise);
         let mut rng1 = ChaCha8Rng::seed_from_u64(123);
         let obs1 = sensor.read_noisy(&mut world, &mut rng1);
 
         let noise2 = NoiseModel::gaussian(0.0, 1.0).unwrap();
-        let mut sensor2 = NoisySensor::new(JointStateSensor::new(1), noise2);
+        let mut sensor2 = NoisySensor::new(JointStateSensor::new(layout), noise2);
         let mut rng2 = ChaCha8Rng::seed_from_u64(123);
         let obs2 = sensor2.read_noisy(&mut world, &mut rng2);
 
@@ -1707,8 +1567,13 @@ mod tests {
 
     #[test]
     fn noisy_sensor_delegates_name_and_dim() {
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..3)
+            .map(|_| spawn_joint(&mut world, 0.0, 0.0, 0.0))
+            .collect();
+        let layout = synthetic_layout(&entities);
         let noise = NoiseModel::gaussian(0.0, 0.1).unwrap();
-        let sensor = NoisySensor::new(JointStateSensor::new(3), noise);
+        let sensor = NoisySensor::new(JointStateSensor::new(layout), noise);
         assert_eq!(sensor.name(), "JointStateSensor");
         assert_eq!(sensor.observation_dim(), 6);
     }
@@ -1739,29 +1604,29 @@ mod tests {
     #[test]
     fn robot_joint_state_sensor_filters_by_id() {
         let mut world = World::new();
-        spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 0.0);
+        let r0_a = spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 0.0);
         spawn_robot_joint(&mut world, RobotId(1), 3.0, 4.0, 0.0);
-        spawn_robot_joint(&mut world, RobotId(0), 5.0, 6.0, 0.0);
+        let r0_b = spawn_robot_joint(&mut world, RobotId(0), 5.0, 6.0, 0.0);
 
-        let mut sensor = RobotJointStateSensor::new(RobotId(0), 2);
+        let layout = synthetic_layout(&[r0_a, r0_b]);
+        let mut sensor = RobotJointStateSensor::new(RobotId(0), layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 4);
         let vals: Vec<f32> = obs.as_slice().to_vec();
-        assert!(vals.contains(&1.0));
-        assert!(vals.contains(&2.0));
-        assert!(vals.contains(&5.0));
-        assert!(vals.contains(&6.0));
-        assert!(!vals.contains(&3.0));
-        assert!(!vals.contains(&4.0));
+        assert!((vals[0] - 1.0).abs() < f32::EPSILON);
+        assert!((vals[1] - 2.0).abs() < f32::EPSILON);
+        assert!((vals[2] - 5.0).abs() < f32::EPSILON);
+        assert!((vals[3] - 6.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn robot_joint_command_sensor_filters_by_id() {
         let mut world = World::new();
-        spawn_robot_joint(&mut world, RobotId(0), 0.0, 0.0, 10.0);
+        let r0 = spawn_robot_joint(&mut world, RobotId(0), 0.0, 0.0, 10.0);
         spawn_robot_joint(&mut world, RobotId(1), 0.0, 0.0, 20.0);
 
-        let mut sensor = RobotJointCommandSensor::new(RobotId(0), 1);
+        let layout = synthetic_layout(&[r0]);
+        let mut sensor = RobotJointCommandSensor::new(RobotId(0), layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 1);
         assert!((obs[0] - 10.0).abs() < f32::EPSILON);
@@ -1771,35 +1636,44 @@ mod tests {
     fn robot_joint_torque_sensor_filters_by_id() {
         let mut world = World::new();
         spawn_robot_joint(&mut world, RobotId(0), 5.0, 0.0, 0.0); // torque = 10.0
-        spawn_robot_joint(&mut world, RobotId(1), 3.0, 0.0, 0.0); // torque = 6.0
+        let r1 = spawn_robot_joint(&mut world, RobotId(1), 3.0, 0.0, 0.0); // torque = 6.0
 
-        let mut sensor = RobotJointTorqueSensor::new(RobotId(1), 1);
+        let layout = synthetic_layout(&[r1]);
+        let mut sensor = RobotJointTorqueSensor::new(RobotId(1), layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 1);
         assert!((obs[0] - 6.0).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn robot_sensor_empty_when_no_match() {
+    fn robot_sensor_empty_layout() {
         let mut world = World::new();
         spawn_robot_joint(&mut world, RobotId(0), 1.0, 2.0, 3.0);
 
-        let mut sensor = RobotJointStateSensor::new(RobotId(99), 0);
+        let layout = synthetic_layout(&[]);
+        let mut sensor = RobotJointStateSensor::new(RobotId(99), layout);
         let obs = sensor.read(&mut world);
         assert_eq!(obs.len(), 0);
     }
 
     #[test]
     fn robot_sensor_name_and_dim() {
-        let s1 = RobotJointStateSensor::new(RobotId(0), 3);
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..4)
+            .map(|_| spawn_robot_joint(&mut world, RobotId(0), 0.0, 0.0, 0.0))
+            .collect();
+        let layout3 = synthetic_layout(&entities[..3]);
+        let s1 = RobotJointStateSensor::new(RobotId(0), layout3);
         assert_eq!(s1.name(), "RobotJointStateSensor");
         assert_eq!(s1.observation_dim(), 6);
 
-        let s2 = RobotJointCommandSensor::new(RobotId(0), 2);
+        let layout2 = synthetic_layout(&entities[..2]);
+        let s2 = RobotJointCommandSensor::new(RobotId(0), layout2);
         assert_eq!(s2.name(), "RobotJointCommandSensor");
         assert_eq!(s2.observation_dim(), 2);
 
-        let s3 = RobotJointTorqueSensor::new(RobotId(0), 4);
+        let layout4 = synthetic_layout(&entities);
+        let s3 = RobotJointTorqueSensor::new(RobotId(0), layout4);
         assert_eq!(s3.name(), "RobotJointTorqueSensor");
         assert_eq!(s3.observation_dim(), 4);
     }

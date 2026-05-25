@@ -280,15 +280,19 @@ mod tests {
     use clankers_env::prelude::*;
 
     /// A test action applicator that writes continuous action values to
-    /// `JointCommand` components in entity order.
-    struct TestApplicator;
+    /// `JointCommand` components in [`JointLayout`] slot order.
+    struct TestApplicator {
+        layout: std::sync::Arc<clankers_core::layout::JointLayout>,
+    }
 
     impl ActionApplicator for TestApplicator {
         fn apply(&self, world: &mut World, action: &Action) {
             let values = action.as_slice();
-            let mut query = world.query::<&mut JointCommand>();
-            for (i, mut cmd) in query.iter_mut(world).enumerate() {
-                if i < values.len() {
+            for (i, entity) in self.layout.bound_entities().enumerate() {
+                if i >= values.len() {
+                    break;
+                }
+                if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
                     cmd.value = values[i];
                 }
             }
@@ -298,29 +302,55 @@ mod tests {
         fn name(&self) -> &str {
             "TestApplicator"
         }
+
+        fn layout(&self) -> &clankers_core::layout::JointLayout {
+            &self.layout
+        }
     }
 
     fn build_test_env(num_joints: usize) -> GymEnv {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+
         let mut app = App::new();
         app.add_plugins(clankers_core::ClankersCorePlugin);
         app.add_plugins(ClankersEnvPlugin);
 
-        // Spawn joints
-        for _ in 0..num_joints {
-            app.world_mut().spawn((
-                Actuator::default(),
-                JointCommand::default(),
-                JointState::default(),
-                JointTorque::default(),
-            ));
-        }
+        // Spawn joints and capture their ids for the layout.
+        let entities: Vec<Entity> = (0..num_joints)
+            .map(|_| {
+                app.world_mut()
+                    .spawn((
+                        Actuator::default(),
+                        JointCommand::default(),
+                        JointState::default(),
+                        JointTorque::default(),
+                    ))
+                    .id()
+            })
+            .collect();
+
+        let layout = {
+            let mut builder = JointLayoutBuilder::default();
+            for i in 0..num_joints {
+                builder = builder.push(JointSpec {
+                    name: format!("j{i}"),
+                    entity: None,
+                    joint_type: JointKind::Revolute,
+                    limits: JointSpecLimits::default(),
+                    axis: [0.0, 0.0, 1.0],
+                });
+            }
+            let mut layout = builder.build();
+            layout.bind_entities(&entities);
+            std::sync::Arc::new(layout)
+        };
 
         // Register a sensor so we have observations
         {
             let world = app.world_mut();
             let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
             let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-            registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
+            registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
             world.insert_resource(buffer);
             world.insert_resource(registry);
         }
@@ -335,7 +365,12 @@ mod tests {
             high: vec![1.0; num_joints],
         };
 
-        GymEnv::new(app, obs_space, act_space, Box::new(TestApplicator))
+        GymEnv::new(
+            app,
+            obs_space,
+            act_space,
+            Box::new(TestApplicator { layout }),
+        )
     }
 
     #[test]

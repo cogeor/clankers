@@ -6,26 +6,33 @@
 //! Run: `cargo run -p clankers-examples --bin arm_gym`
 //! Then connect with: `python python/examples/arm_imitation_learning.py --online`
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
+use clankers_core::layout::JointLayout;
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
 use clankers_examples::arm_setup::{ArmSetupConfig, setup_arm};
 use clankers_gym::prelude::*;
 use clankers_physics::rapier::RapierContext;
 
-/// Joint entities for the 6-DOF arm, stored as a resource so the applicator
-/// can target specific joints rather than iterating all joints in query order.
-#[derive(Resource)]
-struct ArmJointEntities(Vec<Entity>);
-
-/// Maps 6-dim action to `JointCommand` on the arm's joint entities.
-struct ArmApplicator;
+/// Maps 6-dim action to `JointCommand` on the arm's joint entities, in
+/// chain (URDF kinematic) order — which is NOT the [`JointLayout`]
+/// alphabetic order. The applicator stores its chain-order entity list
+/// directly; `layout()` returns the alphabetic-order [`JointLayout`]
+/// for completeness (PR2-2: every `ActionApplicator` must expose its
+/// layout for downstream consumers).
+struct ArmApplicator {
+    /// Chain-order joint entities (matches the action vector order).
+    chain_entities: Vec<Entity>,
+    /// Layout-order layout (alphabetic), shared with sensors.
+    layout: Arc<JointLayout>,
+}
 
 impl clankers_core::traits::ActionApplicator for ArmApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
         let values = action.as_slice();
-        let entities = world.resource::<ArmJointEntities>().0.clone();
-        for (i, entity) in entities.iter().enumerate() {
+        for (i, entity) in self.chain_entities.iter().enumerate() {
             if i < values.len()
                 && let Some(mut cmd) = world.get_mut::<JointCommand>(*entity)
             {
@@ -37,6 +44,10 @@ impl clankers_core::traits::ActionApplicator for ArmApplicator {
     #[allow(clippy::unnecessary_literal_bound)]
     fn name(&self) -> &str {
         "ArmApplicator"
+    }
+
+    fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -53,12 +64,7 @@ fn main() {
         sensor_dof: num_joints,
         ..ArmSetupConfig::default()
     });
-    let mut scene = setup.scene;
-
-    // Store joint entities as a resource for the applicator
-    scene
-        .app
-        .insert_resource(ArmJointEntities(setup.joint_entities.clone()));
+    let scene = setup.scene;
 
     println!("Robot: six_dof_arm");
     println!("DOF:   {num_joints}");
@@ -76,25 +82,34 @@ fn main() {
     };
 
     let joint_entities = setup.joint_entities;
+    let layout = setup.joint_layout;
 
-    let mut env = GymEnv::new(scene.app, obs_space, act_space, Box::new(ArmApplicator))
-        .with_reset_fn(move |world: &mut World| {
-            // Reset rapier rigid body positions and velocities
-            if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-                ctx.reset_to_initial();
-                world.insert_resource(ctx);
+    let mut env = GymEnv::new(
+        scene.app,
+        obs_space,
+        act_space,
+        Box::new(ArmApplicator {
+            chain_entities: joint_entities.clone(),
+            layout,
+        }),
+    )
+    .with_reset_fn(move |world: &mut World| {
+        // Reset rapier rigid body positions and velocities
+        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+            ctx.reset_to_initial();
+            world.insert_resource(ctx);
+        }
+        // Reset joint states and commands for arm joints
+        for &entity in &joint_entities {
+            if let Some(mut state) = world.get_mut::<JointState>(entity) {
+                state.position = 0.0;
+                state.velocity = 0.0;
             }
-            // Reset joint states and commands for arm joints
-            for &entity in &joint_entities {
-                if let Some(mut state) = world.get_mut::<JointState>(entity) {
-                    state.position = 0.0;
-                    state.velocity = 0.0;
-                }
-                if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                    cmd.value = 0.0;
-                }
+            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
+                cmd.value = 0.0;
             }
-        });
+        }
+    });
 
     // 3. Start server
     let server = GymServer::bind(address).expect("failed to bind server");

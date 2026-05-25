@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use rapier3d::prelude::{ImpulseJointHandle, JointAxis};
+use rapier3d::prelude::JointAxis;
 
 use clankers_actuator::components::{JointState, JointTorque};
 use clankers_core::layout::JointLayout;
@@ -54,75 +54,53 @@ pub struct MotorOverrideParams {
 /// arm joints use stiffness=100/damping=10, gripper fingers use softer
 /// stiffness=50/damping=5.
 ///
-/// # Storage (WS2 PR1)
+/// # Storage
 ///
-/// The resource carries two storage paths that coexist for the
-/// migration window:
+/// - `joints` — per-entity override map keyed by Bevy [`Entity`].
+///   Consumed by [`rapier_step_system`] which looks each entity up as
+///   it iterates `JointTorque` components.
+/// - `layout` — the [`JointLayout`] the override set was built against.
+///   Populated by callers that intend to pair the resource with
+///   [`validate_motor_coverage`] at scene-build time.
 ///
-/// - `joints` — the existing legacy `HashMap<Entity, …>` used by every
-///   current call site. Keeps PR1 source-compatible with the 4
-///   `MotorOverrides::default()` insertion sites in examples.
-/// - `ordered` + `layout` — the new dense layout-ordered path the
-///   `rapier_step_system` will prefer once PR2 migrates all call sites.
-///   Built via [`Self::with_layout`] or [`Self::from_legacy_map`].
+/// # PR2 deviation note
 ///
-/// PR2 deletes the legacy `joints` field and switches the step system
-/// to consume `ordered` exclusively.
+/// PR1's prose proposed a parallel `ordered: Vec<(ImpulseJointHandle, _)>`
+/// storage that the step system would consume in place of the entity
+/// map. PR2 dropped that field because every active call site
+/// (`arm_setup`, `arm_pick_gym`, `quadruped_mpc_viz`, `mpc_walk`,
+/// `arm_startup`, the `validate_motor_coverage` tests in
+/// `clankers-physics` and `clankers-sim`, and the builder pipeline) is
+/// built around per-entity insertion before the Rapier
+/// `ImpulseJointHandle`s exist — keying by handle would have required
+/// restructuring all six sites onto a deferred-registration system,
+/// which is out of scope for WS2 PR2. The entity map remains the
+/// single source of truth; the dead `ordered` / `legacy_map` /
+/// `from_legacy_map` / `From<HashMap>` surfaces from PR1 are deleted.
 #[derive(Resource, Default)]
 pub struct MotorOverrides {
-    /// Legacy per-entity override map (consumed by today's
-    /// `rapier_step_system`).
+    /// Per-entity override map consumed by [`rapier_step_system`].
     pub joints: HashMap<Entity, MotorOverrideParams>,
-    /// Dense layout-ordered overrides keyed by Rapier
-    /// `ImpulseJointHandle`. Populated by callers that build via
-    /// [`Self::with_layout`] after a [`RapierContext`] is available.
-    /// Empty when the override set is built via the legacy
-    /// `joints` `HashMap` path.
-    pub ordered: Vec<(ImpulseJointHandle, MotorOverrideParams)>,
-    /// The shared layout the `ordered` storage was built against.
-    /// `None` when the legacy `joints` `HashMap` path is in use.
+    /// The shared layout the overrides were built against. `None` when
+    /// the override set is built ad-hoc without a layout (callers that
+    /// want [`validate_motor_coverage`] coverage should populate this).
     pub layout: Option<Arc<JointLayout>>,
 }
 
 impl MotorOverrides {
-    /// Build an empty `MotorOverrides` pinned to a [`JointLayout`].
-    ///
-    /// The returned resource has empty `joints` and `ordered`
-    /// collections; callers populate `joints` per-entity (legacy path)
-    /// or feed an [`ImpulseJointHandle`]-indexed dense vector into
-    /// `ordered` once the Rapier context exists. The bound layout is
-    /// later checked by [`validate_motor_coverage`].
+    /// Build a [`MotorOverrides`] from a per-entity override map and the
+    /// [`JointLayout`] it was built against. Convenience for the four
+    /// example sites that construct the map ad-hoc before scene
+    /// insertion.
     #[must_use]
-    pub fn with_layout(layout: Arc<JointLayout>) -> Self {
+    pub const fn from_map_and_layout(
+        joints: HashMap<Entity, MotorOverrideParams>,
+        layout: Arc<JointLayout>,
+    ) -> Self {
         Self {
-            joints: HashMap::new(),
-            ordered: Vec::new(),
+            joints,
             layout: Some(layout),
         }
-    }
-
-    /// Construct from a legacy `HashMap<Entity, MotorOverrideParams>`.
-    ///
-    /// Equivalent to setting `MotorOverrides::default().joints = map`
-    /// but without exposing the internal field name. Use
-    /// [`Self::with_layout`] for the new layout-bound path.
-    #[must_use]
-    pub const fn from_legacy_map(map: HashMap<Entity, MotorOverrideParams>) -> Self {
-        Self {
-            joints: map,
-            ordered: Vec::new(),
-            layout: None,
-        }
-    }
-}
-
-impl From<HashMap<Entity, MotorOverrideParams>> for MotorOverrides {
-    /// Convert a per-entity override map into a `MotorOverrides`
-    /// resource. Convenience for the 4 example sites that build the
-    /// override map ad-hoc before scene insertion. After PR2 deletes
-    /// the legacy path, this `From` impl goes away.
-    fn from(map: HashMap<Entity, MotorOverrideParams>) -> Self {
-        Self::from_legacy_map(map)
     }
 }
 
@@ -182,12 +160,11 @@ impl From<HashMap<Entity, MotorOverrideParams>> for MotorOverrides {
 /// let entity = Entity::from_bits(1);
 /// layout.bind_entities(&[entity]);
 ///
-/// let mut map = HashMap::new();
-/// map.insert(entity, MotorOverrideParams {
+/// let mut overrides = MotorOverrides::default();
+/// overrides.joints.insert(entity, MotorOverrideParams {
 ///     target_pos: 0.0, target_vel: 0.0,
 ///     stiffness: 100.0, damping: 10.0, max_force: 50.0,
 /// });
-/// let overrides = MotorOverrides::from(map);
 ///
 /// assert!(validate_motor_coverage(
 ///     &RobotGroup::default(), &layout, &overrides,

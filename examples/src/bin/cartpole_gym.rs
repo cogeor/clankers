@@ -7,9 +7,11 @@
 //! Then connect with: `python python/examples/cartpole_read_state.py`
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
+use clankers_core::layout::JointLayout;
 use clankers_core::prelude::*;
 use clankers_env::prelude::*;
 use clankers_examples::CARTPOLE_URDF;
@@ -18,19 +20,23 @@ use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 
-/// Writes action values to joint commands in spawn order.
+/// Writes action values to joint commands in layout slot order.
 ///
 /// Action layout: [cart_force, pole_torque]
 /// For standard CartPole, only cart_force (index 0) is used;
 /// pole_torque (index 1) should be 0 (passive joint).
-struct CartPoleApplicator;
+struct CartPoleApplicator {
+    layout: Arc<JointLayout>,
+}
 
 impl ActionApplicator for CartPoleApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
         let values = action.as_slice();
-        let mut query = world.query::<&mut JointCommand>();
-        for (i, mut cmd) in query.iter_mut(world).enumerate() {
-            if i < values.len() {
+        for (i, entity) in self.layout.bound_entities().enumerate() {
+            if i >= values.len() {
+                break;
+            }
+            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
                 cmd.value = values[i];
             }
         }
@@ -39,6 +45,10 @@ impl ActionApplicator for CartPoleApplicator {
     #[allow(clippy::unnecessary_literal_bound)]
     fn name(&self) -> &str {
         "CartPoleApplicator"
+    }
+
+    fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -55,7 +65,11 @@ fn main() {
     let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
     println!("Robot: {}", model.name);
     println!("DOF:   {}", model.dof());
-    println!("Joints: {:?}", model.actuated_joint_names());
+    // Use the JointLayout joint names (alphabetic order — the
+    // deprecated `actuated_joint_names` returns the same set).
+    let layout_for_print = model.to_layout();
+    let layout_names: Vec<&str> = layout_for_print.joint_names().collect();
+    println!("Joints: {layout_names:?}");
 
     // ---------------------------------------------------------------
     // 2. Build scene with SceneBuilder + physics
@@ -86,15 +100,29 @@ fn main() {
     );
 
     // ---------------------------------------------------------------
-    // 3. Register sensors
+    // 3. Build layout bound to spawned joint entities + register sensors
     // ---------------------------------------------------------------
+    let layout = {
+        let bot = &scene.robots["cartpole"];
+        let mut layout = model.to_layout();
+        let entities: Vec<Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in spawned robot", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
         // Joint state: 2 joints × 2 (pos + vel) = 4 obs values
         // Layout: [cart_pos, cart_vel, pole_angle, pole_vel]
-        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
         println!("Observation dim: {}", buffer.dim());
         world.insert_resource(buffer);
         world.insert_resource(registry);
@@ -119,7 +147,7 @@ fn main() {
         scene.app,
         obs_space,
         act_space,
-        Box::new(CartPoleApplicator),
+        Box::new(CartPoleApplicator { layout }),
     )
     .with_reset_fn(|world: &mut World| {
         // Reset rapier rigid body positions and velocities

@@ -64,10 +64,15 @@ pub fn episode_step_system(mut episode: ResMut<Episode>, config: Res<EpisodeConf
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::sensors::{JointCommandSensor, JointStateSensor};
     use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
     use clankers_core::ClankersSet;
+    use clankers_core::layout::{
+        JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
+    };
 
     fn build_test_app() -> App {
         let mut app = App::new();
@@ -83,16 +88,36 @@ mod tests {
         app
     }
 
-    fn spawn_joint(world: &mut World, pos: f32, vel: f32, cmd: f32) {
-        world.spawn((
-            Actuator::default(),
-            JointCommand { value: cmd },
-            JointState {
-                position: pos,
-                velocity: vel,
-            },
-            JointTorque::default(),
-        ));
+    /// Build a synthetic [`JointLayout`] bound to the supplied entities.
+    /// Used by tests that don't parse URDF.
+    fn synthetic_layout(entities: &[Entity]) -> Arc<JointLayout> {
+        let mut builder = JointLayoutBuilder::default();
+        for (i, _) in entities.iter().enumerate() {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        layout.bind_entities(entities);
+        Arc::new(layout)
+    }
+
+    fn spawn_joint(world: &mut World, pos: f32, vel: f32, cmd: f32) -> Entity {
+        world
+            .spawn((
+                Actuator::default(),
+                JointCommand { value: cmd },
+                JointState {
+                    position: pos,
+                    velocity: vel,
+                },
+                JointTorque::default(),
+            ))
+            .id()
     }
 
     #[test]
@@ -102,15 +127,16 @@ mod tests {
         // Register sensors
         {
             let world = app.world_mut();
+            let e0 = spawn_joint(world, 1.0, 2.0, 10.0);
+            let e1 = spawn_joint(world, 3.0, 4.0, 20.0);
+            let layout = synthetic_layout(&[e0, e1]);
+
             let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
             let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-            registry.register(Box::new(JointStateSensor::new(2)), &mut buffer);
-            registry.register(Box::new(JointCommandSensor::new(2)), &mut buffer);
+            registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
+            registry.register(Box::new(JointCommandSensor::new(layout)), &mut buffer);
             world.insert_resource(buffer);
             world.insert_resource(registry);
-
-            spawn_joint(world, 1.0, 2.0, 10.0);
-            spawn_joint(world, 3.0, 4.0, 20.0);
         }
 
         app.update();
@@ -178,13 +204,14 @@ mod tests {
         // Register a sensor
         {
             let world = app.world_mut();
+            let e0 = spawn_joint(world, 1.0, 2.0, 0.0);
+            let layout = synthetic_layout(&[e0]);
+
             let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
             let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-            registry.register(Box::new(JointStateSensor::new(1)), &mut buffer);
+            registry.register(Box::new(JointStateSensor::new(layout)), &mut buffer);
             world.insert_resource(buffer);
             world.insert_resource(registry);
-
-            spawn_joint(world, 1.0, 2.0, 0.0);
         }
 
         // Start episode

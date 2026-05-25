@@ -282,14 +282,32 @@ fn main() {
         world.insert_resource(ctx);
     }
 
-    // 5. Register sensors + noisy observation slot
+    // 5. Build cartpole joint layout (bound to cart + pole entities) +
+    //    register sensors and a noisy observation slot.
+    let joint_layout = {
+        let bot = &scene.robots["cartpole"];
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in cartpole", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    };
     let noisy_slot;
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(2)), &mut buffer);
-        registry.register(Box::new(JointCommandSensor::new(2)), &mut buffer);
+        registry.register(
+            Box::new(JointStateSensor::new(joint_layout.clone())),
+            &mut buffer,
+        );
+        registry.register(Box::new(JointCommandSensor::new(joint_layout)), &mut buffer);
         noisy_slot = buffer.register("noisy_obs", 5);
         world.insert_resource(buffer);
         world.insert_resource(registry);

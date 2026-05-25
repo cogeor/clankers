@@ -6,13 +6,16 @@
 
 use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_actuator_core::prelude::ControlMode;
+use clankers_core::types::RobotGroup;
 use clankers_env::prelude::*;
 use clankers_ik::{DlsConfig, DlsSolver, IkTarget, KinematicChain};
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::rapier::systems::validate_motor_coverage;
 use clankers_physics::rapier::{
     MotorOverrideParams, MotorOverrides, RapierBackend, RapierBackendFixed, RapierContext,
     bridge::register_robot,
@@ -60,6 +63,10 @@ pub struct ArmSetup {
     pub chain: KinematicChain,
     pub joint_entities: Vec<Entity>,
     pub arm_joint_names: Vec<String>,
+    /// Layout bound to ALL spawned arm joint entities (incl. gripper
+    /// fingers when present). Suitable for layout-bound sensors and for
+    /// [`validate_motor_coverage`].
+    pub joint_layout: Arc<clankers_core::layout::JointLayout>,
 }
 
 /// Build a fully configured arm scene: URDF, physics, position-mode actuators,
@@ -178,15 +185,54 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
         })
         .collect();
 
-    // 7. Register sensors
+    // 7. Build the JointLayout bound to every spawned arm joint.
+    let joint_layout = {
+        let spawned = &scene.robots["six_dof_arm"];
+        let mut layout = model.to_layout();
+        let entities: Vec<Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                spawned
+                    .joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in spawned arm", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
+    // Some bins (e.g. arm_gym) only register a sensor over the 6 arm
+    // joints; build a chain-order layout for that path.
+    let chain_layout = {
+        let mut builder = clankers_core::layout::JointLayoutBuilder::default();
+        for (i, name) in chain
+            .joint_names()
+            .iter()
+            .take(config.sensor_dof.min(joint_entities.len()))
+            .enumerate()
+        {
+            builder = builder.push(clankers_core::layout::JointSpec {
+                name: (*name).to_string(),
+                entity: None,
+                joint_type: clankers_core::layout::JointKind::Revolute,
+                limits: clankers_core::layout::JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+            let _ = i;
+        }
+        let mut l = builder.build();
+        let chain_entities: Vec<Entity> = joint_entities.iter().take(l.len()).copied().collect();
+        l.bind_entities(&chain_entities);
+        Arc::new(l)
+    };
+
+    // 8. Register sensors using the chain-order layout (matches the
+    // pre-PR2 ArmApplicator action ordering).
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(
-            Box::new(JointStateSensor::new(config.sensor_dof)),
-            &mut buffer,
-        );
+        registry.register(Box::new(JointStateSensor::new(chain_layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -197,6 +243,7 @@ pub fn setup_arm(config: ArmSetupConfig) -> ArmSetup {
         chain,
         joint_entities,
         arm_joint_names,
+        joint_layout,
     }
 }
 
@@ -334,9 +381,20 @@ pub const GRIPPER_MAX_FORCE: f32 = 100.0;
 /// the arm from collapsing under gravity before the controller starts.
 /// Follows the Isaac Sim pattern: configure joint drives to hold initial
 /// position before physics begins.
+///
+/// # Panics
+///
+/// Panics via [`Result::expect`] if the constructed overrides do not
+/// cover every joint in `setup.joint_layout` — the WS2 PR2 promotion of
+/// the "ALL joints must be overridden" invariant from prose to a
+/// runtime check (see [`validate_motor_coverage`] and MEMORY.md
+/// "MotorOverrides — ALL Joints Must Be Overridden").
 #[must_use]
 pub fn initial_motor_overrides(setup: &ArmSetup, gripper_entities: &[Entity]) -> MotorOverrides {
-    let mut overrides = MotorOverrides::default();
+    let mut overrides = MotorOverrides {
+        layout: Some(setup.joint_layout.clone()),
+        ..MotorOverrides::default()
+    };
 
     // Arm joints: hold at REST_POSE
     for (i, &entity) in setup.joint_entities.iter().enumerate() {
@@ -368,6 +426,12 @@ pub fn initial_motor_overrides(setup: &ArmSetup, gripper_entities: &[Entity]) ->
             },
         );
     }
+
+    // PR2 invariant: every layout joint must have an override entry.
+    // Without this check, missing joints silently fall through to the
+    // ZOH torque motor trick and the arm flails wildly.
+    validate_motor_coverage(&RobotGroup::default(), &setup.joint_layout, &overrides)
+        .expect("initial_motor_overrides missing joint coverage — see validate_motor_coverage");
 
     overrides
 }

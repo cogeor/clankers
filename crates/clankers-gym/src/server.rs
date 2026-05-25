@@ -436,7 +436,9 @@ mod tests {
     use clankers_env::prelude::*;
     use std::net::TcpStream;
 
-    struct NoopApplicator;
+    struct NoopApplicator {
+        layout: std::sync::Arc<clankers_core::layout::JointLayout>,
+    }
 
     impl ActionApplicator for NoopApplicator {
         fn apply(&self, _world: &mut bevy::prelude::World, _action: &Action) {}
@@ -445,18 +447,40 @@ mod tests {
         fn name(&self) -> &str {
             "NoopApplicator"
         }
+
+        fn layout(&self) -> &clankers_core::layout::JointLayout {
+            &self.layout
+        }
     }
 
     fn build_test_env() -> GymEnv {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
         let mut app = bevy::prelude::App::new();
         app.add_plugins(clankers_core::ClankersCorePlugin);
         app.add_plugins(ClankersEnvPlugin);
-        app.world_mut().spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState::default(),
-            JointTorque::default(),
-        ));
+        let joint = app
+            .world_mut()
+            .spawn((
+                Actuator::default(),
+                JointCommand::default(),
+                JointState::default(),
+                JointTorque::default(),
+            ))
+            .id();
+
+        let layout = {
+            let mut layout = JointLayoutBuilder::default()
+                .push(JointSpec {
+                    name: "joint".into(),
+                    entity: None,
+                    joint_type: JointKind::Revolute,
+                    limits: JointSpecLimits::default(),
+                    axis: [0.0, 0.0, 1.0],
+                })
+                .build();
+            layout.bind_entities(&[joint]);
+            std::sync::Arc::new(layout)
+        };
 
         let obs_space = ObservationSpace::Box {
             low: vec![-1.0],
@@ -464,7 +488,12 @@ mod tests {
         };
         let act_space = ActionSpace::Discrete { n: 2 };
 
-        GymEnv::new(app, obs_space, act_space, Box::new(NoopApplicator))
+        GymEnv::new(
+            app,
+            obs_space,
+            act_space,
+            Box::new(NoopApplicator { layout }),
+        )
     }
 
     fn send_recv(stream: &mut TcpStream, req: &Request) -> Response {

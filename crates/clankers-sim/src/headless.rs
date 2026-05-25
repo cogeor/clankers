@@ -104,14 +104,18 @@ mod tests {
     // Gym env headless test
     // -------------------------------------------------------------------
 
-    struct JointCommandApplicator;
+    struct JointCommandApplicator {
+        layout: std::sync::Arc<clankers_core::layout::JointLayout>,
+    }
 
     impl ActionApplicator for JointCommandApplicator {
         fn apply(&self, world: &mut bevy::prelude::World, action: &Action) {
             let values = action.as_slice();
-            let mut query = world.query::<&mut JointCommand>();
-            for (i, mut cmd) in query.iter_mut(world).enumerate() {
-                if i < values.len() {
+            for (i, entity) in self.layout.bound_entities().enumerate() {
+                if i >= values.len() {
+                    break;
+                }
+                if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
                     cmd.value = values[i];
                 }
             }
@@ -121,6 +125,27 @@ mod tests {
         fn name(&self) -> &str {
             "JointCommandApplicator"
         }
+
+        fn layout(&self) -> &clankers_core::layout::JointLayout {
+            &self.layout
+        }
+    }
+
+    fn synthetic_single_joint_layout(
+        entity: bevy::prelude::Entity,
+    ) -> std::sync::Arc<clankers_core::layout::JointLayout> {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        let mut layout = JointLayoutBuilder::default()
+            .push(JointSpec {
+                name: "joint".into(),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            })
+            .build();
+        layout.bind_entities(&[entity]);
+        std::sync::Arc::new(layout)
     }
 
     #[test]
@@ -128,20 +153,24 @@ mod tests {
         let mut app = bevy::prelude::App::new();
         app.add_plugins(crate::ClankersSimPlugin);
 
-        // Spawn a joint
-        app.world_mut().spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState::default(),
-            JointTorque::default(),
-        ));
+        // Spawn a joint and build a layout bound to it.
+        let joint = app
+            .world_mut()
+            .spawn((
+                Actuator::default(),
+                JointCommand::default(),
+                JointState::default(),
+                JointTorque::default(),
+            ))
+            .id();
+        let layout = synthetic_single_joint_layout(joint);
 
         // Register a sensor
         {
             let world = app.world_mut();
             let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
             let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-            registry.register(Box::new(JointStateSensor::new(1)), &mut buffer);
+            registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
             world.insert_resource(buffer);
             world.insert_resource(registry);
         }
@@ -160,7 +189,12 @@ mod tests {
             high: vec![1.0],
         };
 
-        let mut env = GymEnv::new(app, obs_space, act_space, Box::new(JointCommandApplicator));
+        let mut env = GymEnv::new(
+            app,
+            obs_space,
+            act_space,
+            Box::new(JointCommandApplicator { layout }),
+        );
 
         // Reset
         let reset = env.reset(Some(42));
@@ -219,12 +253,16 @@ mod tests {
         app.insert_resource(RenderConfig::new(2, 2));
         app.add_plugins(ClankersRenderPlugin);
 
-        app.world_mut().spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState::default(),
-            JointTorque::default(),
-        ));
+        let joint = app
+            .world_mut()
+            .spawn((
+                Actuator::default(),
+                JointCommand::default(),
+                JointState::default(),
+                JointTorque::default(),
+            ))
+            .id();
+        let layout = synthetic_single_joint_layout(joint);
 
         let obs_space = ObservationSpace::Box {
             low: vec![-1.0],
@@ -235,7 +273,12 @@ mod tests {
             high: vec![1.0],
         };
 
-        let mut env = GymEnv::new(app, obs_space, act_space, Box::new(JointCommandApplicator));
+        let mut env = GymEnv::new(
+            app,
+            obs_space,
+            act_space,
+            Box::new(JointCommandApplicator { layout }),
+        );
 
         env.reset(None);
         env.step(&Action::Continuous(vec![0.0]));

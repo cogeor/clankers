@@ -7,10 +7,15 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
+    use bevy::prelude::Entity;
     use clankers_actuator::clankers_actuator_core::prelude::MotorType;
     use clankers_actuator::components::{Actuator, JointCommand, JointState};
     use clankers_core::config::SimConfig;
+    use clankers_core::layout::{
+        JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
+    };
     use clankers_core::types::{RobotGroup, RobotId};
     use clankers_domain_rand::prelude::*;
     use clankers_env::episode::{Episode, EpisodeConfig, EpisodeState};
@@ -19,6 +24,25 @@ mod tests {
 
     use crate::builder::SceneBuilder;
     use crate::stats::EpisodeStats;
+
+    /// Build a synthetic [`JointLayout`] of `n` revolute joints bound
+    /// to the supplied entity list. Used by integration tests that
+    /// don't want to round-trip through URDF for layout construction.
+    fn synthetic_layout(entities: &[Entity]) -> Arc<JointLayout> {
+        let mut builder = JointLayoutBuilder::default();
+        for (i, _) in entities.iter().enumerate() {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        layout.bind_entities(entities);
+        Arc::new(layout)
+    }
 
     // -----------------------------------------------------------------------
     // Shared URDF fixtures
@@ -610,13 +634,15 @@ mod tests {
             .value = 5.0;
 
         // Robot 0 (pendulum) command sensor should see 1 value: 7.0
-        let mut sensor0 = RobotJointCommandSensor::new(RobotId(0), 1);
+        let layout0 = synthetic_layout(&[pivot]);
+        let mut sensor0 = RobotJointCommandSensor::new(RobotId(0), layout0);
         let obs0 = sensor0.read(scene.app.world_mut());
         assert_eq!(obs0.len(), 1);
         assert!((obs0[0] - 7.0).abs() < f32::EPSILON);
 
         // Robot 1 (arm) command sensor should see 2 values: 3.0 and 5.0
-        let mut sensor1 = RobotJointCommandSensor::new(RobotId(1), 2);
+        let layout1 = synthetic_layout(&[shoulder, elbow]);
+        let mut sensor1 = RobotJointCommandSensor::new(RobotId(1), layout1);
         let obs1 = sensor1.read(scene.app.world_mut());
         assert_eq!(obs1.len(), 2);
         let vals: Vec<f32> = obs1.as_slice().to_vec();
@@ -640,14 +666,20 @@ mod tests {
             .build();
 
         // Robot 0 state sensor: 1 joint → 2 values (pos, vel)
-        let mut sensor0 = RobotJointStateSensor::new(RobotId(0), 1);
+        let pivot = scene.robots["pendulum"].joint_entity("pivot").unwrap();
+        let layout0 = synthetic_layout(&[pivot]);
+        let mut sensor0 = RobotJointStateSensor::new(RobotId(0), layout0);
         let obs0 = sensor0.read(scene.app.world_mut());
         assert_eq!(obs0.len(), 2);
         // Default initial position is 0.0
         assert!(obs0[0].abs() < f32::EPSILON);
 
         // Robot 1 state sensor: 2 joints → 4 values
-        let mut sensor1 = RobotJointStateSensor::new(RobotId(1), 2);
+        let arm = &scene.robots["arm"];
+        let shoulder = arm.joint_entity("shoulder").unwrap();
+        let elbow = arm.joint_entity("elbow").unwrap();
+        let layout1 = synthetic_layout(&[shoulder, elbow]);
+        let mut sensor1 = RobotJointStateSensor::new(RobotId(1), layout1);
         let obs1 = sensor1.read(scene.app.world_mut());
         assert_eq!(obs1.len(), 4);
         let vals: Vec<f32> = obs1.as_slice().to_vec();

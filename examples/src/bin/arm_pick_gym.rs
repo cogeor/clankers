@@ -10,8 +10,11 @@
 //! Run: `cargo run -p clankers-examples --bin arm_pick_gym`
 //! Then connect with: `python python/clankers_synthetic/scripts/run_arm_pick.py`
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
+use clankers_core::layout::JointLayout;
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
 use clankers_examples::arm_setup::{
     ARM_DAMPING, ARM_STIFFNESS, ArmSetupConfig, EFFORT_LIMITS, GRIPPER_DAMPING, GRIPPER_MAX_FORCE,
@@ -34,7 +37,9 @@ struct ObjectInitialPositions(Vec<(RigidBodyHandle, Vec3)>);
 ///
 /// Uses Rapier position motors (stiffness/damping/max_force) instead of raw
 /// `JointCommand` to avoid oscillation — same approach as `arm_ik_viz`.
-struct PickApplicator;
+struct PickApplicator {
+    layout: Arc<JointLayout>,
+}
 
 impl clankers_core::traits::ActionApplicator for PickApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
@@ -77,6 +82,10 @@ impl clankers_core::traits::ActionApplicator for PickApplicator {
     fn name(&self) -> &str {
         "PickApplicator"
     }
+
+    fn layout(&self) -> &JointLayout {
+        &self.layout
+    }
 }
 
 fn main() {
@@ -106,6 +115,7 @@ fn main() {
         .filter_map(|e| *e)
         .collect();
     let motor_overrides = initial_motor_overrides(&setup, &gripper_ents);
+    let pick_layout = setup.joint_layout.clone();
 
     let mut scene = setup.scene;
     scene.app.insert_resource(motor_overrides);
@@ -213,54 +223,61 @@ fn main() {
 
     let joint_entities_for_reset = all_joint_entities.clone();
 
-    let mut env = GymEnv::new(scene.app, obs_space, act_space, Box::new(PickApplicator))
-        .with_reset_fn(move |world: &mut World| {
-            // Reset rapier rigid body positions and velocities
-            if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-                ctx.reset_to_initial();
+    let mut env = GymEnv::new(
+        scene.app,
+        obs_space,
+        act_space,
+        Box::new(PickApplicator {
+            layout: pick_layout,
+        }),
+    )
+    .with_reset_fn(move |world: &mut World| {
+        // Reset rapier rigid body positions and velocities
+        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
+            ctx.reset_to_initial();
 
-                // Also reset dynamic objects to their initial positions
-                if let Some(obj_init) = world.get_resource::<ObjectInitialPositions>() {
-                    for &(handle, pos) in &obj_init.0 {
-                        if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
-                            body.set_translation(pos, true);
-                            body.set_rotation(Quat::IDENTITY, true);
-                            body.set_linvel(Vec3::ZERO, true);
-                            body.set_angvel(Vec3::ZERO, true);
-                            body.wake_up(true);
-                        }
+            // Also reset dynamic objects to their initial positions
+            if let Some(obj_init) = world.get_resource::<ObjectInitialPositions>() {
+                for &(handle, pos) in &obj_init.0 {
+                    if let Some(body) = ctx.rigid_body_set.get_mut(handle) {
+                        body.set_translation(pos, true);
+                        body.set_rotation(Quat::IDENTITY, true);
+                        body.set_linvel(Vec3::ZERO, true);
+                        body.set_angvel(Vec3::ZERO, true);
+                        body.wake_up(true);
                     }
                 }
-                world.insert_resource(ctx);
             }
-            // Clear motor overrides so stale targets don't persist
-            if let Some(mut overrides) = world.get_resource_mut::<MotorOverrides>() {
-                overrides.joints.clear();
+            world.insert_resource(ctx);
+        }
+        // Clear motor overrides so stale targets don't persist
+        if let Some(mut overrides) = world.get_resource_mut::<MotorOverrides>() {
+            overrides.joints.clear();
+        }
+        // Reset joint states and commands
+        for &entity in &joint_entities_for_reset {
+            if let Some(mut state) = world.get_mut::<JointState>(entity) {
+                state.position = 0.0;
+                state.velocity = 0.0;
             }
-            // Reset joint states and commands
-            for &entity in &joint_entities_for_reset {
-                if let Some(mut state) = world.get_mut::<JointState>(entity) {
-                    state.position = 0.0;
-                    state.velocity = 0.0;
-                }
-                if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                    cmd.value = 0.0;
-                }
+            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
+                cmd.value = 0.0;
             }
-        })
-        .with_success_fn(|world: &World| {
-            // Task success: red_cube z-position >= 0.525m (lifted 0.1m above table)
-            let Some(ctx) = world.get_resource::<RapierContext>() else {
-                return false;
-            };
-            let Some(&cube_handle) = ctx.body_handles.get("red_cube") else {
-                return false;
-            };
-            let Some(cube_body) = ctx.rigid_body_set.get(cube_handle) else {
-                return false;
-            };
-            cube_body.translation().z >= 0.525
-        });
+        }
+    })
+    .with_success_fn(|world: &World| {
+        // Task success: red_cube z-position >= 0.525m (lifted 0.1m above table)
+        let Some(ctx) = world.get_resource::<RapierContext>() else {
+            return false;
+        };
+        let Some(&cube_handle) = ctx.body_handles.get("red_cube") else {
+            return false;
+        };
+        let Some(cube_body) = ctx.rigid_body_set.get(cube_handle) else {
+            return false;
+        };
+        cube_body.translation().z >= 0.525
+    });
 
     // 5. Start server
     let server = GymServer::bind(address).expect("failed to bind server");

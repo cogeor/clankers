@@ -851,6 +851,7 @@ fn main() {
         .iter()
         .flat_map(|leg| leg.joint_entities.clone())
         .collect();
+    let joint_layout = setup.joint_layout.clone();
 
     // --- MPC config ---
     let config = MpcConfig {
@@ -883,7 +884,14 @@ fn main() {
         current_gait_type: GaitType::Stand,
     });
 
-    scene.app.insert_resource(MotorOverrides::default());
+    // Pin the layout so MPC frame writes can later be cross-checked
+    // with `validate_motor_coverage` once entries are populated. The
+    // resource is intentionally empty at startup: the MPC loop fills
+    // it per frame depending on stance vs swing.
+    scene.app.insert_resource(MotorOverrides {
+        layout: Some(joint_layout),
+        ..MotorOverrides::default()
+    });
 
     scene.app.insert_resource(MpcUiState {
         desired_height,

@@ -407,14 +407,41 @@ fn setup_quadruped() -> MpcTestHarness {
         disturbance_estimator: None,
     };
 
-    // Insert MotorOverrides resource for position motor control
-    scene.app.insert_resource(MotorOverrides::default());
+    // Build a layout bound to every actuated joint entity (12 DOF for
+    // the quadruped, in alphabetic JointLayout order).
+    let joint_layout = {
+        let spawned = &scene.robots["quadruped"];
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                spawned
+                    .joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in quadruped", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    };
+
+    // Insert MotorOverrides resource for position motor control. The
+    // map is empty here — the MPC pipeline populates it per frame. We
+    // pin the layout so downstream code can validate coverage as
+    // entries are written, matching the WS2 PR2 invariant promotion.
+    {
+        let overrides = clankers_physics::rapier::MotorOverrides {
+            layout: Some(joint_layout.clone()),
+            ..clankers_physics::rapier::MotorOverrides::default()
+        };
+        scene.app.insert_resource(overrides);
+    }
 
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(12)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(joint_layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

@@ -3,11 +3,33 @@
 //! Exercises `LidarSensor` trait implementations, `ObservationBuffer` roundtrips,
 //! and `LidarConfig` defaults. These tests run headless (no GPU required).
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
+use clankers_core::layout::{
+    JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
+};
 use clankers_core::physics::LidarConfig;
 use clankers_core::traits::{ObservationSensor, Sensor};
 use clankers_env::buffer::ObservationBuffer;
 use clankers_env::sensors::{JointStateSensor, LidarSensor};
+
+fn synthetic_layout(n: usize) -> Arc<JointLayout> {
+    let mut builder = JointLayoutBuilder::default();
+    for i in 0..n {
+        builder = builder.push(JointSpec {
+            name: format!("j{i}"),
+            entity: None,
+            joint_type: JointKind::Revolute,
+            limits: JointSpecLimits::default(),
+            axis: [0.0, 0.0, 1.0],
+        });
+    }
+    let mut layout = builder.build();
+    let entities: Vec<Entity> = (0..n).map(|i| Entity::from_bits(1000 + i as u64)).collect();
+    layout.bind_entities(&entities);
+    Arc::new(layout)
+}
 
 // ---------------------------------------------------------------------------
 // LidarSensor trait tests
@@ -69,7 +91,8 @@ fn lidar_single_ray_single_channel_dim() {
 #[test]
 fn observation_buffer_register_and_read() {
     let mut buf = ObservationBuffer::new();
-    let sensor = JointStateSensor::new(3);
+    let layout = synthetic_layout(3);
+    let sensor = JointStateSensor::new(layout);
     let idx = buf.register(sensor.name(), sensor.observation_dim());
 
     assert_eq!(buf.dim(), 6, "3 joints * 2 values each = 6");
@@ -85,7 +108,8 @@ fn observation_buffer_multiple_slots() {
     let mut buf = ObservationBuffer::new();
 
     // Register a JointStateSensor (3 joints => 6 values)
-    let joint_sensor = JointStateSensor::new(3);
+    let layout = synthetic_layout(3);
+    let joint_sensor = JointStateSensor::new(layout);
     let joint_idx = buf.register(joint_sensor.name(), joint_sensor.observation_dim());
 
     // Register a LidarSensor (4 rays, 2 channels => 8 values)

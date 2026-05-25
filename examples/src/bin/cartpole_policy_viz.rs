@@ -277,13 +277,27 @@ fn main() {
         world.insert_resource(ctx);
     }
 
-    // 6. Register sensors (JointStateSensor fills ObservationBuffer
-    //    with [cart_pos, cart_vel, pole_pos, pole_vel] = 4 obs)
+    // 6. Build layout bound to cartpole joint entities + register
+    //    JointStateSensor (4 obs: cart_pos, cart_vel, pole_pos, pole_vel).
+    let joint_layout = {
+        let bot = &scene.robots["cartpole"];
+        let mut layout = model.to_layout();
+        let entities: Vec<bevy::prelude::Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in cartpole", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    };
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(2)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(joint_layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

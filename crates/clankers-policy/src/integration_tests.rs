@@ -28,23 +28,43 @@ mod tests {
         app
     }
 
-    fn spawn_joint(world: &mut World, pos: f32, vel: f32) {
-        world.spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState {
-                position: pos,
-                velocity: vel,
-            },
-            JointTorque::default(),
-        ));
+    fn spawn_joint(world: &mut World, pos: f32, vel: f32) -> Entity {
+        world
+            .spawn((
+                Actuator::default(),
+                JointCommand::default(),
+                JointState {
+                    position: pos,
+                    velocity: vel,
+                },
+                JointTorque::default(),
+            ))
+            .id()
     }
 
-    fn register_state_sensor(app: &mut App, n_joints: usize) {
+    fn synthetic_layout(entities: &[Entity]) -> std::sync::Arc<clankers_core::layout::JointLayout> {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        let mut builder = JointLayoutBuilder::default();
+        for (i, _) in entities.iter().enumerate() {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None,
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        layout.bind_entities(entities);
+        std::sync::Arc::new(layout)
+    }
+
+    fn register_state_sensor(app: &mut App, entities: &[Entity]) {
+        let layout = synthetic_layout(entities);
         let world = app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(n_joints)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -64,8 +84,8 @@ mod tests {
         let mut app = full_app(runner);
 
         // Spawn one joint and register sensor
-        spawn_joint(app.world_mut(), 0.5, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.5, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         // Start episode
         app.world_mut().resource_mut::<Episode>().reset(None);
@@ -93,8 +113,8 @@ mod tests {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(1)), 1);
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 0.0, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.0, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         // Set short episode
         app.world_mut()
@@ -123,8 +143,8 @@ mod tests {
         );
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 0.0, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.0, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         app.world_mut()
             .resource_mut::<EpisodeConfig>()
@@ -154,9 +174,9 @@ mod tests {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(2)), 2);
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 1.0, 2.0);
-        spawn_joint(app.world_mut(), 3.0, 4.0);
-        register_state_sensor(&mut app, 2);
+        let e0 = spawn_joint(app.world_mut(), 1.0, 2.0);
+        let e1 = spawn_joint(app.world_mut(), 3.0, 4.0);
+        register_state_sensor(&mut app, &[e0, e1]);
 
         app.world_mut().resource_mut::<Episode>().reset(None);
         app.update();
@@ -173,8 +193,8 @@ mod tests {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(1)), 1);
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 0.0, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.0, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         app.world_mut().resource_mut::<Episode>().reset(None);
 
@@ -191,8 +211,8 @@ mod tests {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(1)), 1);
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 0.0, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.0, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         // First episode
         app.world_mut().resource_mut::<Episode>().reset(Some(42));
@@ -218,8 +238,8 @@ mod tests {
             let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(1)), 1);
             let mut app = full_app(runner);
 
-            spawn_joint(app.world_mut(), 1.0, 0.5);
-            register_state_sensor(&mut app, 1);
+            let e0 = spawn_joint(app.world_mut(), 1.0, 0.5);
+            register_state_sensor(&mut app, &[e0]);
 
             app.world_mut().resource_mut::<Episode>().reset(Some(seed));
             app.update();
@@ -263,8 +283,8 @@ mod tests {
         };
         app.world_mut().resource_mut::<DomainRandConfig>().seed = 42;
 
-        spawn_joint(app.world_mut(), 0.0, 0.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 0.0, 0.0);
+        register_state_sensor(&mut app, &[e0]);
 
         // Start episode (triggers randomization)
         app.world_mut().resource_mut::<Episode>().reset(None);
@@ -307,8 +327,8 @@ mod tests {
         );
         let mut app = full_app(runner);
 
-        spawn_joint(app.world_mut(), 2.5, 1.0);
-        register_state_sensor(&mut app, 1);
+        let e0 = spawn_joint(app.world_mut(), 2.5, 1.0);
+        register_state_sensor(&mut app, &[e0]);
 
         app.world_mut().resource_mut::<Episode>().reset(None);
 

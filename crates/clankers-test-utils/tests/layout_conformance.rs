@@ -7,7 +7,7 @@
 //! 1. **Sensor determinism.** Two `JointStateSensor`s built from
 //!    independently-parsed copies of the same URDF MUST emit byte-equal
 //!    observation vectors at every step, regardless of Bevy archetype /
-//!    HashMap iteration order. This closes the regression described in
+//!    `HashMap` iteration order. This closes the regression described in
 //!    `notes/clankers_codebase_quality_report_2026-05-25.md` finding
 //!    #1 ("a trained policy can bind output index 0 to one joint
 //!    during training and a different joint during replay").
@@ -72,11 +72,9 @@ fn same_urdf_same_sensor_vector_order() {
     layout_b.bind_entities(&entities);
 
     // 3. Two sensors built from two independently-built layouts.
-    //    Loop 01 uses `with_layout` (the canonical layout-bound ctor);
-    //    PR2 renames it back to `new` once the deprecated `new(usize)`
-    //    is deleted workspace-wide.
-    let mut sensor_a = JointStateSensor::with_layout(Arc::new(layout_a));
-    let mut sensor_b = JointStateSensor::with_layout(Arc::new(layout_b));
+    //    PR2 renamed the layout-bound ctor back to `new` workspace-wide.
+    let mut sensor_a = JointStateSensor::new(Arc::new(layout_a));
+    let mut sensor_b = JointStateSensor::new(Arc::new(layout_b));
 
     // 4. Mutate joint state across 5 steps and confirm both sensors
     //    see the same vector every step.

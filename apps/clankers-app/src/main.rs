@@ -6,10 +6,15 @@
 //! - `viz`: Interactive 3D visualization with teleop and policy inspection
 //! - `info`: Print workspace crate versions and configuration
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 use clap::{Parser, Subcommand};
 
 use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
+use clankers_core::layout::{
+    JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
+};
 use clankers_core::prelude::*;
 use clankers_env::prelude::*;
 use clankers_sim::{ClankersSimPlugin, EpisodeStats};
@@ -77,15 +82,20 @@ enum Commands {
 // NoopApplicator
 // ---------------------------------------------------------------------------
 
-/// Default action applicator that writes action values to joint commands.
-struct JointCommandApplicator;
+/// Default action applicator that writes action values to joint commands
+/// in layout slot order.
+struct JointCommandApplicator {
+    layout: Arc<JointLayout>,
+}
 
 impl ActionApplicator for JointCommandApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
         let values = action.as_slice();
-        let mut query = world.query::<&mut JointCommand>();
-        for (i, mut cmd) in query.iter_mut(world).enumerate() {
-            if i < values.len() {
+        for (i, entity) in self.layout.bound_entities().enumerate() {
+            if i >= values.len() {
+                break;
+            }
+            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
                 cmd.value = values[i];
             }
         }
@@ -95,6 +105,29 @@ impl ActionApplicator for JointCommandApplicator {
     fn name(&self) -> &str {
         "JointCommandApplicator"
     }
+
+    fn layout(&self) -> &JointLayout {
+        &self.layout
+    }
+}
+
+/// Build a synthetic [`JointLayout`] of `n` revolute joints, bound to the
+/// supplied entity ids in spawn order. Used by the CLI demo, which
+/// spawns N raw joint entities without a URDF.
+fn synthetic_layout(entities: &[Entity]) -> Arc<JointLayout> {
+    let mut builder = JointLayoutBuilder::default();
+    for (i, _) in entities.iter().enumerate() {
+        builder = builder.push(JointSpec {
+            name: format!("joint_{i}"),
+            entity: None,
+            joint_type: JointKind::Revolute,
+            limits: JointSpecLimits::default(),
+            axis: [0.0, 0.0, 1.0],
+        });
+    }
+    let mut layout = builder.build();
+    layout.bind_entities(entities);
+    Arc::new(layout)
 }
 
 // ---------------------------------------------------------------------------
@@ -147,21 +180,29 @@ fn run_serve(address: &str, num_joints: usize, max_steps: u32) {
     let mut app = App::new();
     app.add_plugins(ClankersSimPlugin);
 
-    for _ in 0..num_joints {
-        app.world_mut().spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState::default(),
-            JointTorque::default(),
-        ));
-    }
+    // Spawn N joint entities and collect their ids for the layout.
+    let joint_entities: Vec<Entity> = (0..num_joints)
+        .map(|_| {
+            app.world_mut()
+                .spawn((
+                    Actuator::default(),
+                    JointCommand::default(),
+                    JointState::default(),
+                    JointTorque::default(),
+                ))
+                .id()
+        })
+        .collect();
+
+    // Build a synthetic layout — no URDF in this demo path.
+    let layout = synthetic_layout(&joint_entities);
 
     // Register a sensor
     {
         let world = app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -180,7 +221,12 @@ fn run_serve(address: &str, num_joints: usize, max_steps: u32) {
         high: vec![1.0; num_joints],
     };
 
-    let mut env = GymEnv::new(app, obs_space, act_space, Box::new(JointCommandApplicator));
+    let mut env = GymEnv::new(
+        app,
+        obs_space,
+        act_space,
+        Box::new(JointCommandApplicator { layout }),
+    );
 
     let server = GymServer::bind(address).expect("failed to bind server");
     let addr = server.local_addr().expect("failed to get address");

@@ -7,6 +7,7 @@
 //! Run: `cargo run -p clankers-examples --bin arm_with_policy`
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
@@ -42,19 +43,34 @@ fn run_with_policy(policy: Box<dyn clankers_core::traits::Policy>, name: &str) {
     let max_steps = 20;
     let num_joints = 2;
 
+    let arm_model =
+        clankers_urdf::parse_string(TWO_LINK_ARM_URDF).expect("failed to parse arm URDF");
     let mut scene = SceneBuilder::new()
         .with_max_episode_steps(max_steps)
-        .with_robot_urdf(TWO_LINK_ARM_URDF, HashMap::new())
-        .expect("failed to parse arm URDF")
+        .with_robot(arm_model.clone(), HashMap::new())
         .build();
 
-    // Register sensors so the policy has observations to work with
+    // Build a layout bound to the spawned arm joints + register sensors.
+    let layout = {
+        let bot = &scene.robots["two_link_arm"];
+        let mut layout = arm_model.to_layout();
+        let entities: Vec<Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| {
+                bot.joint_entity(&spec.name)
+                    .unwrap_or_else(|| panic!("joint {} not in arm", spec.name))
+            })
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
-        registry.register(Box::new(JointCommandSensor::new(num_joints)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
+        registry.register(Box::new(JointCommandSensor::new(layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

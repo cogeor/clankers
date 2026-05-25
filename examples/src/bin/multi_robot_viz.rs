@@ -428,12 +428,41 @@ fn main() {
         world.insert_resource(ctx);
     }
 
-    // 6. Register sensors (joint state for all 4 joints)
+    // 6. Build a synthetic 4-joint layout (cart_slide, pole_hinge,
+    //    shoulder, elbow in scene-spawn order) and register sensors.
+    let joint_layout = {
+        let mut builder = clankers_core::layout::JointLayoutBuilder::default();
+        for name in ["cart_slide", "pole_hinge", "shoulder", "elbow"] {
+            builder = builder.push(clankers_core::layout::JointSpec {
+                name: name.into(),
+                entity: None,
+                joint_type: clankers_core::layout::JointKind::Revolute,
+                limits: clankers_core::layout::JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let mut layout = builder.build();
+        // Bind in alphabetic order (JointLayoutBuilder sorts on build):
+        // cart_slide, elbow, pole_hinge, shoulder.
+        let entities = layout
+            .joints()
+            .iter()
+            .map(|spec| match spec.name.as_str() {
+                "cart_slide" => cart,
+                "pole_hinge" => pole,
+                "shoulder" => shoulder,
+                "elbow" => elbow,
+                other => panic!("unexpected joint {other}"),
+            })
+            .collect::<Vec<_>>();
+        layout.bind_entities(&entities);
+        std::sync::Arc::new(layout)
+    };
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(4)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(joint_layout)), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }

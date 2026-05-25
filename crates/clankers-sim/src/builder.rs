@@ -741,7 +741,10 @@ mod tests {
                 max_force: 50.0,
             },
         );
-        let overrides = MotorOverrides::from(partial);
+        let overrides = MotorOverrides {
+            joints: partial,
+            ..MotorOverrides::default()
+        };
         let err = validate_motor_coverage(&group, &layout, &overrides).unwrap_err();
         assert_eq!(err.layout_joint_names, vec!["b".to_string()]);
 
@@ -759,7 +762,10 @@ mod tests {
                 },
             );
         }
-        let overrides_full = MotorOverrides::from(full);
+        let overrides_full = MotorOverrides {
+            joints: full,
+            ..MotorOverrides::default()
+        };
         assert!(validate_motor_coverage(&group, &layout, &overrides_full).is_ok());
     }
 
@@ -794,7 +800,10 @@ mod tests {
             },
         );
         let mut app = scene.app;
-        app.world_mut().insert_resource(MotorOverrides::from(map));
+        app.world_mut().insert_resource(MotorOverrides {
+            joints: map,
+            ..MotorOverrides::default()
+        });
 
         // Now reconstruct the validation path manually (we cannot call
         // try_build a second time without rebuilding the whole scene).

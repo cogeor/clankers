@@ -7,9 +7,11 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use clankers_actuator::components::{JointCommand, JointState};
+use clankers_core::layout::JointLayout;
 use clankers_core::prelude::*;
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
 use clankers_env::prelude::*;
@@ -21,14 +23,18 @@ use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
 use clankers_sim::SceneBuilder;
 
-struct CartPoleApplicator;
+struct CartPoleApplicator {
+    layout: Arc<JointLayout>,
+}
 
 impl ActionApplicator for CartPoleApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
         let values = action.as_slice();
-        let mut query = world.query::<&mut JointCommand>();
-        for (i, mut cmd) in query.iter_mut(world).enumerate() {
-            if i < values.len() {
+        for (i, entity) in self.layout.bound_entities().enumerate() {
+            if i >= values.len() {
+                break;
+            }
+            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
                 cmd.value = values[i];
             }
         }
@@ -37,6 +43,10 @@ impl ActionApplicator for CartPoleApplicator {
     #[allow(clippy::unnecessary_literal_bound)]
     fn name(&self) -> &str {
         "CartPoleApplicator"
+    }
+
+    fn layout(&self) -> &JointLayout {
+        &self.layout
     }
 }
 
@@ -63,11 +73,24 @@ fn make_cartpole_env() -> GymEnv {
         world.insert_resource(ctx);
     }
 
+    // Build layout bound to spawned joint entities.
+    let layout = {
+        let bot = &scene.robots["cartpole"];
+        let mut layout = model.to_layout();
+        let entities: Vec<Entity> = layout
+            .joints()
+            .iter()
+            .map(|spec| bot.joint_entity(&spec.name).expect("joint spawned"))
+            .collect();
+        layout.bind_entities(&entities);
+        Arc::new(layout)
+    };
+
     {
         let world = scene.app.world_mut();
         let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
         let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(num_joints)), &mut buffer);
+        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
         world.insert_resource(buffer);
         world.insert_resource(registry);
     }
@@ -86,7 +109,7 @@ fn make_cartpole_env() -> GymEnv {
         scene.app,
         obs_space,
         act_space,
-        Box::new(CartPoleApplicator),
+        Box::new(CartPoleApplicator { layout }),
     )
     .with_reset_fn(|world: &mut World| {
         if let Some(mut ctx) = world.remove_resource::<RapierContext>() {

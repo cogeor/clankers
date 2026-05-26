@@ -40,6 +40,9 @@ use std::sync::Arc;
 use bevy::prelude::App;
 use clankers_core::layout::JointLayout;
 
+pub mod arm_pick;
+pub mod cartpole;
+
 // ---------------------------------------------------------------------------
 // ScenarioConfig
 // ---------------------------------------------------------------------------
@@ -166,13 +169,14 @@ impl ScenarioRegistry {
     }
 }
 
-/// Install the shipped built-in scenarios into `_registry`.
+/// Install the shipped built-in scenarios into `registry`.
 ///
-/// Empty in W5 PR1. PR2 will register `arm_pick` and `cartpole`.
-#[allow(clippy::missing_const_for_fn)] // PR2 adds non-const body.
-pub fn register_builtin(_registry: &mut ScenarioRegistry) {
-    // Intentionally empty in W5 PR1 — see module docs and PR2 (loop 6
-    // of the W3/W4/W5 orchestration).
+/// Registers `arm_pick` and `cartpole` (W5 PR2). The list is
+/// alphabetically-sorted by [`ScenarioRegistry::list_builtin`] before
+/// being surfaced to callers.
+pub fn register_builtin(registry: &mut ScenarioRegistry) {
+    registry.register(Box::new(arm_pick::ArmPickScenario));
+    registry.register(Box::new(cartpole::CartpoleScenario));
 }
 
 // ---------------------------------------------------------------------------
@@ -269,10 +273,10 @@ mod tests {
     }
 
     #[test]
-    fn pr1_register_builtin_is_empty() {
+    fn pr2_register_builtin_has_arm_pick_and_cartpole() {
         let mut registry = ScenarioRegistry::new();
         register_builtin(&mut registry);
-        assert!(registry.list_builtin().is_empty());
+        assert_eq!(registry.list_builtin(), vec!["arm_pick", "cartpole"]);
     }
 
     #[test]

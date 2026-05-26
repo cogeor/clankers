@@ -1983,6 +1983,7 @@ dependencies = [
  "clankers-urdf",
  "clankers-viz",
  "clap",
+ "ctrlc",
  "predicates",
  "serde",
  "serde_json",
@@ -2178,6 +2179,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "clankers-actuator",
+ "clankers-actuator-core",
  "clankers-core",
  "clankers-domain-rand",
  "clankers-env",

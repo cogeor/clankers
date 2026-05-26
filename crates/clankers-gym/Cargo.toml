@@ -20,6 +20,7 @@ thiserror.workspace = true
 [dev-dependencies]
 clankers-actuator.workspace = true
 clankers-test-utils.workspace = true
+static_assertions.workspace = true
 
 [lints]
 workspace = true

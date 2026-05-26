@@ -52,6 +52,8 @@ ndarray = "0.16"
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "load-dynamic", "tls-native"] }
 mcap = "0.24"
 csv = "1"
+rayon = "1.10"
+static_assertions = "1.1"
 
 # Optimize dependencies even in debug builds.
 # nalgebra, clarabel, and rapier are ~10x slower at opt-level=0.

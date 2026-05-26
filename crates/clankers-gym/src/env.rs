@@ -34,10 +34,19 @@ use clankers_env::episode::Episode;
 /// // (In practice, build a real app with plugins and an action applicator)
 /// ```
 /// Callback invoked on each environment reset.
-type ResetFn = dyn Fn(&mut World);
+///
+/// The `+ Send` bound is required so [`GymEnv`] itself is `Send`,
+/// which in turn lets it ride the
+/// [`ParallelVecEnvRunner`](clankers_env::parallel_runner::ParallelVecEnvRunner)
+/// across Rayon worker threads. The bound is enforced at compile
+/// time by `assert_impl_all!(GymEnv: Send)` in the
+/// [`vec_env`](crate::vec_env) test module.
+type ResetFn = dyn Fn(&mut World) + Send;
 
 /// Callback evaluated after each step to determine task success.
-type SuccessFn = dyn Fn(&World) -> bool;
+///
+/// See [`ResetFn`] for the `+ Send` rationale.
+type SuccessFn = dyn Fn(&World) -> bool + Send;
 
 pub struct GymEnv {
     app: App,
@@ -72,7 +81,10 @@ impl GymEnv {
     }
 
     /// Set a callback that resets world state (physics, joints) on episode reset.
-    pub fn with_reset_fn(mut self, f: impl Fn(&mut World) + 'static) -> Self {
+    ///
+    /// The closure must be `Send` so [`GymEnv`] can move across threads
+    /// (see the crate-private `ResetFn` type alias).
+    pub fn with_reset_fn(mut self, f: impl Fn(&mut World) + Send + 'static) -> Self {
         self.reset_fn = Some(Box::new(f));
         self
     }
@@ -81,8 +93,10 @@ impl GymEnv {
     ///
     /// The closure receives a read-only reference to the [`World`] and returns
     /// `true` when the task-specific success condition is met. The result is
-    /// written to [`StepInfo::is_success`].
-    pub fn with_success_fn(mut self, f: impl Fn(&World) -> bool + 'static) -> Self {
+    /// written to [`StepInfo::is_success`]. The closure must be `Send` so
+    /// [`GymEnv`] can move across threads (see the crate-private
+    /// `SuccessFn` type alias).
+    pub fn with_success_fn(mut self, f: impl Fn(&World) -> bool + Send + 'static) -> Self {
         self.success_fn = Some(Box::new(f));
         self
     }

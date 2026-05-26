@@ -17,6 +17,7 @@
 
 pub mod buffer;
 pub mod episode;
+pub mod parallel_runner;
 pub mod sensors;
 pub mod systems;
 pub mod vec_buffer;
@@ -115,6 +116,7 @@ pub mod prelude {
         ClankersEnvPlugin, SensorRegistry,
         buffer::{ObservationBuffer, SensorSlot},
         episode::{Episode, EpisodeConfig, EpisodeState},
+        parallel_runner::ParallelVecEnvRunner,
         sensors::{
             ContactSensor, EndEffectorPoseSensor, ImuSensor, JointCommandSensor, JointStateSensor,
             JointTorqueSensor, LidarSensor, NoisySensor, RaycastSensor, RobotContactSensor,
@@ -125,7 +127,7 @@ pub mod prelude {
         vec_buffer::{VecDoneBuffer, VecObsBuffer},
         vec_env::VecEnvConfig,
         vec_episode::{AutoResetMode, EnvEpisodeMap},
-        vec_runner::{VecEnvInstance, VecEnvRunner},
+        vec_runner::{VecEnvInstance, VecEnvRunner, VecRunnerLike, runner_for},
     };
     // Re-exports from clankers-core — the layout types travel with the
     // sensor prelude so call sites don't have to import them from two

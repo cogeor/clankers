@@ -28,6 +28,11 @@ pub struct VecEnvConfig {
     num_envs: u16,
     auto_reset_mode: AutoResetMode,
     max_episode_steps: u32,
+    /// When `true`, the [`runner_for`](crate::vec_runner::runner_for) factory
+    /// constructs a Rayon-backed [`ParallelVecEnvRunner`](crate::parallel_runner::ParallelVecEnvRunner)
+    /// instead of the default sequential [`VecEnvRunner`](crate::vec_runner::VecEnvRunner).
+    /// Default `false` preserves back-compat.
+    parallel: bool,
 }
 
 impl VecEnvConfig {
@@ -38,6 +43,7 @@ impl VecEnvConfig {
             num_envs,
             auto_reset_mode: AutoResetMode::Disabled,
             max_episode_steps: 1000,
+            parallel: false,
         }
     }
 
@@ -52,6 +58,18 @@ impl VecEnvConfig {
     #[must_use]
     pub const fn with_max_steps(mut self, steps: u32) -> Self {
         self.max_episode_steps = steps;
+        self
+    }
+
+    /// Toggle Rayon-backed parallel stepping. Default `false`.
+    ///
+    /// When `true`, the [`runner_for`](crate::vec_runner::runner_for) factory
+    /// builds a [`ParallelVecEnvRunner`](crate::parallel_runner::ParallelVecEnvRunner)
+    /// that drives `step_all` through `rayon::par_iter_mut`. Per-env seed
+    /// derivation is deterministic across thread interleavings.
+    #[must_use]
+    pub const fn with_parallel(mut self, parallel: bool) -> Self {
+        self.parallel = parallel;
         self
     }
 
@@ -71,6 +89,13 @@ impl VecEnvConfig {
     #[must_use]
     pub const fn max_episode_steps(&self) -> u32 {
         self.max_episode_steps
+    }
+
+    /// Whether the parallel Rayon runner should be selected by
+    /// [`runner_for`](crate::vec_runner::runner_for).
+    #[must_use]
+    pub const fn is_parallel(&self) -> bool {
+        self.parallel
     }
 }
 
@@ -94,6 +119,7 @@ mod tests {
         assert_eq!(cfg.num_envs(), 1);
         assert_eq!(cfg.auto_reset_mode(), AutoResetMode::Disabled);
         assert_eq!(cfg.max_episode_steps(), 1000);
+        assert!(!cfg.is_parallel());
     }
 
     #[test]
@@ -104,5 +130,16 @@ mod tests {
         assert_eq!(cfg.num_envs(), 16);
         assert_eq!(cfg.auto_reset_mode(), AutoResetMode::Immediate);
         assert_eq!(cfg.max_episode_steps(), 200);
+        assert!(!cfg.is_parallel());
+    }
+
+    #[test]
+    fn with_parallel_default_false() {
+        let cfg = VecEnvConfig::new(4);
+        assert!(!cfg.is_parallel());
+        let on = cfg.with_parallel(true);
+        assert!(on.is_parallel());
+        let off = on.with_parallel(false);
+        assert!(!off.is_parallel());
     }
 }

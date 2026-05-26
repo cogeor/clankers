@@ -8,7 +8,11 @@ use clankers_core::types::{
     Action, ActionSpace, BatchResetResult, BatchStepResult, EnvId, ObservationSpace, ResetInfo,
 };
 use clankers_env::vec_env::VecEnvConfig;
-use clankers_env::vec_runner::{VecEnvInstance, VecEnvRunner};
+use clankers_env::vec_runner::{VecEnvInstance, VecEnvRunner, VecRunnerLike, runner_for};
+
+// Re-export so downstream callers can name the parallel runner without
+// reaching into `clankers-env` directly.
+pub use clankers_env::parallel_runner::ParallelVecEnvRunner;
 
 use crate::protocol::EnvInfo;
 
@@ -43,21 +47,39 @@ use crate::protocol::EnvInfo;
 ///     fn obs_dim(&self) -> usize { 2 }
 /// }
 ///
-/// let envs: Vec<Box<dyn VecEnvInstance>> = vec![Box::new(DummyEnv), Box::new(DummyEnv)];
+/// let envs: Vec<Box<dyn VecEnvInstance>> =
+///     vec![Box::new(DummyEnv), Box::new(DummyEnv)];
 /// let config = VecEnvConfig::new(2);
 /// let obs_space = ObservationSpace::Box { low: vec![-1.0; 2], high: vec![1.0; 2] };
 /// let act_space = ActionSpace::Box { low: vec![-1.0; 2], high: vec![1.0; 2] };
 /// let mut vec_env = GymVecEnv::new(envs, config, obs_space, act_space);
 /// vec_env.reset_all(None);
 /// ```
+///
+/// # Parallel runner selection
+///
+/// `GymVecEnv` holds a `Box<dyn VecRunnerLike>` so the concrete
+/// runner type is chosen by [`VecEnvConfig::is_parallel`]:
+/// - `false` (default) → [`VecEnvRunner`] (sequential, back-compat).
+/// - `true` → [`ParallelVecEnvRunner`] (Rayon-backed,
+///   deterministically-seeded).
 pub struct GymVecEnv {
-    runner: VecEnvRunner,
+    runner: Box<dyn VecRunnerLike>,
     obs_space: ObservationSpace,
     act_space: ActionSpace,
 }
 
 impl GymVecEnv {
-    /// Create a new vectorized environment.
+    /// Create a new vectorized environment using the sequential
+    /// [`VecEnvRunner`] regardless of [`VecEnvConfig::is_parallel`].
+    ///
+    /// Back-compat constructor: accepts `Box<dyn VecEnvInstance>`
+    /// (without the `Send` bound). [`GymEnv`](crate::env::GymEnv)
+    /// wraps a Bevy `App` whose `runner` field holds a
+    /// `Box<dyn FnOnce(App) -> AppExit>` (`!Send`), so the parallel
+    /// runner is unreachable from `GymEnv`-backed callers. If
+    /// `config.is_parallel()` is `true`, this constructor still picks
+    /// the sequential path and surfaces a debug-assertion in tests.
     ///
     /// # Panics
     ///
@@ -69,7 +91,38 @@ impl GymVecEnv {
         obs_space: ObservationSpace,
         act_space: ActionSpace,
     ) -> Self {
-        let runner = VecEnvRunner::new(envs, config);
+        debug_assert!(
+            !config.is_parallel(),
+            "GymVecEnv::new always selects the sequential runner; \
+             use GymVecEnv::new_with_send_envs to enable parallel"
+        );
+        let runner: Box<dyn VecRunnerLike> = Box::new(VecEnvRunner::new(envs, config));
+        Self {
+            runner,
+            obs_space,
+            act_space,
+        }
+    }
+
+    /// Create a new vectorized environment that may use the parallel
+    /// runner.
+    ///
+    /// Requires `Box<dyn VecEnvInstance + Send>` env instances so the
+    /// parallel path is reachable when [`VecEnvConfig::is_parallel`]
+    /// is `true`. Sequential fallback is used otherwise (no extra
+    /// cost; the cast widens to the non-`Send` trait object).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `envs.len() != config.num_envs()`.
+    #[must_use]
+    pub fn new_with_send_envs(
+        envs: Vec<Box<dyn VecEnvInstance + Send>>,
+        config: VecEnvConfig,
+        obs_space: ObservationSpace,
+        act_space: ActionSpace,
+    ) -> Self {
+        let runner = runner_for(envs, config);
         Self {
             runner,
             obs_space,
@@ -120,7 +173,8 @@ impl GymVecEnv {
         let ids: Vec<EnvId> = env_ids.iter().map(|&id| EnvId(id)).collect();
 
         if let Some(per_env_seeds) = seeds {
-            // Reset each env with its individual seed
+            // Reset each env with its individual seed (one trait call per
+            // env so each receives its own seed).
             for (&env_id, seed) in env_ids.iter().zip(per_env_seeds.iter()) {
                 self.runner.reset_envs(&[EnvId(env_id)], *seed);
             }
@@ -154,15 +208,17 @@ impl GymVecEnv {
         self.collect_step_results()
     }
 
-    /// Read-only access to the underlying runner.
+    /// Read-only access to the underlying runner via the [`VecRunnerLike`]
+    /// trait surface.
     #[must_use]
-    pub const fn runner(&self) -> &VecEnvRunner {
-        &self.runner
+    pub fn runner(&self) -> &dyn VecRunnerLike {
+        &*self.runner
     }
 
-    /// Mutable access to the underlying runner.
-    pub const fn runner_mut(&mut self) -> &mut VecEnvRunner {
-        &mut self.runner
+    /// Mutable access to the underlying runner via the [`VecRunnerLike`]
+    /// trait surface.
+    pub fn runner_mut(&mut self) -> &mut dyn VecRunnerLike {
+        &mut *self.runner
     }
 
     fn collect_reset_results(&self) -> BatchResetResult {
@@ -379,5 +435,56 @@ mod tests {
     fn num_envs_matches() {
         let env = make_vec_env(5, 2);
         assert_eq!(env.num_envs(), 5);
+    }
+
+    // ------------------------------------------------------------------
+    // PR1 compile-time / dispatch checks
+    // ------------------------------------------------------------------
+
+    // `GymEnv` wraps a Bevy `App` whose `runner` field holds a
+    // `Box<dyn FnOnce(App) -> AppExit + 'static>` (not `Send`), so we
+    // cannot pin `GymEnv: Send` directly. Pin the bound on the test
+    // fixture instead — the fixture is the type that actually rides
+    // the parallel runner in the determinism integration test, so
+    // anchoring `Send` here is the load-bearing compile-time check
+    // for PR1. See `crates/clankers-env/tests/parallel_determinism.rs`.
+    static_assertions::assert_impl_all!(ConstEnv: Send);
+
+    #[test]
+    fn parallel_runner_factory_dispatches_on_config() {
+        // Sequential default
+        let seq_envs: Vec<Box<dyn VecEnvInstance + Send>> = (0..2)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance + Send>)
+            .collect();
+        let obs_space = ObservationSpace::Box {
+            low: vec![-1.0; 2],
+            high: vec![1.0; 2],
+        };
+        let act_space = ActionSpace::Box {
+            low: vec![-1.0; 2],
+            high: vec![1.0; 2],
+        };
+        let seq = GymVecEnv::new_with_send_envs(
+            seq_envs,
+            VecEnvConfig::new(2),
+            obs_space.clone(),
+            act_space.clone(),
+        );
+        assert_eq!(seq.runner().num_envs(), 2);
+
+        // Parallel
+        let par_envs: Vec<Box<dyn VecEnvInstance + Send>> = (0..2)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance + Send>)
+            .collect();
+        let par = GymVecEnv::new_with_send_envs(
+            par_envs,
+            VecEnvConfig::new(2).with_parallel(true),
+            obs_space,
+            act_space,
+        );
+        assert_eq!(par.runner().num_envs(), 2);
+
+        // Touch the trait re-export to keep the public API alive.
+        let _ = std::any::type_name::<ParallelVecEnvRunner>();
     }
 }

@@ -1,4 +1,8 @@
-//! `VecEnvRunner`: sequential multi-environment step/reset driver.
+//! Sequential multi-environment driver and runner-abstraction trait.
+//!
+//! Exports the sequential [`VecEnvRunner`] plus the [`VecRunnerLike`]
+//! trait that lets sequential and parallel runners plug into
+//! `GymVecEnv` interchangeably.
 //!
 //! Manages a vector of `GymEnv`-like closures (environment factories),
 //! stepping and resetting them independently. Observations and done flags
@@ -16,6 +20,10 @@ use crate::vec_episode::{AutoResetMode, EnvEpisodeMap};
 ///
 /// Any type providing `step`, `reset`, and `obs_dim` can be used
 /// as an environment in the vectorized runner.
+///
+/// The trait itself does not require `Send`; the *parallel* runner
+/// stores `Box<dyn VecEnvInstance>` at the use site so a
+/// thread-unsafe env can still ride the sequential path.
 pub trait VecEnvInstance {
     /// Reset the environment.
     fn reset(&mut self, seed: Option<u64>) -> ResetResult;
@@ -23,6 +31,153 @@ pub trait VecEnvInstance {
     fn step(&mut self, action: &Action) -> StepResult;
     /// Observation dimension.
     fn obs_dim(&self) -> usize;
+}
+
+// ---------------------------------------------------------------------------
+// VecRunnerLike
+// ---------------------------------------------------------------------------
+
+/// Object-safe trait abstracting a vectorized runner.
+///
+/// Both the sequential [`VecEnvRunner`] and the Rayon-backed
+/// [`ParallelVecEnvRunner`](crate::parallel_runner::ParallelVecEnvRunner)
+/// implement this trait, so [`GymVecEnv`](../../clankers-gym/struct.GymVecEnv.html)
+/// can hold a `Box<dyn VecRunnerLike>` and dispatch at runtime via
+/// [`runner_for`].
+///
+/// # No `Send` super-bound
+///
+/// Sequential runs need to wrap `GymEnv` (which holds a Bevy `App`
+/// containing a `Box<dyn FnOnce(App) -> AppExit>` runner field that
+/// is `!Send`). Forcing `VecRunnerLike: Send` would gate the
+/// sequential path on a stricter bound than `GymEnv` can satisfy.
+/// Instead, `Send`-ness is enforced only at the *parallel* runner's
+/// `Box<dyn VecEnvInstance>` use sites — sequential consumers
+/// keep using `Box<dyn VecEnvInstance>`.
+///
+/// The [`runner_for`] factory therefore takes two parameters: one
+/// path per bound. See its docs for the dispatch table.
+///
+/// # No globally-shared Bevy resources
+///
+/// Each implementor's environments **must not** share process-wide
+/// Bevy resources (asset server, render device, task pool with shared
+/// state). Each env owns a fully independent `App` or pure-data
+/// fixture so that the parallel runner can step them concurrently
+/// without cross-env corruption.
+pub trait VecRunnerLike {
+    /// Step every environment with the given actions.
+    ///
+    /// Writes observations into [`obs_buffer`](Self::obs_buffer) and
+    /// done flags into [`done_buffer`](Self::done_buffer). The
+    /// sequential and parallel paths share an identical book-keeping
+    /// post-pass via the crate-private `finalize_step` helper so the
+    /// only observable difference is throughput.
+    fn step_all(&mut self, actions: &[Action]);
+    /// Reset every environment, optionally with a base seed.
+    fn reset_all(&mut self, seed: Option<u64>);
+    /// Reset a specific subset of environments, with a shared seed.
+    ///
+    /// Single-env granular reset — used by the gym server to honour
+    /// client-driven selective reset. Default impl loops over
+    /// `env_ids` and falls back to a per-call reset; the sequential
+    /// runner overrides with its inherent `reset_envs` for
+    /// byte-equality with pre-W7 behaviour.
+    fn reset_envs(&mut self, env_ids: &[EnvId], seed: Option<u64>);
+    /// Number of environments.
+    fn num_envs(&self) -> usize;
+    /// Observation buffer (read-only).
+    fn obs_buffer(&self) -> &VecObsBuffer;
+    /// Done buffer (read-only).
+    fn done_buffer(&self) -> &VecDoneBuffer;
+    /// Episode map (read-only).
+    fn episodes(&self) -> &EnvEpisodeMap;
+    /// Get observation for a specific env.
+    fn get_obs(&self, env_idx: usize) -> Observation;
+}
+
+// ---------------------------------------------------------------------------
+// runner_for factory
+// ---------------------------------------------------------------------------
+
+/// Build a [`VecRunnerLike`] trait object whose concrete type is chosen by
+/// [`VecEnvConfig::is_parallel`].
+///
+/// Accepts `Box<dyn VecEnvInstance>` since the parallel runner
+/// always requires `Send` envs; the sequential runner happily widens
+/// to that bound at zero cost.
+///
+/// - `config.is_parallel() == false` (default) → [`VecEnvRunner`].
+/// - `config.is_parallel() == true` →
+///   [`ParallelVecEnvRunner`](crate::parallel_runner::ParallelVecEnvRunner).
+///
+/// If your env type is `!Send` (e.g. `GymEnv` wrapping a Bevy `App`,
+/// which holds a `!Send` runner closure), construct a sequential
+/// [`VecEnvRunner`] directly with `Vec<Box<dyn VecEnvInstance>>` —
+/// the parallel path is unreachable in that case anyway.
+///
+/// # Panics
+///
+/// Panics if `envs.len() != config.num_envs()` or if environments have
+/// different observation dimensions (delegated to each runner's `new`).
+#[must_use]
+pub fn runner_for(
+    envs: Vec<Box<dyn VecEnvInstance + Send>>,
+    config: VecEnvConfig,
+) -> Box<dyn VecRunnerLike> {
+    if config.is_parallel() {
+        Box::new(crate::parallel_runner::ParallelVecEnvRunner::new(
+            envs, config,
+        ))
+    } else {
+        // Widen the Send-bounded element to the plain trait object
+        // accepted by the sequential runner — `Send` is a strictly
+        // stronger bound, the cast is a no-op.
+        let envs: Vec<Box<dyn VecEnvInstance>> = envs
+            .into_iter()
+            .map(|b| b as Box<dyn VecEnvInstance>)
+            .collect();
+        Box::new(VecEnvRunner::new(envs, config))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// finalize_step helper (shared between sequential and parallel runners)
+// ---------------------------------------------------------------------------
+
+/// Per-step book-keeping shared by [`VecEnvRunner::step_all`] and
+/// [`ParallelVecEnvRunner::step_all`](crate::parallel_runner::ParallelVecEnvRunner::step_all).
+///
+/// Given the index, freshly-stepped [`StepResult`], the episode map,
+/// done buffer, and obs buffer, this advances the episode counter,
+/// applies terminate / truncate / max-steps truncation, and writes the
+/// fresh observation into [`VecObsBuffer`]. Extracted so both runners
+/// stay byte-identical for non-rayon book-keeping.
+pub(crate) fn finalize_step(
+    i: usize,
+    result: &StepResult,
+    config: &VecEnvConfig,
+    episodes: &mut EnvEpisodeMap,
+    obs_buf: &mut VecObsBuffer,
+    done_buf: &mut VecDoneBuffer,
+) {
+    obs_buf.set(i, &result.observation);
+    done_buf.set(i, result.terminated, result.truncated);
+
+    let env_id = EnvId(u16::try_from(i).expect("env index overflow"));
+    let ep = episodes.get_mut(env_id);
+    ep.advance();
+
+    if result.terminated {
+        ep.terminate();
+    } else if result.truncated {
+        ep.truncate();
+    }
+
+    // Check truncation based on max steps
+    if !result.terminated && !result.truncated && ep.check_truncation(config.max_episode_steps()) {
+        done_buf.set(i, false, true);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +210,8 @@ pub trait VecEnvInstance {
 ///     fn obs_dim(&self) -> usize { 2 }
 /// }
 ///
-/// let envs: Vec<Box<dyn VecEnvInstance>> = vec![Box::new(DummyEnv), Box::new(DummyEnv)];
+/// let envs: Vec<Box<dyn VecEnvInstance>> =
+///     vec![Box::new(DummyEnv), Box::new(DummyEnv)];
 /// let config = VecEnvConfig::new(2);
 /// let mut runner = VecEnvRunner::new(envs, config);
 /// runner.reset_all(None);
@@ -196,26 +352,14 @@ impl VecEnvRunner {
 
         for (i, (env, action)) in self.envs.iter_mut().zip(actions.iter()).enumerate() {
             let result = env.step(action);
-            self.obs_buf.set(i, &result.observation);
-            self.done_buf.set(i, result.terminated, result.truncated);
-
-            let env_id = EnvId(u16::try_from(i).expect("env index overflow"));
-            let ep = self.episodes.get_mut(env_id);
-            ep.advance();
-
-            if result.terminated {
-                ep.terminate();
-            } else if result.truncated {
-                ep.truncate();
-            }
-
-            // Check truncation based on max steps
-            if !result.terminated
-                && !result.truncated
-                && ep.check_truncation(self.config.max_episode_steps())
-            {
-                self.done_buf.set(i, false, true);
-            }
+            finalize_step(
+                i,
+                &result,
+                &self.config,
+                &mut self.episodes,
+                &mut self.obs_buf,
+                &mut self.done_buf,
+            );
         }
 
         // Auto-reset handling
@@ -240,6 +384,44 @@ impl VecEnvRunner {
     #[must_use]
     pub fn get_obs(&self, env_idx: usize) -> Observation {
         self.obs_buf.get(env_idx)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VecRunnerLike impl for VecEnvRunner
+// ---------------------------------------------------------------------------
+
+impl VecRunnerLike for VecEnvRunner {
+    fn step_all(&mut self, actions: &[Action]) {
+        Self::step_all(self, actions);
+    }
+
+    fn reset_all(&mut self, seed: Option<u64>) {
+        Self::reset_all(self, seed);
+    }
+
+    fn reset_envs(&mut self, env_ids: &[EnvId], seed: Option<u64>) {
+        Self::reset_envs(self, env_ids, seed);
+    }
+
+    fn num_envs(&self) -> usize {
+        Self::num_envs(self)
+    }
+
+    fn obs_buffer(&self) -> &VecObsBuffer {
+        Self::obs_buffer(self)
+    }
+
+    fn done_buffer(&self) -> &VecDoneBuffer {
+        Self::done_buffer(self)
+    }
+
+    fn episodes(&self) -> &EnvEpisodeMap {
+        Self::episodes(self)
+    }
+
+    fn get_obs(&self, env_idx: usize) -> Observation {
+        Self::get_obs(self, env_idx)
     }
 }
 
@@ -484,5 +666,27 @@ mod tests {
         assert!(runner.episodes().get(EnvId(0)).is_running());
         assert!(runner.episodes().get(EnvId(1)).is_running());
         assert_eq!(runner.episodes().get(EnvId(0)).seed, Some(42));
+    }
+
+    fn make_send_envs(n: usize, obs_dim: usize) -> Vec<Box<dyn VecEnvInstance + Send>> {
+        (0..n)
+            .map(|_| Box::new(ConstEnv::new(obs_dim)) as Box<dyn VecEnvInstance + Send>)
+            .collect()
+    }
+
+    #[test]
+    fn runner_for_dispatches_sequential_by_default() {
+        let envs = make_send_envs(2, 2);
+        let config = VecEnvConfig::new(2);
+        let runner = runner_for(envs, config);
+        assert_eq!(runner.num_envs(), 2);
+    }
+
+    #[test]
+    fn runner_for_dispatches_parallel_when_flag_set() {
+        let envs = make_send_envs(2, 2);
+        let config = VecEnvConfig::new(2).with_parallel(true);
+        let runner = runner_for(envs, config);
+        assert_eq!(runner.num_envs(), 2);
     }
 }

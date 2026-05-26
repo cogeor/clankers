@@ -26,6 +26,7 @@ pub mod camera;
 pub mod config;
 pub mod input;
 pub mod mode;
+pub mod overlays;
 pub mod plugin;
 pub mod replay;
 pub mod systems;

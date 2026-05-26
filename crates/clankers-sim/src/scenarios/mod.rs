@@ -40,7 +40,10 @@ use std::sync::Arc;
 use bevy::prelude::App;
 use clankers_core::layout::JointLayout;
 
+pub mod arm_bench;
+pub mod arm_ik;
 pub mod arm_pick;
+pub mod arm_two_link;
 pub mod cartpole;
 
 // ---------------------------------------------------------------------------
@@ -171,13 +174,59 @@ impl ScenarioRegistry {
 
 /// Install the shipped built-in scenarios into `registry`.
 ///
-/// Registers `arm_pick` and `cartpole` (W5 PR2). The list is
-/// alphabetically-sorted by [`ScenarioRegistry::list_builtin`] before
-/// being surfaced to callers.
+/// Registers the full arm family (`arm_bench`, `arm_ik`, `arm_pick`,
+/// `arm_two_link`) plus `cartpole`. The list is alphabetically-sorted
+/// by [`ScenarioRegistry::list_builtin`] before being surfaced to
+/// callers.
+///
+/// Per W8 PR1 the arm-family scenarios moved out of the example bins
+/// into `clankers-sim`. The W5 PR2 trait-object registry above and the
+/// W8 PR1 function-pointer [`REGISTRY`] const below co-exist (additive,
+/// no removal of the trait-object path).
 pub fn register_builtin(registry: &mut ScenarioRegistry) {
+    registry.register(Box::new(arm_bench::ArmBenchScenario));
+    registry.register(Box::new(arm_ik::ArmIkScenario));
     registry.register(Box::new(arm_pick::ArmPickScenario));
+    registry.register(Box::new(arm_two_link::ArmTwoLinkScenario));
     registry.register(Box::new(cartpole::CartpoleScenario));
 }
+
+/// Static name → builder function table.
+///
+/// W8 PR1 ships this **additive** alternative to
+/// [`ScenarioRegistry::list_builtin`]: a compile-time `pub const` slice
+/// of `(name, fn(&mut App, ScenarioConfig))` pairs. The function
+/// pointers take [`ScenarioConfig`] **by value** (cf. the trait method
+/// which takes `&cfg`) to satisfy the WS8-plan § 6 smoke-test contract.
+/// `ScenarioConfig` derives [`Clone`], so the by-value convention
+/// imposes a single cheap clone per call.
+///
+/// Consumers:
+/// - `scenario_smoke.rs::each_arm_scenario_builds` — iterates and
+///   calls; assertion target for the WS8-plan § 6 smoke contract.
+/// - Future CI matrix step (loop 9) — uses the const for the scenario
+///   discovery list.
+///
+/// Two registries co-exist by design (W8 PR1 Design A); see the
+/// module-level docs for rationale.
+#[allow(clippy::type_complexity)] // shape pinned by WS8-plan § 6 smoke-test contract
+pub const REGISTRY: &[(&str, fn(&mut App, ScenarioConfig))] = &[
+    ("arm_bench", |app, cfg| {
+        let _ = arm_bench::ArmBenchScenario.build(app, &cfg);
+    }),
+    ("arm_ik", |app, cfg| {
+        let _ = arm_ik::ArmIkScenario.build(app, &cfg);
+    }),
+    ("arm_pick", |app, cfg| {
+        let _ = arm_pick::ArmPickScenario.build(app, &cfg);
+    }),
+    ("arm_two_link", |app, cfg| {
+        let _ = arm_two_link::ArmTwoLinkScenario.build(app, &cfg);
+    }),
+    ("cartpole", |app, cfg| {
+        let _ = cartpole::CartpoleScenario.build(app, &cfg);
+    }),
+];
 
 // ---------------------------------------------------------------------------
 // ScenarioError
@@ -273,10 +322,33 @@ mod tests {
     }
 
     #[test]
-    fn pr2_register_builtin_has_arm_pick_and_cartpole() {
+    fn loop7_register_builtin_lists_arm_family_and_cartpole() {
         let mut registry = ScenarioRegistry::new();
         register_builtin(&mut registry);
-        assert_eq!(registry.list_builtin(), vec!["arm_pick", "cartpole"]);
+        assert_eq!(
+            registry.list_builtin(),
+            vec![
+                "arm_bench",
+                "arm_ik",
+                "arm_pick",
+                "arm_two_link",
+                "cartpole"
+            ]
+        );
+    }
+
+    #[test]
+    fn loop7_const_registry_matches_trait_registry() {
+        // Design A invariant: the two registries cover the same name
+        // set (one trait-object, one function-pointer).
+        let mut trait_registry = ScenarioRegistry::new();
+        register_builtin(&mut trait_registry);
+        let trait_names: Vec<&'static str> = trait_registry.list_builtin();
+
+        let mut const_names: Vec<&'static str> = REGISTRY.iter().map(|(n, _)| *n).collect();
+        const_names.sort_unstable();
+
+        assert_eq!(trait_names, const_names);
     }
 
     #[test]

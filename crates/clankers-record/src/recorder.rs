@@ -561,7 +561,9 @@ pub fn setup_channels(
                         match serde_json::to_vec(&manifest) {
                             Ok(bytes) => manifest_payload = Some(bytes),
                             Err(e) => {
-                                error!("clankers-record: failed to serialise manifest payload: {e}")
+                                error!(
+                                    "clankers-record: failed to serialise manifest payload: {e}"
+                                );
                             }
                         }
                     }

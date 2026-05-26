@@ -49,5 +49,16 @@ fn registry_lists_builtin_scenarios() {
     let mut registry = ScenarioRegistry::new();
     register_builtin(&mut registry);
     let names = registry.list_builtin();
-    assert_eq!(names, vec!["arm_pick", "cartpole"]);
+    // Loop 7 (W8 PR1) added the arm-family scenarios. Order is
+    // alphabetic per `ScenarioRegistry::list_builtin`.
+    assert_eq!(
+        names,
+        vec![
+            "arm_bench",
+            "arm_ik",
+            "arm_pick",
+            "arm_two_link",
+            "cartpole"
+        ]
+    );
 }

@@ -5,4 +5,5 @@ jobs = 24
 
 [alias]
 t = "test --workspace --exclude clankers-examples"
+xtask = "run --package xtask --"
 

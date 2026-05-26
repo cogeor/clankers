@@ -1,31 +1,22 @@
 //! Clankers robotics simulation CLI.
 //!
-//! Provides four modes of operation:
-//! - `headless`: Run N episodes locally and print statistics
-//! - `serve`: Start a TCP gym server for remote training clients
-//! - `viz`: Interactive 3D visualization with teleop and policy inspection
-//! - `info`: Print workspace crate versions and configuration
+//! Subcommands ship in W5 across PR1–PR4. Read-only (`info`, `validate`,
+//! `inspect`) ship in PR1; write/run (`run`, `serve`, `record`, `replay`,
+//! `bench`) ship in PR2–PR4. The legacy `headless`, `serve`, `viz`,
+//! `info` variants remain available during the transition.
 
-use std::sync::Arc;
+use std::process::ExitCode;
 
-use bevy::prelude::*;
 use clap::{Parser, Subcommand};
 
-use clankers_actuator::components::{Actuator, JointCommand, JointState, JointTorque};
-use clankers_core::layout::{
-    JointKind, JointLayout, JointLayoutBuilder, JointSpec, JointSpecLimits,
-};
-use clankers_core::prelude::*;
-use clankers_env::prelude::*;
-use clankers_sim::{ClankersSimPlugin, EpisodeStats};
+mod commands;
 
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
+use commands::inspect::InspectTarget;
+use commands::validate::ValidateArgs;
 
 /// Clankers robotics simulation framework.
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, bin_name = "clankers-app")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -33,16 +24,32 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    // ---- W5 PR1: read-only ---------------------------------------------
+    /// Print workspace metadata.
+    Info {
+        /// Emit structured JSON to stdout.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Validate a URDF / scenario / scene / policy artefact.
+    Validate(ValidateArgs),
+
+    /// Inspect an artefact (URDF, MCAP, ONNX, scene).
+    Inspect {
+        #[command(subcommand)]
+        target: InspectTarget,
+    },
+
+    // ---- Legacy (preserved during W5 PR1) ------------------------------
     /// Run episodes locally and print statistics.
     Headless {
         /// Number of episodes to run.
         #[arg(short = 'n', long, default_value_t = 1)]
         episodes: u32,
-
         /// Maximum steps per episode.
         #[arg(short, long, default_value_t = 100)]
         max_steps: u32,
-
         /// Random seed.
         #[arg(short, long)]
         seed: Option<u64>,
@@ -53,11 +60,9 @@ enum Commands {
         /// Address to bind (e.g. 127.0.0.1:9876).
         #[arg(short, long, default_value = "127.0.0.1:9876")]
         address: String,
-
         /// Number of joints in the default environment.
         #[arg(short, long, default_value_t = 2)]
         joints: usize,
-
         /// Maximum steps per episode.
         #[arg(short, long, default_value_t = 1000)]
         max_steps: u32,
@@ -68,263 +73,42 @@ enum Commands {
         /// Number of joints in the demo robot.
         #[arg(short, long, default_value_t = 4)]
         joints: usize,
-
         /// Maximum steps per episode.
         #[arg(short, long, default_value_t = 1000)]
         max_steps: u32,
     },
-
-    /// Print crate information.
-    Info,
 }
 
-// ---------------------------------------------------------------------------
-// NoopApplicator
-// ---------------------------------------------------------------------------
-
-/// Default action applicator that writes action values to joint commands
-/// in layout slot order.
-struct JointCommandApplicator {
-    layout: Arc<JointLayout>,
-}
-
-impl ActionApplicator for JointCommandApplicator {
-    fn apply(&self, world: &mut World, action: &Action) {
-        let values = action
-            .as_continuous()
-            .expect("ActionApplicator contract: continuous action expected");
-        for (i, entity) in self.layout.bound_entities().enumerate() {
-            if i >= values.len() {
-                break;
-            }
-            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                cmd.value = values[i];
-            }
-        }
-    }
-
-    #[allow(clippy::unnecessary_literal_bound)]
-    fn name(&self) -> &str {
-        "JointCommandApplicator"
-    }
-
-    fn layout(&self) -> &JointLayout {
-        &self.layout
-    }
-}
-
-/// Build a synthetic [`JointLayout`] of `n` revolute joints, bound to the
-/// supplied entity ids in spawn order. Used by the CLI demo, which
-/// spawns N raw joint entities without a URDF.
-fn synthetic_layout(entities: &[Entity]) -> Arc<JointLayout> {
-    let mut builder = JointLayoutBuilder::default();
-    for (i, _) in entities.iter().enumerate() {
-        builder = builder.push(JointSpec {
-            name: format!("joint_{i}"),
-            entity: None,
-            joint_type: JointKind::Revolute,
-            limits: JointSpecLimits::default(),
-            axis: [0.0, 0.0, 1.0],
-        });
-    }
-    let mut layout = builder.build();
-    layout.bind_entities(entities);
-    Arc::new(layout)
-}
-
-// ---------------------------------------------------------------------------
-// Mode implementations
-// ---------------------------------------------------------------------------
-
-fn run_headless(episodes: u32, max_steps: u32, seed: Option<u64>) {
-    let mut app = App::new();
-    app.add_plugins(ClankersSimPlugin);
-
-    app.world_mut().spawn((
-        Actuator::default(),
-        JointCommand::default(),
-        JointState::default(),
-        JointTorque::default(),
-    ));
-
-    app.finish();
-    app.cleanup();
-
-    app.world_mut()
-        .resource_mut::<EpisodeConfig>()
-        .max_episode_steps = max_steps;
-
-    for ep in 0..episodes {
-        app.world_mut().resource_mut::<Episode>().reset(seed);
-
-        for _ in 0..max_steps {
-            app.update();
-            if app.world().resource::<Episode>().is_done() {
-                break;
-            }
-        }
-
-        let episode = app.world().resource::<Episode>();
-        println!("episode {}: steps={}", ep + 1, episode.step_count,);
-    }
-
-    let stats = app.world().resource::<EpisodeStats>();
-    println!(
-        "\ntotal: episodes={}, steps={}",
-        stats.episodes_completed, stats.total_steps
-    );
-}
-
-fn run_serve(address: &str, num_joints: usize, max_steps: u32) {
-    use clankers_gym::prelude::*;
-
-    // Build the Bevy app for the gym environment
-    let mut app = App::new();
-    app.add_plugins(ClankersSimPlugin);
-
-    // Spawn N joint entities and collect their ids for the layout.
-    let joint_entities: Vec<Entity> = (0..num_joints)
-        .map(|_| {
-            app.world_mut()
-                .spawn((
-                    Actuator::default(),
-                    JointCommand::default(),
-                    JointState::default(),
-                    JointTorque::default(),
-                ))
-                .id()
-        })
-        .collect();
-
-    // Build a synthetic layout — no URDF in this demo path.
-    let layout = synthetic_layout(&joint_entities);
-
-    // Register a sensor
-    {
-        let world = app.world_mut();
-        let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
-        let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
-        world.insert_resource(buffer);
-        world.insert_resource(registry);
-    }
-
-    app.world_mut()
-        .resource_mut::<EpisodeConfig>()
-        .max_episode_steps = max_steps;
-
-    let obs_dim = num_joints * 2; // position + velocity
-    let obs_space = ObservationSpace::Box {
-        low: vec![-10.0; obs_dim],
-        high: vec![10.0; obs_dim],
-    };
-    let act_space = ActionSpace::Box {
-        low: vec![-1.0; num_joints],
-        high: vec![1.0; num_joints],
-    };
-
-    let mut env = GymEnv::new(
-        app,
-        obs_space,
-        act_space,
-        Box::new(JointCommandApplicator { layout }),
-    );
-
-    let server = GymServer::bind(address).expect("failed to bind server");
-    let addr = server.local_addr().expect("failed to get address");
-    println!("clankers gym server listening on {addr}");
-    println!("joints={num_joints}, obs_dim={obs_dim}, act_dim={num_joints}, max_steps={max_steps}");
-
-    loop {
-        println!("waiting for client...");
-        match server.serve_one(&mut env) {
-            Ok(()) => println!("client disconnected cleanly"),
-            Err(e) => eprintln!("client error: {e}"),
-        }
-    }
-}
-
-fn run_viz(num_joints: usize, max_steps: u32) {
-    use clankers_teleop::ClankersTeleopPlugin;
-    use clankers_viz::ClankersVizPlugin;
-
-    let mut app = App::new();
-
-    // Windowed Bevy with full rendering.
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Clankers Viz".to_string(),
-            resolution: (1280, 720).into(),
-            ..default()
-        }),
-        ..default()
-    }));
-
-    // Simulation stack.
-    app.add_plugins(ClankersSimPlugin);
-    app.add_plugins(ClankersTeleopPlugin);
-
-    // Visualization layer.
-    app.add_plugins(ClankersVizPlugin::default());
-
-    // Spawn demo joints (cylinders as visual stand-ins).
-    for i in 0..num_joints {
-        app.world_mut().spawn((
-            Actuator::default(),
-            JointCommand::default(),
-            JointState::default(),
-            JointTorque::default(),
-            Name::new(format!("joint_{i}")),
-        ));
-    }
-
-    app.world_mut()
-        .resource_mut::<EpisodeConfig>()
-        .max_episode_steps = max_steps;
-
-    println!("starting viz with {num_joints} joints, max_steps={max_steps}");
-    app.run();
-}
-
-fn run_info() {
-    println!("clankers v{}", env!("CARGO_PKG_VERSION"));
-    println!();
-    println!("crates:");
-    println!("  clankers-core        {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-actuator    {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-env         {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-gym         {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-sim         {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-urdf        {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-domain-rand {}", env!("CARGO_PKG_VERSION"));
-    println!("  clankers-viz         {}", env!("CARGO_PKG_VERSION"));
-    println!();
-    println!("edition: 2024");
-}
-
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
-
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Info { json }) => commands::info::execute(json),
+        Some(Commands::Validate(args)) => commands::validate::execute(&args),
+        Some(Commands::Inspect { target }) => commands::inspect::execute(target),
         Some(Commands::Headless {
             episodes,
             max_steps,
             seed,
-        }) => run_headless(episodes, max_steps, seed),
+        }) => {
+            commands::run::execute_default(episodes, max_steps, seed);
+            ExitCode::SUCCESS
+        }
         Some(Commands::Serve {
             address,
             joints,
             max_steps,
-        }) => run_serve(&address, joints, max_steps),
-        Some(Commands::Viz { joints, max_steps }) => run_viz(joints, max_steps),
-        Some(Commands::Info) => run_info(),
+        }) => {
+            commands::serve::execute_default(&address, joints, max_steps);
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Viz { joints, max_steps }) => {
+            commands::viz::execute(joints, max_steps);
+            ExitCode::SUCCESS
+        }
         None => {
-            // Default: run headless with defaults
-            run_headless(1, 100, None);
+            commands::run::execute_default(1, 100, None);
+            ExitCode::SUCCESS
         }
     }
 }

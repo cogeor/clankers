@@ -16,6 +16,7 @@
 //! ```
 
 pub mod builder;
+pub mod scenarios;
 pub mod stats;
 
 #[cfg(test)]
@@ -31,6 +32,9 @@ use clankers_core::ClankersSet;
 // ---------------------------------------------------------------------------
 
 pub use builder::{SceneBuilder, SpawnedScene};
+pub use scenarios::{
+    ScenarioBuilder, ScenarioConfig, ScenarioError, ScenarioHandle, ScenarioRegistry,
+};
 pub use stats::EpisodeStats;
 
 // ---------------------------------------------------------------------------

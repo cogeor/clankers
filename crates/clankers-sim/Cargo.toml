@@ -15,6 +15,7 @@ clankers-physics.workspace = true
 clankers-urdf.workspace = true
 bevy.workspace = true
 rapier3d.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 clankers-test-utils.workspace = true

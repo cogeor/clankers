@@ -13,10 +13,21 @@ clankers-sim.workspace = true
 clankers-actuator.workspace = true
 clankers-env.workspace = true
 clankers-gym.workspace = true
+clankers-physics.workspace = true
+clankers-record.workspace = true
 clankers-teleop.workspace = true
+clankers-urdf.workspace = true
 clankers-viz.workspace = true
 bevy = { workspace = true, features = ["default"] }
 clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
 
 [lints]
 workspace = true

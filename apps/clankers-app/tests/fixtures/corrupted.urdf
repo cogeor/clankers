@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<robot name="corrupted">
+  <link name="base"/>
+  <joint name="rev1" type="revolute">
+    <parent link="base"/>
+    <child link="missing"/>
+<!-- missing </joint> and </robot> -->

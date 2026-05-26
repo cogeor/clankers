@@ -90,6 +90,9 @@ def main():
         joint_names=arm_joint_names,
         joint_limits=arm_joint_limits,
         control_dt=scene.simulation.control_dt,
+        # W1 default for the current arm-pick env;
+        # future negotiation via gym handshake.
+        action_semantics="NormalizedPosition",
     )
 
     env_factory = make_env_factory(args.host, args.port, scene)

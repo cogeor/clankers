@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Protocol
 
 import numpy as np
 
+from clankers_synthetic.action_adapter import ActionAdapter, select_adapter
+from clankers_synthetic.errors import MoveRelativeWithoutFkError
 from clankers_synthetic.ik_solver import DlsSolver
 from clankers_synthetic.specs import (
     CanonicalPlan,
@@ -39,6 +42,14 @@ class SkillCompiler:
         joint_limits: Dict of joint_name -> [lower, upper].
         control_dt: Control timestep in seconds (default 0.02).
         max_joint_velocity: Max joint velocity in rad/s (default 2.0).
+        action_semantics: Negotiated action representation; one of
+            ``"NormalizedPosition"`` (default; matches W1 single-arm-pick),
+            ``"AbsoluteJointPosition"``, ``"JointVelocity"``, ``"Torque"``.
+            Dispatches through a matching :class:`ActionAdapter`.
+        legacy_move_relative: Opt-in for the pre-W8 ``move_relative`` path
+            (``delta from world origin`` when no FK source is available).
+            Emits :class:`DeprecationWarning` per call; the flag will be
+            removed in the next release.
     """
 
     def __init__(
@@ -48,6 +59,8 @@ class SkillCompiler:
         joint_limits: dict[str, list[float]] | None = None,
         control_dt: float = 0.02,
         max_joint_velocity: float = 2.0,
+        action_semantics: str = "NormalizedPosition",
+        legacy_move_relative: bool = False,
     ) -> None:
         self.ik_solver = ik_solver
         self.joint_names = joint_names or []
@@ -65,9 +78,24 @@ class SkillCompiler:
                 self._joint_centers[i] = (lo + hi) / 2.0
                 self._joint_half_ranges[i] = max((hi - lo) / 2.0, 1e-6)
 
+        self._adapter: ActionAdapter = select_adapter(
+            action_semantics,
+            joint_centers=self._joint_centers,
+            joint_half_ranges=self._joint_half_ranges,
+            control_dt=control_dt,
+        )
+        self._action_semantics: str = action_semantics
+        self._legacy_move_relative: bool = legacy_move_relative
+
     def normalize_action(self, joint_targets: np.ndarray) -> np.ndarray:
-        """Convert absolute joint positions to normalized [-1, 1] actions."""
-        return (joint_targets - self._joint_centers) / self._joint_half_ranges
+        """Convert absolute joint positions to env action.
+
+        Dispatches through ``self._adapter`` based on the
+        ``action_semantics`` constructor argument. The default semantics
+        (``"NormalizedPosition"``) clamps to ``[-1, 1]`` and matches the
+        pre-W8 behaviour for clients that did not specify a semantics.
+        """
+        return self._adapter.to_env_action(joint_targets)
 
     def execute(self, plan: CanonicalPlan, env: StepEnv) -> ExecutionTrace:
         """Execute a plan through the environment.
@@ -108,6 +136,7 @@ class SkillCompiler:
             total_reward=total_reward,
             terminated=terminated,
             truncated=truncated,
+            action_semantics=self._action_semantics,  # type: ignore[arg-type]
             final_info=final_info if isinstance(final_info, dict) else {},
         )
 
@@ -234,6 +263,7 @@ class SkillCompiler:
                 reward=float(reward),
                 terminated=terminated,
                 truncated=truncated,
+                action_semantics=self._action_semantics,  # type: ignore[arg-type]
                 info=info,
             )
             new_steps.append(trace_step)
@@ -248,15 +278,40 @@ class SkillCompiler:
         return new_steps, current_obs, current_joints, terminated, truncated, info
 
     def _exec_move_relative(self, skill, env, obs, joints, all_steps):
-        """Execute move_relative: move EE by delta in world frame."""
+        """Execute move_relative: move EE by delta in the current EE frame.
+
+        Requires an FK source: either ``env.forward_kinematics`` or the
+        most recent ``info`` dict's ``body_poses.end_effector``. Without
+        one, raises :class:`MoveRelativeWithoutFkError`. The legacy
+        "delta from world origin" path is reachable only via
+        ``legacy_move_relative=True``; it emits
+        :class:`DeprecationWarning`.
+        """
         delta = np.array(skill.params.get("delta", [0, 0, 0]), dtype=float)
         speed_frac = skill.params.get("speed_fraction", 0.5)
 
-        # Apply delta to current EE position via IK.
-        # frame param is accepted by the parser but we treat delta as
-        # world-frame offset (frame resolution requires FK).
+        current_ee = self._resolve_current_ee(env, all_steps)
+
+        if current_ee is None:
+            if not self._legacy_move_relative:
+                raise MoveRelativeWithoutFkError(
+                    "move_relative requires an FK source: env.forward_kinematics "
+                    "or body_poses.end_effector in the latest info dict. "
+                    "Pass SkillCompiler(legacy_move_relative=True) (or the "
+                    "--legacy-move-relative CLI flag) to keep the pre-W8 "
+                    "'delta from world origin' behaviour; this opt-in will be "
+                    "removed in the next release."
+                )
+            warnings.warn(
+                "move_relative without FK source — silently treated as delta "
+                "from world origin (legacy behaviour, to be removed).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            current_ee = np.zeros(3)
+
         if self.ik_solver is not None:
-            target = np.zeros(3) + delta
+            target = current_ee + delta
             ik_result = self.ik_solver.solve(target, joints)
             target_joints = ik_result.joint_angles
         else:
@@ -265,6 +320,34 @@ class SkillCompiler:
         return self._interpolate_to_target(
             target_joints, speed_frac, skill.guard, env, obs, joints, all_steps
         )
+
+    def _resolve_current_ee(self, env: StepEnv, all_steps: list[TraceStep]) -> np.ndarray | None:
+        """Return the current EE position via FK or the latest info dict.
+
+        Returns ``None`` when no FK source is available — see
+        :class:`MoveRelativeWithoutFkError` for the lock-in contract.
+        """
+        # 1. Try env.forward_kinematics() if callable
+        fk = getattr(env, "forward_kinematics", None)
+        if callable(fk):
+            try:
+                pose = fk()
+            except Exception:
+                pose = None
+            if pose is not None:
+                pose_arr = np.asarray(pose, dtype=float)
+                if pose_arr.size >= 3:
+                    return pose_arr.reshape(-1)[:3]
+        # 2. Try latest info dict's body_poses.end_effector
+        if all_steps:
+            info = all_steps[-1].info or {}
+            if isinstance(info, dict):
+                body_poses = info.get("body_poses", {})
+                if isinstance(body_poses, dict):
+                    ee_pose = body_poses.get("end_effector")
+                    if ee_pose is not None and len(ee_pose) >= 3:
+                        return np.array(ee_pose[:3], dtype=float)
+        return None
 
     def _exec_move_joints(self, skill, env, obs, joints, all_steps):
         """Execute move_joints: direct joint-space interpolation to targets."""
@@ -319,6 +402,7 @@ class SkillCompiler:
                 reward=float(reward),
                 terminated=terminated,
                 truncated=truncated,
+                action_semantics=self._action_semantics,  # type: ignore[arg-type]
                 info=info,
             )
             new_steps.append(trace_step)
@@ -361,6 +445,7 @@ class SkillCompiler:
                 reward=float(reward),
                 terminated=terminated,
                 truncated=truncated,
+                action_semantics=self._action_semantics,  # type: ignore[arg-type]
                 info=info,
             )
             new_steps.append(trace_step)
@@ -415,6 +500,7 @@ class SkillCompiler:
                 reward=float(reward),
                 terminated=terminated,
                 truncated=truncated,
+                action_semantics=self._action_semantics,  # type: ignore[arg-type]
                 info=info,
             )
             new_steps.append(trace_step)

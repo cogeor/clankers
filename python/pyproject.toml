@@ -54,6 +54,7 @@ dev = [
 testpaths = ["tests"]
 markers = [
     "slow: tests too slow for PR CI; run nightly via -m slow",
+    "synthetic: tests for the clankers_synthetic action-semantics surface (W8 PR3)",
 ]
 
 [tool.ruff]

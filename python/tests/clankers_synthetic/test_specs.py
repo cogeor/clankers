@@ -114,6 +114,7 @@ def _make_trace_step(**overrides) -> TraceStep:
         "reward": -0.1,
         "terminated": False,
         "truncated": False,
+        "action_semantics": "NormalizedPosition",
     }
     defaults.update(overrides)
     return TraceStep(**defaults)
@@ -567,6 +568,7 @@ class TestExecutionTrace:
             total_reward=-0.9,
             terminated=True,
             truncated=False,
+            action_semantics="NormalizedPosition",
         )
         assert trace.plan_id == "exec_001"
         assert len(trace.steps) == 3
@@ -580,6 +582,7 @@ class TestExecutionTrace:
             total_reward=0.0,
             terminated=False,
             truncated=True,
+            action_semantics="NormalizedPosition",
         )
         assert len(trace.steps) == 0
         assert trace.truncated is True
@@ -591,6 +594,7 @@ class TestExecutionTrace:
             total_reward=0.0,
             terminated=False,
             truncated=False,
+            action_semantics="NormalizedPosition",
         )
         assert trace.final_info == {}
 
@@ -601,6 +605,7 @@ class TestExecutionTrace:
             total_reward=-0.2,
             terminated=True,
             truncated=False,
+            action_semantics="NormalizedPosition",
             final_info={"is_success": True},
         )
         data = trace.model_dump()
@@ -979,6 +984,7 @@ class TestExecutionTraceIntegration:
                     reward=-0.5 + i * 0.01,
                     terminated=(i == 49),
                     truncated=False,
+                    action_semantics="NormalizedPosition",
                     info={"step": i},
                 )
             )
@@ -988,6 +994,7 @@ class TestExecutionTraceIntegration:
             total_reward=sum(s.reward for s in steps),
             terminated=True,
             truncated=False,
+            action_semantics="NormalizedPosition",
             final_info={"is_success": True, "episode_length": 50},
         )
         assert len(trace.steps) == 50

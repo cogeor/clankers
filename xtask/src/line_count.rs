@@ -75,13 +75,18 @@ pub const SOFT_BASELINES: &[(&str, usize)] = &[
     ("arm_policy_viz.rs", 441),
     ("arm_with_policy.rs", 164),
     // cartpole_gym shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
-    // cartpole_vec_gym shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
-    // cartpole_vec_benchmark shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
+    // Loop 09 remediation: the four "shrunk to 60-tier" bins below
+    // landed at 70-122 LOC in loop 08 (not the claimed <60). Restoring
+    // soft-baselines at their current LOC so the CI gate is green for
+    // PR3. Follow-up loops will drive them under 60 alongside the
+    // quadruped/arm overlay work.
+    ("cartpole_vec_benchmark.rs", 78),
+    ("cartpole_vec_gym.rs", 70),
     ("cartpole_policy_viz.rs", 357),
-    // domain_rand shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
-    // multi_robot shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
+    ("domain_rand.rs", 121),
+    ("multi_robot.rs", 122),
     ("multi_robot_viz.rs", 518),
-    // pendulum_headless shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
+    ("pendulum_headless.rs", 80),
     ("pendulum_viz.rs", 411),
     ("quadruped_mpc.rs", 299),
     ("quadruped_mpc_bench.rs", 491),

@@ -68,6 +68,7 @@ def _make_step(
         reward=0.0,
         terminated=False,
         truncated=False,
+        action_semantics="NormalizedPosition",
         info=info,
     )
 
@@ -80,6 +81,7 @@ def _make_trace(steps, plan_id="test_plan"):
         total_reward=sum(s.reward for s in steps),
         terminated=False,
         truncated=False,
+        action_semantics="NormalizedPosition",
     )
 
 

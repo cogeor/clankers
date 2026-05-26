@@ -95,6 +95,9 @@ def generate_dataset(
         joint_names=scene.robot.joint_names,
         joint_limits=scene.robot.joint_limits,
         control_dt=scene.simulation.control_dt,
+        # W1 default for the current arm-pick env;
+        # future negotiation via gym handshake.
+        action_semantics="NormalizedPosition",
     )
     packager = DatasetPackager()
 

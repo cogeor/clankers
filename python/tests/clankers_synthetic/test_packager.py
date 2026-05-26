@@ -30,6 +30,7 @@ def _make_trace_pair(n_steps=10, total_reward=-1.0, max_force=25.0):
             reward=total_reward / n_steps,
             terminated=False,
             truncated=False,
+            action_semantics="NormalizedPosition",
         )
         for _ in range(n_steps)
     ]
@@ -39,6 +40,7 @@ def _make_trace_pair(n_steps=10, total_reward=-1.0, max_force=25.0):
         total_reward=total_reward,
         terminated=False,
         truncated=False,
+        action_semantics="NormalizedPosition",
     )
     metrics = ValidationMetrics(
         total_steps=n_steps,

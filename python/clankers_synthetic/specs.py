@@ -2,9 +2,22 @@
 
 All models used across the synthetic trajectory generation system are defined here.
 This module is self-contained and does not import from the ``clankers`` package.
+
+Schema lock-in
+--------------
+
+:data:`action_semantics` is the negotiated action representation for a
+trace; it is ADDITIVE on the wire schema and the field set
+(:data:`ActionSemantics`) is APPEND-ONLY. Downstream consumers (replay
+players, dataset packagers) read this field to apply the correct
+``adapter.from_env_action()`` when reconstructing joint targets from
+recorded actions. Removing or renaming the field is a breaking change
+and requires a CHANGELOG entry on ``clankers_synthetic``.
 """
 
 from __future__ import annotations
+
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -201,8 +214,25 @@ class PlanRejection(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+#: Negotiated action semantics for a recorded trace.
+#:
+#: Mirrors the W1 ``clankers_core::types::ActionSemantics`` enum. The set
+#: is APPEND-ONLY; see the module docstring for the lock-in contract.
+ActionSemantics = Literal[
+    "NormalizedPosition",
+    "AbsoluteJointPosition",
+    "JointVelocity",
+    "Torque",
+]
+
+
 class TraceStep(BaseModel):
-    """One transition in an execution trace."""
+    """One transition in an execution trace.
+
+    The ``action_semantics`` field is REQUIRED: it pins the meaning of
+    the ``action`` array so downstream consumers can reconstruct joint
+    targets via the correct adapter without ambiguity.
+    """
 
     obs: list[float]
     action: list[float]
@@ -210,17 +240,23 @@ class TraceStep(BaseModel):
     reward: float
     terminated: bool
     truncated: bool
+    action_semantics: ActionSemantics
     info: dict = Field(default_factory=dict)
 
 
 class ExecutionTrace(BaseModel):
-    """Complete execution trace of a plan through the simulator."""
+    """Complete execution trace of a plan through the simulator.
+
+    The ``action_semantics`` field is REQUIRED and must match the
+    ``action_semantics`` field on every contained :class:`TraceStep`.
+    """
 
     plan_id: str
     steps: list[TraceStep]
     total_reward: float
     terminated: bool
     truncated: bool
+    action_semantics: ActionSemantics
     final_info: dict = Field(default_factory=dict)
 
 

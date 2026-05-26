@@ -41,16 +41,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -j 8 --workspace --all-targets -- -D warnings
-      - run: cargo test -j 8 --workspace --exclude clankers-examples
+      # W8 PR3 (loop 09): clippy now scans tests + benches so the
+      # `clankers-examples` crate is included in the lint gate. The
+      # workspace-wide test step no longer excludes `clankers-examples`;
+      # `cargo check --all-targets` precedes the test step so any
+      # examples-only compile error surfaces before the test run.
+      - run: cargo clippy -j 8 --workspace --all-targets --tests --benches -- -D warnings
+      - run: cargo check -j 8 --workspace --all-targets
+      - run: cargo test -j 8 --workspace
       - run: cargo doc -j 8 --workspace --no-deps
+      # W8 PR1 (loop 07) committed the example-bin LOC ceiling via the
+      # xtask. Wire it into CI so future regressions block merge. The
+      # xtask walks ~22 files synchronously — no parallelism opportunity,
+      # so no `-j` flag.
+      - name: Enforce example-bin LOC ceiling
+        run: cargo xtask check-bin-size
       # W7 PR4: baseline regression gate. Builds the release CLI,
       # runs a lightweight `bench vec` sweep, and compares against the
       # committed baseline with a 15% slowdown tolerance. The
       # comparator is stdlib-only Python so it does not depend on the
       # `python` job above. CLAUDE.md mandates `-j 8` workspace-wide
-      # because the paging file cannot absorb `-j 24` during the
-      # release build's link step.
+      # because the paging file cannot absorb higher parallelism
+      # during the release build's link step.
       - name: Bench regression gate
         env:
           RAYON_NUM_THREADS: "8"
@@ -66,6 +78,50 @@ jobs:
             benches/current_vec.csv \
             notes/baselines/vec_baseline.csv \
             --tolerance 0.15
+
+  # W8 PR3 (loop 09): per-scenario matrix verifying each name in
+  # `clankers_sim::scenarios::REGISTRY` is registered. GHA runners have
+  # no GPU; `validate --scenario` is registry-lookup-only (PR1 contract)
+  # — it does NOT spawn a Bevy App, so this step works on GPU-less
+  # runners. If `validate` is extended in a future PR to actually build
+  # the App (touching render plugins), the step will need the
+  # `bevy_render = []` feature off.
+  #
+  # Matrix list MUST match REGISTRY verbatim (8 scenarios after loop 08).
+  # NOT in REGISTRY (yet): `quadruped_trot` (deferred to a follow-up
+  # loop); `domain_rand` (renamed to `domain_rand_pendulum`).
+  validate-scenarios:
+    name: Validate scenario (${{ matrix.scenario }})
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - arm_bench
+          - arm_ik
+          - arm_pick
+          - arm_two_link
+          - cartpole
+          - domain_rand_pendulum
+          - multi_robot
+          - pendulum
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.1"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: validate-scenarios
+      - name: Build clankers-app (release)
+        run: cargo build -j 8 -p clankers-app --release
+      - name: Run validate --scenario ${{ matrix.scenario }} --strict
+        run: ./target/release/clankers-app validate --scenario ${{ matrix.scenario }} --strict
 
   python:
     name: Python

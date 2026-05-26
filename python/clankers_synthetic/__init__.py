@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+from clankers_synthetic.action_adapter import (
+    AbsoluteJointPositionAdapter,
+    ActionAdapter,
+    JointVelocityAdapter,
+    NormalizedPositionAdapter,
+    TorqueAdapter,
+    select_adapter,
+)
 from clankers_synthetic.cli import main
 from clankers_synthetic.compiler import SkillCompiler
+from clankers_synthetic.errors import MoveRelativeWithoutFkError
 from clankers_synthetic.ik_solver import (
     DlsSolver,
     IKResult,
@@ -17,6 +26,7 @@ from clankers_synthetic.pipeline import generate_dataset
 from clankers_synthetic.planner import LLMPlanner, PromptAssembler
 from clankers_synthetic.pvcb_refiner import PVCBRefiner
 from clankers_synthetic.specs import (
+    ActionSemantics,
     CanonicalPlan,
     ConstraintSpec,
     ConstraintViolation,
@@ -43,6 +53,14 @@ from clankers_synthetic.specs import (
 from clankers_synthetic.validator import SimValidator
 
 __all__ = [
+    # Action semantics (W8 PR3)
+    "AbsoluteJointPositionAdapter",
+    "ActionAdapter",
+    "ActionSemantics",
+    "JointVelocityAdapter",
+    "MoveRelativeWithoutFkError",
+    "NormalizedPositionAdapter",
+    "TorqueAdapter",
     "VALID_SKILLS",
     "CanonicalPlan",
     "ConstraintSpec",
@@ -98,6 +116,8 @@ __all__ = [
     "generate_dataset",
     # CLI
     "main",
+    # Action semantics dispatch
+    "select_adapter",
 ]
 
 __version__ = "0.1.0"

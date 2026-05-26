@@ -7,6 +7,15 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["dense-runtime"]
+# When enabled (the default), the per-frame `rapier_step_system` hot path
+# iterates a layout-slot-indexed `Vec<JointRuntime>` populated at scene-
+# build time. When disabled, the hot path falls back to per-entity
+# HashMap probes (the pre-W7-PR3 behaviour). Provided as a one-flag revert
+# in case a downstream regression appears post-merge.
+dense-runtime = []
+
 [dependencies]
 clankers-core.workspace = true
 clankers-actuator.workspace = true
@@ -14,6 +23,13 @@ clankers-urdf.workspace = true
 bevy = { workspace = true, features = ["bevy_log"] }
 thiserror.workspace = true
 rapier3d.workspace = true
+
+[dev-dependencies]
+# Cycle-allowed via dev-deps: integration tests in `tests/dense_runtime.rs`
+# call `clankers_sim::builder::compile_runtime` to exercise the W7 PR3
+# compile path. Cargo permits this because dev-deps build a separate
+# graph from the main crate compilation.
+clankers-sim.workspace = true
 
 [lints]
 workspace = true

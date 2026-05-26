@@ -788,6 +788,64 @@ impl std::fmt::Display for MissingJoints {
 impl std::error::Error for MissingJoints {}
 
 // ---------------------------------------------------------------------------
+// LayoutCompileError
+// ---------------------------------------------------------------------------
+
+/// Error returned when compiling a layout into a dense runtime view.
+///
+/// Produced by
+/// [`clankers_sim::builder::compile_runtime`](https://docs.rs/clankers-sim)
+/// when a [`JointLayout`](crate::layout::JointLayout) slot cannot be
+/// resolved against the physics setup-time `HashMaps` in
+/// `clankers_physics::rapier::context::RapierContext`. This is the
+/// generalisation of [`MissingJoints`]: the W2 PR1 "every joint must be
+/// overridden" prose invariant becomes a typed compile step that surfaces
+/// a structured error per problem class rather than a single missing-list.
+///
+/// Each variant carries the joint name as a `String` so this error type
+/// has no dependency on `clankers-physics` or `clankers-urdf` (i.e. the
+/// type can live in `clankers-core` without inducing a dependency cycle).
+///
+/// See `docs/plans/WS7-plan.md` § 9 PR3.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LayoutCompileError {
+    /// A layout slot has no `entity` bound. The caller forgot
+    /// [`JointLayout::bind_entities`](crate::layout::JointLayout::bind_entities)
+    /// before invoking `compile_runtime`.
+    #[error("layout joint '{name}' has no bound entity")]
+    UnboundEntity {
+        /// Name of the offending layout joint.
+        name: String,
+    },
+    /// A layout slot's entity has no entry in the physics
+    /// `joint_handles` setup-time `HashMap`. The bridge setup
+    /// (`register_robot`) was incomplete for this joint.
+    #[error("layout joint '{name}' not found in physics context (joint_handles miss)")]
+    MissingJoint {
+        /// Name of the offending layout joint.
+        name: String,
+    },
+    /// A layout slot's entity has no entry in the physics
+    /// `joint_info` setup-time `HashMap`. The bridge setup recorded a
+    /// joint handle but no metadata.
+    #[error("layout joint '{name}' missing joint_info")]
+    MissingJointInfo {
+        /// Name of the offending layout joint.
+        name: String,
+    },
+    /// A layout slot is actuated but no
+    /// [`MotorOverrides`](https://docs.rs/clankers-physics) entry exists
+    /// for the slot's entity. Promotes the `MEMORY.md` "every joint must
+    /// be overridden" invariant from a runtime "robot flailing wildly"
+    /// failure to a typed setup-time error.
+    #[error("layout joint '{name}' missing motor override")]
+    MissingMotor {
+        /// Name of the offending layout joint.
+        name: String,
+    },
+}
+
+// ---------------------------------------------------------------------------
 // Entity Handles
 // ---------------------------------------------------------------------------
 
@@ -1909,6 +1967,68 @@ mod tests {
         let c = MissingJoints {
             layout_joint_names: vec!["b".into()],
             override_joint_count: 1,
+        };
+        assert_ne!(a, c);
+    }
+
+    // ---- LayoutCompileError ----
+
+    #[test]
+    fn layout_compile_error_display_includes_joint_name() {
+        let cases = [
+            (
+                LayoutCompileError::UnboundEntity {
+                    name: "shoulder_pan".into(),
+                },
+                "shoulder_pan",
+            ),
+            (
+                LayoutCompileError::MissingJoint {
+                    name: "phantom_joint".into(),
+                },
+                "phantom_joint",
+            ),
+            (
+                LayoutCompileError::MissingJointInfo {
+                    name: "elbow".into(),
+                },
+                "elbow",
+            ),
+            (
+                LayoutCompileError::MissingMotor {
+                    name: "wrist_roll".into(),
+                },
+                "wrist_roll",
+            ),
+        ];
+        for (err, needle) in cases {
+            let msg = format!("{err}");
+            assert!(
+                msg.contains(needle),
+                "expected display message to contain {needle:?}; got {msg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn layout_compile_error_implements_error_trait() {
+        let err = LayoutCompileError::MissingJoint {
+            name: "phantom_joint".into(),
+        };
+        // Just confirm the trait is reachable via dyn.
+        let dyn_err: &dyn std::error::Error = &err;
+        let _ = dyn_err.to_string();
+    }
+
+    #[test]
+    fn layout_compile_error_is_clone_and_eq() {
+        let a = LayoutCompileError::MissingMotor {
+            name: "joint_a".into(),
+        };
+        let b = a.clone();
+        assert_eq!(a, b);
+        let c = LayoutCompileError::MissingMotor {
+            name: "joint_b".into(),
         };
         assert_ne!(a, c);
     }

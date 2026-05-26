@@ -8,10 +8,12 @@
 pub mod backend;
 pub mod bridge;
 pub mod context;
+pub mod runtime;
 pub mod systems;
 
 pub use backend::{RapierBackend, RapierBackendFixed};
 pub use context::RapierContext;
+pub use runtime::{BodyRuntime, JointRuntime, JointRuntimes, MotorRuntime};
 pub use systems::{
     InnerPdState, MotorOverrideParams, MotorOverrides, MotorRateLimits, contact_update_system,
 };

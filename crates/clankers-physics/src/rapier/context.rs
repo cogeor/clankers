@@ -14,6 +14,7 @@ use rapier3d::prelude::{
 // ---------------------------------------------------------------------------
 
 /// Per-joint metadata stored alongside the rapier handle.
+#[derive(Clone, Debug)]
 pub struct JointInfo {
     /// Rapier handle for the parent link rigid body.
     pub parent_body: RigidBodyHandle,

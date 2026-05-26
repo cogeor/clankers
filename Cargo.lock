@@ -2132,6 +2132,7 @@ dependencies = [
  "bevy",
  "clankers-actuator",
  "clankers-core",
+ "clankers-sim",
  "clankers-urdf",
  "rapier3d",
  "thiserror 2.0.18",

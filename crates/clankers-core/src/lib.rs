@@ -119,8 +119,8 @@ pub mod prelude {
         // Types
         types::{
             Action, ActionSpace, BatchResetResult, BatchStepResult, CompositeHandle, ContactEvent,
-            EnvId, MissingJoints, ObjectHandle, Observation, ObservationSpace, ResetInfo,
-            ResetResult, RobotGroup, RobotHandle, RobotId, RobotInfo, SegmentationClass,
+            EnvId, LayoutCompileError, MissingJoints, ObjectHandle, Observation, ObservationSpace,
+            ResetInfo, ResetResult, RobotGroup, RobotHandle, RobotId, RobotInfo, SegmentationClass,
             SensorHandle, StepInfo, StepResult,
         },
         // View (W3)

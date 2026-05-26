@@ -18,10 +18,11 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use clankers_core::config::{ObjectConfig, Shape, SimConfig};
 use clankers_core::layout::JointLayout;
-use clankers_core::types::{MissingJoints, RobotGroup};
+use clankers_core::types::{LayoutCompileError, MissingJoints, RobotGroup};
 use clankers_env::episode::EpisodeConfig;
 use clankers_physics::ClankersPhysicsPlugin;
 use clankers_physics::rapier::bridge::register_robot;
+use clankers_physics::rapier::runtime::{JointRuntime, JointRuntimes};
 use clankers_physics::rapier::systems::{
     MotorOverrides, validate_motor_coverage as physics_validate_motor_coverage,
 };
@@ -64,12 +65,17 @@ pub enum BuildError {
     /// `MotorOverrides` resource is present but does not cover every
     /// joint declared by the supplied [`JointLayout`].
     MissingMotors(MissingJoints),
+    /// The dense `JointRuntimes` could not be compiled from the
+    /// scene's layout, [`RapierContext`], and [`MotorOverrides`]. See
+    /// [`LayoutCompileError`] for the failure modes.
+    CompileRuntime(LayoutCompileError),
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingMotors(m) => write!(f, "scene build failed: {m}"),
+            Self::CompileRuntime(e) => write!(f, "scene build failed: {e}"),
         }
     }
 }
@@ -78,6 +84,7 @@ impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::MissingMotors(m) => Some(m),
+            Self::CompileRuntime(e) => Some(e),
         }
     }
 }
@@ -85,6 +92,12 @@ impl std::error::Error for BuildError {
 impl From<MissingJoints> for BuildError {
     fn from(m: MissingJoints) -> Self {
         Self::MissingMotors(m)
+    }
+}
+
+impl From<LayoutCompileError> for BuildError {
+    fn from(e: LayoutCompileError) -> Self {
+        Self::CompileRuntime(e)
     }
 }
 
@@ -111,6 +124,108 @@ pub fn validate_motor_coverage(
     overrides: &MotorOverrides,
 ) -> Result<(), MissingJoints> {
     physics_validate_motor_coverage(group, layout, overrides)
+}
+
+// ---------------------------------------------------------------------------
+// compile_runtime
+// ---------------------------------------------------------------------------
+
+/// Compile a layout-indexed [`JointRuntimes`] from the scene's
+/// [`RapierContext`] and [`MotorOverrides`].
+///
+/// Each actuated layout slot is resolved in order; missing entries
+/// surface a typed [`LayoutCompileError`]. The resulting
+/// [`JointRuntimes`] is the dense, slot-ordered view of the per-frame
+/// hot path's joint data.
+///
+/// # Why a free function
+///
+/// `clankers-core` (where [`RobotGroup`] lives) cannot depend on
+/// `clankers-physics` (where the runtime structs live) without
+/// inducing a reverse cycle. So the function lives in `clankers-sim`,
+/// mirroring the W2 PR1 [`validate_motor_coverage`] precedent.
+///
+/// The `_group` parameter is accepted for future per-robot
+/// validation (matching the `validate_motor_coverage` precedent —
+/// the current implementation does not use it).
+///
+/// # W7 PR3 invariant
+///
+/// This is the generalisation of [`validate_motor_coverage`]: the prose
+/// invariant "every joint must be overridden" becomes a typed compile
+/// step that returns [`LayoutCompileError::MissingMotor`] if violated.
+/// `validate_motor_coverage` still runs from
+/// [`SceneBuilder::try_build`] first, so callers see the existing
+/// [`MissingJoints`] error before this new one.
+///
+/// # Errors
+///
+/// - [`LayoutCompileError::UnboundEntity`] — a layout slot has no
+///   `entity` field set (caller forgot
+///   [`JointLayout::bind_entities`](clankers_core::layout::JointLayout::bind_entities)).
+/// - [`LayoutCompileError::MissingJoint`] — the slot's entity has no
+///   entry in `ctx.joint_handles` (bridge setup was incomplete for
+///   this joint).
+/// - [`LayoutCompileError::MissingJointInfo`] — likewise for
+///   `ctx.joint_info`.
+/// - [`LayoutCompileError::MissingMotor`] — `overrides.joints` has no
+///   entry for an actuated slot's entity. Promotes MEMORY.md "every
+///   joint must be overridden" to a compile-time invariant.
+pub fn compile_runtime(
+    _group: &RobotGroup,
+    layout: &JointLayout,
+    ctx: &RapierContext,
+    overrides: &MotorOverrides,
+) -> Result<JointRuntimes, LayoutCompileError> {
+    let mut joints: Vec<JointRuntime> = Vec::with_capacity(layout.len());
+    let mut entity_to_slot: HashMap<Entity, usize> = HashMap::with_capacity(layout.len());
+
+    for spec in layout.joints() {
+        // Skip non-actuated slots entirely — they have no joint handle
+        // in `ctx.joint_handles` (the bridge only inserts actuated
+        // joints) and no motor override (rule applies only to
+        // actuated joints).
+        if !spec.joint_type.is_actuated() {
+            continue;
+        }
+
+        let entity = spec
+            .entity
+            .ok_or_else(|| LayoutCompileError::UnboundEntity {
+                name: spec.name.clone(),
+            })?;
+        let handle = ctx.joint_handles.get(&entity).copied().ok_or_else(|| {
+            LayoutCompileError::MissingJoint {
+                name: spec.name.clone(),
+            }
+        })?;
+        let info = ctx.joint_info.get(&entity).cloned().ok_or_else(|| {
+            LayoutCompileError::MissingJointInfo {
+                name: spec.name.clone(),
+            }
+        })?;
+        let motor = overrides.joints.get(&entity).cloned();
+        if motor.is_none() {
+            return Err(LayoutCompileError::MissingMotor {
+                name: spec.name.clone(),
+            });
+        }
+
+        let slot = joints.len();
+        entity_to_slot.insert(entity, slot);
+        joints.push(JointRuntime {
+            entity,
+            handle,
+            layout_slot: slot,
+            info,
+            motor,
+        });
+    }
+
+    Ok(JointRuntimes {
+        joints,
+        entity_to_slot,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -290,13 +405,16 @@ impl SceneBuilder {
             .iter()
             .map(|entry| (entry.model.clone(), entry.initial_positions.clone()))
             .collect();
-        let scene = self.build();
+        let mut scene = self.build();
 
-        let Some(overrides) = scene.app.world().get_resource::<MotorOverrides>() else {
+        if scene.app.world().get_resource::<MotorOverrides>().is_none() {
             return Ok(scene);
-        };
-        let group = scene.app.world().resource::<RobotGroup>();
+        }
 
+        // First pass: per-robot layouts bound to entities, validate
+        // motor coverage. Cache the bound layouts so we can compile
+        // the dense runtime in a second pass without re-binding.
+        let mut bound_layouts: Vec<JointLayout> = Vec::with_capacity(model_snapshot.len());
         for (model, _) in &model_snapshot {
             let mut layout = model.to_layout();
             let Some(spawned) = scene.robots.get(&model.name) else {
@@ -317,7 +435,41 @@ impl SceneBuilder {
                 continue;
             }
             layout.bind_entities(&joint_entities);
+            let group = scene.app.world().resource::<RobotGroup>();
+            let overrides = scene.app.world().resource::<MotorOverrides>();
             validate_motor_coverage(group, &layout, overrides)?;
+            bound_layouts.push(layout);
+        }
+
+        // Second pass: W7 PR3 dense runtime compile.
+        //
+        // Compiles each bound layout into a `JointRuntimes` vec and
+        // concatenates across robots so a single Bevy resource carries
+        // every actuated joint in the scene. Only attempted when a
+        // `RapierContext` resource is present (scenes built without
+        // `with_physics()` have nothing to compile against). Returns
+        // `BuildError::CompileRuntime` on any layout/context mismatch.
+        if scene.app.world().get_resource::<RapierContext>().is_some() {
+            let mut combined = JointRuntimes::default();
+            // Re-borrow each resource — borrow checker requires reads
+            // be released across iterations because `compile_runtime`
+            // takes shared references.
+            for layout in &bound_layouts {
+                let group = scene.app.world().resource::<RobotGroup>();
+                let overrides = scene.app.world().resource::<MotorOverrides>();
+                let ctx = scene.app.world().resource::<RapierContext>();
+                let part = compile_runtime(group, layout, ctx, overrides)?;
+                // Concatenate, re-indexing slots so the merged vec is
+                // a contiguous 0..N range across robots.
+                let base = combined.joints.len();
+                for mut jr in part.joints {
+                    let new_slot = base + jr.layout_slot;
+                    jr.layout_slot = new_slot;
+                    combined.entity_to_slot.insert(jr.entity, new_slot);
+                    combined.joints.push(jr);
+                }
+            }
+            scene.app.world_mut().insert_resource(combined);
         }
         Ok(scene)
     }
@@ -836,5 +988,253 @@ mod tests {
         let msg = format!("{build_err}");
         assert!(msg.contains("joint2"), "BuildError display: {msg}");
         assert!(std::error::Error::source(&build_err).is_some());
+    }
+
+    // ---- compile_runtime (W7 PR3) ----
+
+    /// Build a fresh `RapierContext` populated with N actuated revolute
+    /// joints whose entities have `joint_handles` / `joint_info` entries
+    /// matching the order they were inserted. Returns the populated
+    /// context plus the ordered entity vector.
+    fn make_test_context_with_n_joints(n: usize) -> (RapierContext, Vec<Entity>) {
+        use rapier3d::prelude::{
+            ImpulseJointHandle, RevoluteJointBuilder, RigidBodyBuilder, RigidBodyHandle,
+        };
+
+        let mut ctx = RapierContext::new(Vec3::new(0.0, 0.0, -9.81), 1.0 / 60.0, 1);
+
+        let mut entities = Vec::with_capacity(n);
+        let mut parent: RigidBodyHandle =
+            ctx.rigid_body_set.insert(RigidBodyBuilder::fixed().build());
+        for i in 0..n {
+            let child = ctx
+                .rigid_body_set
+                .insert(RigidBodyBuilder::dynamic().can_sleep(false).build());
+            let joint = RevoluteJointBuilder::new(Vec3::Z).build();
+            let jh: ImpulseJointHandle = ctx.impulse_joint_set.insert(parent, child, joint, true);
+
+            // Use deterministic non-zero entity bits.
+            let entity = Entity::from_bits((i as u64) + 100);
+            entities.push(entity);
+            ctx.joint_handles.insert(entity, jh);
+            ctx.joint_info.insert(
+                entity,
+                clankers_physics::rapier::context::JointInfo {
+                    parent_body: parent,
+                    child_body: child,
+                    axis: Vec3::Z,
+                    is_prismatic: false,
+                },
+            );
+            ctx.body_to_entity.insert(child, entity);
+            parent = child;
+        }
+        (ctx, entities)
+    }
+
+    fn motor_params(stiff: f32) -> clankers_physics::rapier::systems::MotorOverrideParams {
+        clankers_physics::rapier::systems::MotorOverrideParams {
+            target_pos: 0.0,
+            target_vel: 0.0,
+            stiffness: stiff,
+            damping: 10.0,
+            max_force: 50.0,
+        }
+    }
+
+    fn synthetic_layout(names: &[&str], entities: &[Option<Entity>]) -> JointLayout {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        let mut b = JointLayoutBuilder::default();
+        for (i, name) in names.iter().enumerate() {
+            b = b.push(JointSpec {
+                name: (*name).to_string(),
+                entity: entities.get(i).copied().flatten(),
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits {
+                    lower: Some(-1.0),
+                    upper: Some(1.0),
+                    effort: 1.0,
+                    velocity: 1.0,
+                },
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        b.build()
+    }
+
+    #[test]
+    fn compile_runtime_orders_by_layout_slot() {
+        use std::collections::HashMap as StdHashMap;
+        // Insert 4 joint handles in order [d, a, c, b]; build layout
+        // [a, b, c, d]. compile_runtime should walk the layout, so the
+        // resulting JointRuntimes.joints[0].entity == entity bound to "a".
+        let (ctx, entities) = make_test_context_with_n_joints(4);
+        let e_d = entities[0];
+        let e_a = entities[1];
+        let e_c = entities[2];
+        let e_b = entities[3];
+
+        let layout = synthetic_layout(
+            &["a", "b", "c", "d"],
+            &[Some(e_a), Some(e_b), Some(e_c), Some(e_d)],
+        );
+
+        let mut motor_map = StdHashMap::new();
+        for &e in &[e_a, e_b, e_c, e_d] {
+            motor_map.insert(e, motor_params(100.0));
+        }
+        let overrides = MotorOverrides {
+            joints: motor_map,
+            ..MotorOverrides::default()
+        };
+        let group = RobotGroup::default();
+        let runtimes = compile_runtime(&group, &layout, &ctx, &overrides).expect("should compile");
+
+        assert_eq!(runtimes.joints.len(), 4);
+        assert_eq!(runtimes.joints[0].entity, e_a);
+        assert_eq!(runtimes.joints[1].entity, e_b);
+        assert_eq!(runtimes.joints[2].entity, e_c);
+        assert_eq!(runtimes.joints[3].entity, e_d);
+        assert_eq!(runtimes.joints[0].layout_slot, 0);
+        assert_eq!(runtimes.joints[3].layout_slot, 3);
+        // entity_to_slot reflects slot positions, not insertion order
+        assert_eq!(runtimes.slot_for(e_a), Some(0));
+        assert_eq!(runtimes.slot_for(e_d), Some(3));
+    }
+
+    #[test]
+    fn compile_runtime_rejects_missing_layout_joint() {
+        use std::collections::HashMap as StdHashMap;
+        // Build a layout with one valid entity and one "phantom" entity
+        // not registered in ctx.joint_handles. Expect
+        // LayoutCompileError::MissingJoint { name: "phantom_joint" }.
+        let (ctx, entities) = make_test_context_with_n_joints(1);
+        let real = entities[0];
+        let phantom = Entity::from_bits(9999);
+
+        let layout = synthetic_layout(
+            &["real_joint", "phantom_joint"],
+            &[Some(real), Some(phantom)],
+        );
+
+        let mut motor_map = StdHashMap::new();
+        motor_map.insert(real, motor_params(100.0));
+        motor_map.insert(phantom, motor_params(100.0));
+        let overrides = MotorOverrides {
+            joints: motor_map,
+            ..MotorOverrides::default()
+        };
+        let group = RobotGroup::default();
+        let err = compile_runtime(&group, &layout, &ctx, &overrides).unwrap_err();
+        match err {
+            LayoutCompileError::MissingJoint { name } => {
+                assert_eq!(name, "phantom_joint");
+            }
+            other => panic!("expected MissingJoint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compile_runtime_rejects_missing_motor() {
+        use std::collections::HashMap as StdHashMap;
+        // Layout has 2 actuated joints; overrides cover only the first.
+        // Expect LayoutCompileError::MissingMotor for the second.
+        let (ctx, entities) = make_test_context_with_n_joints(2);
+        let e0 = entities[0];
+        let e1 = entities[1];
+        let layout = synthetic_layout(&["a", "b"], &[Some(e0), Some(e1)]);
+
+        let mut motor_map = StdHashMap::new();
+        motor_map.insert(e0, motor_params(100.0));
+        let overrides = MotorOverrides {
+            joints: motor_map,
+            ..MotorOverrides::default()
+        };
+        let group = RobotGroup::default();
+        let err = compile_runtime(&group, &layout, &ctx, &overrides).unwrap_err();
+        match err {
+            LayoutCompileError::MissingMotor { name } => {
+                assert_eq!(name, "b");
+            }
+            other => panic!("expected MissingMotor, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compile_runtime_rejects_unbound_entity() {
+        use std::collections::HashMap as StdHashMap;
+        let (ctx, entities) = make_test_context_with_n_joints(1);
+        let real = entities[0];
+        // Second slot has `entity: None` (unbound)
+        let layout = synthetic_layout(&["a", "unbound"], &[Some(real), None]);
+
+        let mut motor_map = StdHashMap::new();
+        motor_map.insert(real, motor_params(100.0));
+        let overrides = MotorOverrides {
+            joints: motor_map,
+            ..MotorOverrides::default()
+        };
+        let group = RobotGroup::default();
+        let err = compile_runtime(&group, &layout, &ctx, &overrides).unwrap_err();
+        match err {
+            LayoutCompileError::UnboundEntity { name } => {
+                assert_eq!(name, "unbound");
+            }
+            other => panic!("expected UnboundEntity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compile_runtime_skips_non_actuated_slots() {
+        use clankers_core::layout::{JointKind, JointLayoutBuilder, JointSpec, JointSpecLimits};
+        use std::collections::HashMap as StdHashMap;
+        // Layout with one actuated and one fixed joint. compile_runtime
+        // should produce a single-entry JointRuntimes (skipping fixed).
+        let (ctx, entities) = make_test_context_with_n_joints(1);
+        let e_real = entities[0];
+        let e_fixed = Entity::from_bits(8888);
+
+        let mut layout = JointLayoutBuilder::default()
+            .push(JointSpec {
+                name: "act".into(),
+                entity: Some(e_real),
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            })
+            .push(JointSpec {
+                name: "fixed_link".into(),
+                entity: Some(e_fixed),
+                joint_type: JointKind::Fixed,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            })
+            .build();
+        // bind no-ops since entities are already set; keep for symmetry
+        // with realistic call sites.
+        let _ = &mut layout;
+
+        let mut motor_map = StdHashMap::new();
+        motor_map.insert(e_real, motor_params(100.0));
+        let overrides = MotorOverrides {
+            joints: motor_map,
+            ..MotorOverrides::default()
+        };
+        let group = RobotGroup::default();
+        let runtimes = compile_runtime(&group, &layout, &ctx, &overrides).expect("should compile");
+        // Fixed joint is skipped — only the actuated one made it in.
+        assert_eq!(runtimes.joints.len(), 1);
+        assert_eq!(runtimes.joints[0].entity, e_real);
+    }
+
+    #[test]
+    fn build_error_compile_runtime_display_and_source() {
+        let lc = LayoutCompileError::MissingJoint {
+            name: "xjoint".into(),
+        };
+        let be = BuildError::from(lc);
+        let msg = format!("{be}");
+        assert!(msg.contains("xjoint"), "BuildError display: {msg}");
+        assert!(std::error::Error::source(&be).is_some());
     }
 }

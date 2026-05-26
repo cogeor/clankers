@@ -11,7 +11,11 @@ use clankers_core::layout::JointLayout;
 use clankers_core::physics::ContactData;
 use clankers_core::types::{MissingJoints, RobotGroup};
 
+#[cfg(feature = "dense-runtime")]
+use super::context::JointInfo;
 use super::context::RapierContext;
+#[cfg(feature = "dense-runtime")]
+use super::runtime::JointRuntimes;
 
 /// Position motor parameters for a single joint.
 ///
@@ -237,17 +241,265 @@ pub struct InnerPdState {
 ///
 /// When [`InnerPdState`] is present, motor target positions are linearly
 /// interpolated across substeps for effective 1000Hz PD control.
+///
+/// # W7 PR3 dispatch
+///
+/// When the `dense-runtime` cargo feature is enabled (the default) and
+/// a `JointRuntimes` (in `super::runtime`) resource has been populated
+/// by `clankers_sim::builder::compile_runtime`, the hot path drives the
+/// per-frame motor / readback loops from the dense `Vec<JointRuntime>`
+/// instead of probing `RapierContext.joint_handles` and
+/// `RapierContext.joint_info` per entity. The `HashMap` fallback runs
+/// whenever the feature is disabled OR the resource is absent
+/// (`SceneBuilder::build` does not populate it, only `try_build` does).
+#[allow(clippy::needless_pass_by_value)]
+pub fn rapier_step_system(
+    context: ResMut<RapierContext>,
+    joints: Query<(Entity, &JointTorque, &mut JointState)>,
+    motor_overrides: Option<Res<MotorOverrides>>,
+    #[cfg(feature = "dense-runtime")] runtimes: Option<Res<JointRuntimes>>,
+    rate_limits: Option<ResMut<MotorRateLimits>>,
+    inner_pd: Option<ResMut<InnerPdState>>,
+) {
+    #[cfg(feature = "dense-runtime")]
+    {
+        if let Some(rt) = runtimes.as_deref()
+            && !rt.is_empty()
+        {
+            rapier_step_system_dense(
+                context.into_inner(),
+                joints,
+                motor_overrides.as_deref(),
+                rt,
+                rate_limits,
+                inner_pd,
+            );
+            return;
+        }
+    }
+    rapier_step_system_hashmap(
+        context.into_inner(),
+        joints,
+        motor_overrides.as_deref(),
+        rate_limits,
+        inner_pd,
+    );
+}
+
+/// W7 PR3 dense-vec hot path. Iterates `runtimes.joints` in layout-
+/// slot order, reading per-joint handle / info / motor params from the
+/// pre-compiled `JointRuntime` instead of `HashMap::get(&entity)` per
+/// joint per frame.
+///
+/// Behaviour invariants:
+/// - Per-step output (rigid body poses) is byte-equal to the `HashMap`
+///   fallback ([`rapier_step_system_hashmap`]) — see
+///   `crates/clankers-physics/tests/dense_runtime.rs::dense_runtime_matches_hashmap_lookup`.
+/// - Iteration order is layout slot order (deterministic) rather than
+///   Bevy archetype query order — a strengthening, not a weakening.
+/// - Rate-limit / inner-PD `HashMaps` stay as warm caches keyed by
+///   `Entity`; this loop does NOT migrate those caches.
+#[cfg(feature = "dense-runtime")]
 #[allow(
-    clippy::needless_pass_by_value,
     clippy::too_many_lines,
     clippy::items_after_statements,
     clippy::cast_precision_loss,
     clippy::branches_sharing_code
 )]
-pub fn rapier_step_system(
-    mut context: ResMut<RapierContext>,
+fn rapier_step_system_dense(
+    context: &mut RapierContext,
     mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
-    motor_overrides: Option<Res<MotorOverrides>>,
+    motor_overrides: Option<&MotorOverrides>,
+    runtimes: &JointRuntimes,
+    mut rate_limits: Option<ResMut<MotorRateLimits>>,
+    mut inner_pd: Option<ResMut<InnerPdState>>,
+) {
+    let substeps = context.substeps;
+    let use_inner_pd = inner_pd.is_some() && motor_overrides.is_some();
+
+    // Collect override data for interpolation (needed if inner PD is active).
+    struct OverrideEntry {
+        joint_handle: rapier3d::dynamics::ImpulseJointHandle,
+        axis: JointAxis,
+        prev_pos: f32,
+        target_pos: f32,
+        target_vel: f32,
+        stiffness: f32,
+        damping: f32,
+        max_force: f32,
+    }
+    let mut override_entries: Vec<OverrideEntry> = Vec::new();
+
+    // 1. Apply torques via slot-indexed JointRuntime traversal.
+    for jr in &runtimes.joints {
+        // Per-joint Bevy-side data: torque only (JointState is read in
+        // the readback pass below). Skip silently if the query slot
+        // is absent — this can happen during teardown.
+        let Ok((_e, torque, _)) = joints.get(jr.entity) else {
+            continue;
+        };
+
+        let axis = if jr.info.is_prismatic {
+            JointAxis::LinX
+        } else {
+            JointAxis::AngX
+        };
+
+        let Some(joint) = context.impulse_joint_set.get_mut(jr.handle, true) else {
+            continue;
+        };
+
+        // Resolve the motor override: prefer the live HashMap entry
+        // (fresh after any mid-frame mutation), fall back to the
+        // compile-time snapshot in the runtime entry. Either way, no
+        // `joint_handles` or `joint_info` probe — that is the W7 PR3
+        // win.
+        let motor_snapshot = jr.motor.as_ref();
+        let motor_live = motor_overrides.and_then(|o| o.joints.get(&jr.entity));
+        let motor = motor_live.or(motor_snapshot);
+
+        if let Some(mo) = motor {
+            // Apply rate limiting if configured
+            let target_pos = if let Some(ref mut limits) = rate_limits {
+                let prev = limits
+                    .prev_targets
+                    .get(&jr.entity)
+                    .copied()
+                    .unwrap_or(mo.target_pos);
+                let clamped = mo
+                    .target_pos
+                    .clamp(prev - limits.delta_max, prev + limits.delta_max);
+                limits.prev_targets.insert(jr.entity, clamped);
+                clamped
+            } else {
+                mo.target_pos
+            };
+
+            if use_inner_pd {
+                let pd = inner_pd.as_mut().unwrap();
+                let prev_pos = pd
+                    .prev_targets
+                    .get(&jr.entity)
+                    .copied()
+                    .unwrap_or(target_pos);
+                pd.prev_targets.insert(jr.entity, target_pos);
+                override_entries.push(OverrideEntry {
+                    joint_handle: jr.handle,
+                    axis,
+                    prev_pos,
+                    target_pos,
+                    target_vel: mo.target_vel,
+                    stiffness: mo.stiffness,
+                    damping: mo.damping,
+                    max_force: mo.max_force,
+                });
+                let alpha = 1.0 / substeps as f32;
+                let interp = (target_pos - prev_pos).mul_add(alpha, prev_pos);
+                joint
+                    .data
+                    .set_motor(axis, interp, mo.target_vel, mo.stiffness, mo.damping);
+                joint.data.set_motor_max_force(axis, mo.max_force);
+            } else {
+                joint
+                    .data
+                    .set_motor(axis, target_pos, mo.target_vel, mo.stiffness, mo.damping);
+                joint.data.set_motor_max_force(axis, mo.max_force);
+            }
+        } else {
+            // Motor trick fallback: ForceBased motor with huge target
+            // velocity, clamped to desired torque magnitude.
+            let t = torque.value;
+            if t.abs() > 1e-10 {
+                let target_vel = t.signum() * 1e10;
+                joint.data.set_motor(axis, 0.0, target_vel, 0.0, 1.0);
+                joint.data.set_motor_max_force(axis, t.abs());
+            } else {
+                joint.data.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
+                joint.data.set_motor_max_force(axis, 0.0);
+            }
+        }
+    }
+
+    // 2. Step physics with inner PD interpolation.
+    if use_inner_pd && !override_entries.is_empty() {
+        context.step();
+        for sub in 1..substeps {
+            let alpha = (sub + 1) as f32 / substeps as f32;
+            for entry in &override_entries {
+                if let Some(joint) = context.impulse_joint_set.get_mut(entry.joint_handle, true) {
+                    let interp = (entry.target_pos - entry.prev_pos).mul_add(alpha, entry.prev_pos);
+                    joint.data.set_motor(
+                        entry.axis,
+                        interp,
+                        entry.target_vel,
+                        entry.stiffness,
+                        entry.damping,
+                    );
+                    joint.data.set_motor_max_force(entry.axis, entry.max_force);
+                }
+            }
+            context.step();
+        }
+    } else {
+        for _ in 0..substeps {
+            context.step();
+        }
+    }
+
+    // 3. Read back joint state from rigid body transforms.
+    for jr in &runtimes.joints {
+        let Ok((_e, _t, mut state)) = joints.get_mut(jr.entity) else {
+            continue;
+        };
+        let info: &JointInfo = &jr.info;
+
+        let Some(parent_body) = context.rigid_body_set.get(info.parent_body) else {
+            continue;
+        };
+        let Some(child_body) = context.rigid_body_set.get(info.child_body) else {
+            continue;
+        };
+
+        if info.is_prismatic {
+            let parent_pos = parent_body.position().translation;
+            let child_pos = child_body.position().translation;
+            let relative_pos = child_pos - parent_pos;
+            state.position = relative_pos.dot(info.axis);
+            let relative_vel = child_body.linvel() - parent_body.linvel();
+            state.velocity = relative_vel.dot(info.axis);
+        } else {
+            let parent_rot = parent_body.position().rotation;
+            let child_rot = child_body.position().rotation;
+            let relative_rotation = parent_rot.inverse() * child_rot;
+            let sin_half = Vec3::new(
+                relative_rotation.x,
+                relative_rotation.y,
+                relative_rotation.z,
+            );
+            let cos_half = relative_rotation.w;
+            let sin_half_proj = sin_half.dot(info.axis);
+            state.position = 2.0 * f32::atan2(sin_half_proj, cos_half);
+            let relative_angvel = child_body.angvel() - parent_body.angvel();
+            state.velocity = relative_angvel.dot(info.axis);
+        }
+    }
+}
+
+/// Legacy HashMap-driven hot path. Used as a fallback when the
+/// `dense-runtime` feature is disabled, or when the `JointRuntimes`
+/// resource has not been populated (e.g. `SceneBuilder::build`,
+/// the non-`try_build` variant). The body is the pre-W7-PR3
+/// implementation, unchanged in behaviour.
+#[allow(
+    clippy::too_many_lines,
+    clippy::items_after_statements,
+    clippy::cast_precision_loss,
+    clippy::branches_sharing_code
+)]
+fn rapier_step_system_hashmap(
+    context: &mut RapierContext,
+    mut joints: Query<(Entity, &JointTorque, &mut JointState)>,
+    motor_overrides: Option<&MotorOverrides>,
     mut rate_limits: Option<ResMut<MotorRateLimits>>,
     mut inner_pd: Option<ResMut<InnerPdState>>,
 ) {
@@ -285,7 +537,7 @@ pub fn rapier_step_system(
 
         if let Some(joint) = context.impulse_joint_set.get_mut(joint_handle, true) {
             // Check for position motor override first
-            if let Some(ref overrides) = motor_overrides
+            if let Some(overrides) = motor_overrides
                 && let Some(mo) = overrides.joints.get(&entity)
             {
                 // Apply rate limiting if configured

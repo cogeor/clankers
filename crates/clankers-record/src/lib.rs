@@ -26,6 +26,7 @@
 
 pub mod plugin;
 pub mod recorder;
+pub mod schema;
 pub mod types;
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,10 @@ pub mod prelude {
     pub use crate::{
         plugin::RecorderPlugin,
         recorder::{PendingAction, PendingBodyPoses, PendingReward, Recorder, RecordingConfig},
+        schema::{
+            ACTIONS_TOPIC, BODY_POSES_TOPIC, CAMERA_TOPIC_PREFIX, JOINT_STATES_TOPIC, REWARD_TOPIC,
+            camera_topic, recorder_schema,
+        },
         types::{ActionFrame, BodyPoseFrame, ImageFrame, JointFrame, RewardFrame},
     };
 }

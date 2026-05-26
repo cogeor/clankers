@@ -22,3 +22,9 @@ clankers-render = { workspace = true, optional = true }
 
 [lints]
 workspace = true
+
+# Fixture regenerator for `python/tests/fixtures/two_camera.mcap`.
+# Gated behind the `camera` feature because it pulls `clankers-render`.
+[[example]]
+name = "fixture_gen"
+required-features = ["camera"]

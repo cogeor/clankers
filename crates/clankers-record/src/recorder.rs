@@ -8,14 +8,18 @@
 //! The recording systems run in [`PostUpdate`] and append serialized frames
 //! to the open MCAP file.
 //!
-//! Each data stream gets its own MCAP channel:
+//! Each data stream gets its own MCAP channel. The canonical topic
+//! strings live in [`crate::schema`] — cite the constants by name
+//! (e.g. [`crate::schema::JOINT_STATES_TOPIC`]) when constructing a
+//! channel so the wire format cannot drift:
 //!
-//! | Topic             | Payload type    | Encoding                    |
-//! |-------------------|-----------------|-----------------------------|
-//! | `/joint_states`   | [`JointFrame`]  | `application/json`          |
-//! | `/actions`        | [`ActionFrame`] | `application/json`          |
-//! | `/reward`         | [`RewardFrame`] | `application/json`          |
-//! | `/camera/{label}` | raw pixels      | `application/octet-stream`  |
+//! | Topic             | Constant                                | Payload type     | Encoding                   |
+//! |-------------------|-----------------------------------------|------------------|----------------------------|
+//! | `/joint_states`   | [`crate::schema::JOINT_STATES_TOPIC`]   | [`JointFrame`]   | `application/json`         |
+//! | `/actions`        | [`crate::schema::ACTIONS_TOPIC`]        | [`ActionFrame`]  | `application/json`         |
+//! | `/reward`         | [`crate::schema::REWARD_TOPIC`]         | [`RewardFrame`]  | `application/json`         |
+//! | `/body_poses`     | [`crate::schema::BODY_POSES_TOPIC`]     | [`BodyPoseFrame`]| `application/json`         |
+//! | `/camera/{label}` | [`crate::schema::camera_topic`] (with prefix [`crate::schema::CAMERA_TOPIC_PREFIX`]) | raw pixels       | `application/octet-stream` |
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -29,6 +33,7 @@ use mcap::write::Writer as McapWriter;
 use clankers_actuator::components::{JointState, JointTorque};
 use clankers_core::time::SimTime;
 
+use crate::schema;
 use crate::types::{ActionFrame, BodyPoseFrame, JointFrame, RewardFrame};
 
 // ---------------------------------------------------------------------------
@@ -324,7 +329,8 @@ pub fn setup_channels(
         match Recorder::register_json_schema(writer) {
             Ok(schema_id) => {
                 if config.record_joints {
-                    match Recorder::add_json_channel(writer, schema_id, "/joint_states") {
+                    match Recorder::add_json_channel(writer, schema_id, schema::JOINT_STATES_TOPIC)
+                    {
                         Ok(id) => channel_ids.joints = Some(id),
                         Err(e) => {
                             error!("clankers-record: failed to add /joint_states channel: {e}");
@@ -332,7 +338,7 @@ pub fn setup_channels(
                     }
                 }
                 if config.record_actions {
-                    match Recorder::add_json_channel(writer, schema_id, "/actions") {
+                    match Recorder::add_json_channel(writer, schema_id, schema::ACTIONS_TOPIC) {
                         Ok(id) => channel_ids.action = Some(id),
                         Err(e) => {
                             error!("clankers-record: failed to add /actions channel: {e}");
@@ -340,7 +346,7 @@ pub fn setup_channels(
                     }
                 }
                 if config.record_rewards {
-                    match Recorder::add_json_channel(writer, schema_id, "/reward") {
+                    match Recorder::add_json_channel(writer, schema_id, schema::REWARD_TOPIC) {
                         Ok(id) => channel_ids.reward = Some(id),
                         Err(e) => {
                             error!("clankers-record: failed to add /reward channel: {e}");
@@ -348,7 +354,7 @@ pub fn setup_channels(
                     }
                 }
                 if config.record_body_poses {
-                    match Recorder::add_json_channel(writer, schema_id, "/body_poses") {
+                    match Recorder::add_json_channel(writer, schema_id, schema::BODY_POSES_TOPIC) {
                         Ok(id) => channel_ids.body_poses = Some(id),
                         Err(e) => {
                             error!("clankers-record: failed to add /body_poses channel: {e}");
@@ -506,7 +512,7 @@ pub mod camera {
     use bevy::prelude::*;
     use mcap::records::MessageHeader;
 
-    use super::{Recorder, SimTime};
+    use super::{Recorder, SimTime, schema};
     use clankers_render::buffer::CameraFrameBuffers;
 
     /// Per-camera MCAP channel ID cache.
@@ -553,7 +559,7 @@ pub mod camera {
                     id
                 };
 
-                let topic = format!("/camera/{label}");
+                let topic = schema::camera_topic(label);
                 let mut metadata = BTreeMap::new();
                 metadata.insert("width".to_string(), buf.width().to_string());
                 metadata.insert("height".to_string(), buf.height().to_string());

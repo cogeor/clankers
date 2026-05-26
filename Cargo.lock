@@ -2076,6 +2076,7 @@ name = "clankers-gym"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bytemuck",
  "clankers-actuator",
  "clankers-core",
  "clankers-env",

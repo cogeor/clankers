@@ -16,6 +16,7 @@
 //! Connections begin with a handshake (`Init`/`InitResponse`) and then
 //! follow the standard Gymnasium `reset`/`step`/`close` pattern.
 
+pub mod binary_frame;
 pub mod encoding;
 pub mod env;
 pub mod framing;
@@ -28,6 +29,11 @@ pub mod vec_env;
 // Re-exports
 // ---------------------------------------------------------------------------
 
+pub use binary_frame::{
+    BinaryFrameError, BinaryFrameHeader, FRAME_VERSION, HEADER_SIZE, KIND_BATCH_F32,
+    KIND_BATCH_RAW_U8, decode_batch_f32, decode_batch_raw_u8, encode_batch_f32,
+    encode_batch_raw_u8,
+};
 pub use encoding::{EncodedObservation, ImageLayout};
 pub use env::GymEnv;
 #[allow(deprecated)]
@@ -47,8 +53,10 @@ pub mod prelude {
     #[allow(deprecated)]
     pub use crate::protocol::ObsEncoding;
     pub use crate::{
-        EncodedObservation, GymEnv, GymServer, GymVecEnv, ImageLayout, ProtocolStateMachine,
-        ServerConfig, VecGymServer,
+        BinaryFrameError, BinaryFrameHeader, EncodedObservation, FRAME_VERSION, GymEnv, GymServer,
+        GymVecEnv, HEADER_SIZE, ImageLayout, KIND_BATCH_F32, KIND_BATCH_RAW_U8,
+        ProtocolStateMachine, ServerConfig, VecGymServer, decode_batch_f32, decode_batch_raw_u8,
+        encode_batch_f32, encode_batch_raw_u8,
         protocol::{
             EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
             negotiate_version,

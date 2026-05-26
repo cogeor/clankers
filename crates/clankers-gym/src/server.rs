@@ -10,6 +10,8 @@ use std::net::{TcpListener, TcpStream};
 use clankers_core::schema::SchemaDtype;
 use clankers_core::view::ObservationView;
 
+use clankers_core::types::ObservationSpace;
+
 use crate::encoding::{self, EncodedObservation};
 use crate::env::GymEnv;
 use crate::framing::{read_message, write_binary_frame, write_message};
@@ -26,8 +28,12 @@ use crate::vec_env::GymVecEnv;
 /// Per-connection session state tracking negotiated capabilities.
 #[derive(Debug, Default)]
 struct SessionState {
-    /// Whether the client negotiated the `binary_obs` capability.
+    /// Whether the client negotiated the `binary_obs` capability
+    /// (single-env image transfer).
     binary_obs: bool,
+    /// Whether the client negotiated the `binary_batch` capability
+    /// (W7 PR2 — batched observations as a single binary frame).
+    binary_batch: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +55,10 @@ impl Default for ServerConfig {
     fn default() -> Self {
         let mut capabilities = HashMap::new();
         capabilities.insert("binary_obs".into(), true);
+        // W7 PR2: advertise the new batched-binary capability. Clients
+        // opt in via Init.capabilities; legacy clients that don't send
+        // the key keep getting JSON-encoded batch responses.
+        capabilities.insert("binary_batch".into(), true);
         Self {
             env_name: "clankers".into(),
             env_version: "0.1.0".into(),
@@ -245,6 +255,7 @@ fn dispatch(
 
             // Update session state from negotiated capabilities
             session.binary_obs = negotiated.get("binary_obs").copied().unwrap_or(false);
+            session.binary_batch = negotiated.get("binary_batch").copied().unwrap_or(false);
 
             (
                 Response::InitResponse {
@@ -334,6 +345,7 @@ fn handle_vec_connection(
     let mut reader = stream.try_clone().map_err(ProtocolError::Io)?;
     let mut writer = stream;
     let mut sm = ProtocolStateMachine::new();
+    let mut session = SessionState::default();
 
     loop {
         let request: Option<Request> = read_message(&mut reader)?;
@@ -341,13 +353,21 @@ fn handle_vec_connection(
             break;
         };
 
-        let response = match sm.on_request(&request) {
-            Ok(()) => dispatch_vec(vec_env, &request, config),
-            Err(e) => e.into_response(),
+        let (response, binary_payload) = match sm.on_request(&request) {
+            Ok(()) => dispatch_vec(vec_env, &request, config, &mut session),
+            Err(e) => (e.into_response(), None),
         };
 
         sm.on_response(&response);
         write_message(&mut writer, &response)?;
+
+        // W7 PR2: when binary_batch is active and the env's observation
+        // space is continuous, the JSON envelope is followed by a
+        // length-prefixed binary frame carrying the BinaryFrameHeader +
+        // flat payload.
+        if let Some(payload) = binary_payload {
+            write_binary_frame(&mut writer, &payload)?;
+        }
 
         if sm.state() == ProtocolState::Disconnected {
             break;
@@ -357,7 +377,13 @@ fn handle_vec_connection(
     Ok(())
 }
 
-fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfig) -> Response {
+/// Returns the response and an optional binary payload to send after the JSON frame.
+fn dispatch_vec(
+    vec_env: &mut GymVecEnv,
+    request: &Request,
+    config: &ServerConfig,
+    session: &mut SessionState,
+) -> (Response, Option<Vec<u8>>) {
     match request {
         Request::Init {
             protocol_version,
@@ -367,7 +393,7 @@ fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfi
         } => {
             let negotiated_version = match negotiate_version(protocol_version, PROTOCOL_VERSION) {
                 Ok(v) => v,
-                Err(e) => return e.into_response(),
+                Err(e) => return (e.into_response(), None),
             };
 
             let negotiated: HashMap<String, bool> = capabilities
@@ -378,47 +404,100 @@ fn dispatch_vec(vec_env: &mut GymVecEnv, request: &Request, config: &ServerConfi
                 })
                 .collect();
 
-            Response::InitResponse {
-                protocol_version: negotiated_version,
-                env_name: config.env_name.clone(),
-                env_version: config.env_version.clone(),
-                env_info: vec_env.env_info(),
-                capabilities: negotiated,
-                seed_accepted: seed.is_some(),
-            }
+            // Update session from negotiated capabilities (mirrors single-env path).
+            session.binary_obs = negotiated.get("binary_obs").copied().unwrap_or(false);
+            session.binary_batch = negotiated.get("binary_batch").copied().unwrap_or(false);
+
+            (
+                Response::InitResponse {
+                    protocol_version: negotiated_version,
+                    env_name: config.env_name.clone(),
+                    env_version: config.env_version.clone(),
+                    env_info: vec_env.env_info(),
+                    capabilities: negotiated,
+                    seed_accepted: seed.is_some(),
+                },
+                None,
+            )
         }
-        Request::Spaces => Response::Spaces {
-            observation_space: vec_env.observation_space().clone(),
-            action_space: vec_env.action_space().clone(),
-        },
+        Request::Spaces => (
+            Response::Spaces {
+                observation_space: vec_env.observation_space().clone(),
+                action_space: vec_env.action_space().clone(),
+            },
+            None,
+        ),
         Request::Reset { seed } => {
             let result = vec_env.reset_all(*seed);
-            Response::from_batch_reset(result)
+            batch_reset_response(result, session, vec_env.observation_space())
         }
         Request::Step { action } => {
             // Single-step: apply to all envs (broadcast same action)
             let actions: Vec<_> = (0..vec_env.num_envs()).map(|_| action.clone()).collect();
             let result = vec_env.step_all(&actions);
-            Response::from_batch_step(result)
+            batch_step_response(result, session, vec_env.observation_space())
         }
         Request::BatchReset { env_ids, seeds } => {
             let result = vec_env.reset_envs(env_ids, seeds.as_deref());
-            Response::from_batch_reset(result)
+            batch_reset_response(result, session, vec_env.observation_space())
         }
         Request::BatchStep { actions } => {
             let result = vec_env.step_all(actions);
-            Response::from_batch_step(result)
+            batch_step_response(result, session, vec_env.observation_space())
         }
-        Request::Close => Response::Close,
+        Request::Close => (Response::Close, None),
         Request::Ping { timestamp } => {
             let server_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-            Response::Pong {
-                timestamp: *timestamp,
-                server_time,
-            }
+            (
+                Response::Pong {
+                    timestamp: *timestamp,
+                    server_time,
+                },
+                None,
+            )
         }
+    }
+}
+
+/// Dispatch a [`clankers_core::types::BatchResetResult`] to either the
+/// pure-JSON [`Response::from_batch_reset`] path or the binary-frame
+/// [`Response::from_batch_reset_binary`] path, based on the session's
+/// `binary_batch` flag and the env's observation space.
+fn batch_reset_response(
+    result: clankers_core::types::BatchResetResult,
+    session: &SessionState,
+    space: &ObservationSpace,
+) -> (Response, Option<Vec<u8>>) {
+    if session.binary_batch
+        && matches!(space, ObservationSpace::Box { .. })
+        && !result.observations.is_empty()
+    {
+        let (enc, payload) = encoding::encode_batch_reset_binary(&result);
+        (
+            Response::from_batch_reset_binary(result, enc),
+            Some(payload),
+        )
+    } else {
+        (Response::from_batch_reset(result), None)
+    }
+}
+
+/// Dispatch a [`clankers_core::types::BatchStepResult`] similarly.
+fn batch_step_response(
+    result: clankers_core::types::BatchStepResult,
+    session: &SessionState,
+    space: &ObservationSpace,
+) -> (Response, Option<Vec<u8>>) {
+    if session.binary_batch
+        && matches!(space, ObservationSpace::Box { .. })
+        && !result.observations.is_empty()
+    {
+        let (enc, payload) = encoding::encode_batch_step_binary(&result);
+        (Response::from_batch_step_binary(result, enc), Some(payload))
+    } else {
+        (Response::from_batch_step(result), None)
     }
 }
 

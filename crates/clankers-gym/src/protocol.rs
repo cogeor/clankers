@@ -18,11 +18,15 @@
 //! [`crate::framing`] for the helpers and
 //! [`crate::encoding::EncodedObservation`] for the JSON header shape.
 //!
-//! Wire format unchanged since `1.0.0`; this is a documentation
-//! correction. The version bump to `1.1.0` advertises that image
-//! observations now ship on `Reset` as well as `Step`.
+//! Wire format unchanged since `1.0.0` for non-batch frames. The
+//! `1.0.0 → 1.1.0` bump advertised that image observations now ship on
+//! `Reset` as well as `Step`. The `1.1.0 → 1.2.0` bump (W7 PR2)
+//! advertises the new `binary_batch` capability: when the client opts
+//! in, batched observations ship as a single `BinaryFrameHeader` +
+//! flat payload on the existing binary channel, rather than as inline
+//! JSON arrays.
 //!
-//! # Annotated hex example
+//! # Annotated hex example — single-env image reset
 //!
 //! A `Reset` response carrying a 64×64×3 RGB image looks like:
 //!
@@ -38,6 +42,30 @@
 //! +--------+--------------------------------------------+
 //! | 4 B LE | 12_288 bytes of raw RGB pixel data         |
 //! | = 12288| (64 * 64 * 3, row-major HWC)               |
+//! +--------+--------------------------------------------+
+//! ```
+//!
+//! # Annotated hex example — batch f32 step (`1.2.0`, opt-in)
+//!
+//! A `BatchStep` response carrying `num_envs=4, obs_dim=8` f32
+//! observations looks like:
+//!
+//! ```text
+//! +--------+--------------------------------------------+
+//! | 4 B LE | JSON envelope                              |
+//! | length | {"type":"batch_step","observations":[      |
+//! |        |   {"data":[]}, {"data":[]},                |
+//! |        |   {"data":[]}, {"data":[]}],               |
+//! |        |  "rewards":[0,0,0,0], "terminated":[...],  |
+//! |        |  "truncated":[...], "infos":[...],         |
+//! |        |  "obs_encoding":{                          |
+//! |        |     "type":"BatchF32","num_envs":4,        |
+//! |        |     "obs_dim":8}}                          |
+//! +--------+--------------------------------------------+
+//! +--------+--------------------------------------------+
+//! | 4 B LE | 24-byte BinaryFrameHeader                  |
+//! | = 24 + |   version=1 kind=0 num_envs=4 dim=8        |
+//! |  128   | 128 bytes of f32 payload (4 * 8 * 4)       |
 //! +--------+--------------------------------------------+
 //! ```
 //!
@@ -243,6 +271,16 @@ pub enum Response {
         observations: Vec<Observation>,
         /// Per-env reset info.
         infos: Vec<ResetInfo>,
+        /// Observation encoding used for this response.
+        ///
+        /// When `Some(EncodedObservation::BatchF32 { .. })` or
+        /// `Some(EncodedObservation::BatchRawU8Image { .. })`, the
+        /// `observations` field contains per-env empty sentinels and a
+        /// single binary frame (header + flat payload) follows
+        /// immediately after the JSON message. Added in protocol
+        /// `1.2.0` to advertise the `binary_batch` capability (W7 PR2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        obs_encoding: Option<EncodedObservation>,
     },
     /// Batched step results for all environments.
     BatchStep {
@@ -257,6 +295,10 @@ pub enum Response {
         truncated: Vec<bool>,
         /// Per-env step info.
         infos: Vec<StepInfo>,
+        /// Observation encoding used for this response. See
+        /// [`Response::BatchReset::obs_encoding`] for semantics.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        obs_encoding: Option<EncodedObservation>,
     },
     /// Acknowledgement of close.
     Close,
@@ -333,6 +375,7 @@ impl Response {
         Self::BatchReset {
             observations: result.observations,
             infos: result.infos,
+            obs_encoding: None,
         }
     }
 
@@ -345,6 +388,41 @@ impl Response {
             terminated: result.terminated,
             truncated: result.truncated,
             infos: result.infos,
+            obs_encoding: None,
+        }
+    }
+
+    /// Create a batch reset response from a [`BatchResetResult`] with
+    /// binary observation encoding.
+    ///
+    /// The per-env `observations` are replaced with empty-length
+    /// sentinels (matches W4's single-env `from_reset_binary`). The
+    /// caller MUST send the encoded binary frame as a follow-up
+    /// length-prefixed binary frame immediately after this JSON message.
+    ///
+    /// Added in protocol `1.2.0` (W7 PR2).
+    #[must_use]
+    pub fn from_batch_reset_binary(result: BatchResetResult, encoding: EncodedObservation) -> Self {
+        let num_envs = result.observations.len();
+        Self::BatchReset {
+            observations: vec![Observation::zeros(0); num_envs],
+            infos: result.infos,
+            obs_encoding: Some(encoding),
+        }
+    }
+
+    /// Create a batch step response from a [`BatchStepResult`] with
+    /// binary observation encoding. See [`Self::from_batch_reset_binary`].
+    #[must_use]
+    pub fn from_batch_step_binary(result: BatchStepResult, encoding: EncodedObservation) -> Self {
+        let num_envs = result.observations.len();
+        Self::BatchStep {
+            observations: vec![Observation::zeros(0); num_envs],
+            rewards: result.rewards,
+            terminated: result.terminated,
+            truncated: result.truncated,
+            infos: result.infos,
+            obs_encoding: Some(encoding),
         }
     }
 
@@ -397,9 +475,12 @@ pub enum ObsEncoding {
 /// Protocol version string (semantic versioning) per `PROTOCOL_SPEC.md`.
 ///
 /// Bumped to `1.1.0` in W4 PR1 to advertise that image observations
-/// now ship on `Reset` as well as `Step` (the wire format itself is
-/// unchanged since `1.0.0`).
-pub const PROTOCOL_VERSION: &str = "1.1.0";
+/// now ship on `Reset` as well as `Step`. Bumped to `1.2.0` in W7 PR2
+/// to advertise the `binary_batch` capability: batched observations
+/// can ship as a single `BinaryFrameHeader` + flat payload on the
+/// existing binary channel. The wire format for non-batch frames and
+/// for non-opt-in clients is unchanged since `1.0.0`.
+pub const PROTOCOL_VERSION: &str = "1.2.0";
 
 /// Maximum JSON payload size in bytes (16 MiB).
 pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
@@ -426,6 +507,11 @@ pub const MAX_ACTION_SIZE: usize = 1024 * 1024;
 ///
 /// let v = negotiate_version("1.0.0", "1.2.1").unwrap();
 /// assert_eq!(v, "1.0.1");
+///
+/// // A 1.1.0 client against a 1.2.0 server downgrades to 1.1.0
+/// // (server's patch is 0, so the negotiated patch is 0).
+/// let v = negotiate_version("1.1.0", "1.2.0").unwrap();
+/// assert_eq!(v, "1.1.0");
 ///
 /// assert!(negotiate_version("2.0.0", "1.0.0").is_err());
 /// ```
@@ -787,6 +873,29 @@ mod tests {
     fn negotiate_invalid_version_string() {
         let err = negotiate_version("bad", "1.0.0").unwrap_err();
         assert!(matches!(err, ProtocolError::InvalidMessage(_)));
+    }
+
+    // ---- W7 PR2: 1.2.0 server negotiating against older clients ----
+
+    #[test]
+    fn negotiate_v110_client_against_v120_server() {
+        // 1.1.0 client + 1.2.0 server: minor downgrade to 1.1.0, server's patch (0).
+        let v = negotiate_version("1.1.0", "1.2.0").unwrap();
+        assert_eq!(v, "1.1.0");
+    }
+
+    #[test]
+    fn negotiate_v100_client_against_v120_server() {
+        // 1.0.0 client + 1.2.0 server: minor downgrade to 1.0.0, server's patch (0).
+        let v = negotiate_version("1.0.0", "1.2.0").unwrap();
+        assert_eq!(v, "1.0.0");
+    }
+
+    #[test]
+    fn negotiate_v120_client_against_v120_server() {
+        // Same version: returns exactly 1.2.0.
+        let v = negotiate_version("1.2.0", "1.2.0").unwrap();
+        assert_eq!(v, "1.2.0");
     }
 
     // ---- Init / Handshake ----
@@ -1170,12 +1279,14 @@ mod tests {
                 },
                 ResetInfo::default(),
             ],
+            obs_encoding: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let resp2: Response = serde_json::from_str(&json).unwrap();
         if let Response::BatchReset {
             observations,
             infos,
+            ..
         } = resp2
         {
             assert_eq!(observations.len(), 2);
@@ -1194,6 +1305,7 @@ mod tests {
             terminated: vec![false, true],
             truncated: vec![false, false],
             infos: vec![StepInfo::default(), StepInfo::default()],
+            obs_encoding: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let resp2: Response = serde_json::from_str(&json).unwrap();
@@ -1227,6 +1339,129 @@ mod tests {
         };
         let resp = Response::from_batch_step(result);
         assert!(matches!(resp, Response::BatchStep { .. }));
+    }
+
+    // ---- W7 PR2: BatchReset / BatchStep + obs_encoding ----
+
+    #[test]
+    fn response_batch_reset_with_encoded_observation_roundtrip() {
+        let resp = Response::BatchReset {
+            observations: vec![Observation::zeros(0), Observation::zeros(0)],
+            infos: vec![ResetInfo::default(), ResetInfo::default()],
+            obs_encoding: Some(EncodedObservation::BatchF32 {
+                num_envs: 2,
+                obs_dim: 4,
+                payload: vec![],
+            }),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::BatchReset { obs_encoding, .. } = resp2 {
+            match obs_encoding.unwrap() {
+                EncodedObservation::BatchF32 {
+                    num_envs, obs_dim, ..
+                } => {
+                    assert_eq!(num_envs, 2);
+                    assert_eq!(obs_dim, 4);
+                }
+                _ => panic!("expected BatchF32"),
+            }
+        } else {
+            panic!("expected BatchReset");
+        }
+    }
+
+    #[test]
+    fn response_batch_step_without_obs_encoding_omits_field() {
+        use clankers_core::types::BatchStepResult;
+        let result = BatchStepResult {
+            observations: vec![Observation::zeros(2)],
+            rewards: vec![0.0],
+            terminated: vec![false],
+            truncated: vec![false],
+            infos: vec![StepInfo::default()],
+        };
+        let resp = Response::from_batch_step(result);
+        let json = serde_json::to_string(&resp).unwrap();
+        // obs_encoding is None → field absent from JSON wire form.
+        assert!(!json.contains("obs_encoding"));
+    }
+
+    #[test]
+    fn response_from_batch_reset_binary_replaces_observations_with_empty_sentinels() {
+        use clankers_core::types::BatchResetResult;
+        let result = BatchResetResult {
+            observations: vec![
+                Observation::new(vec![1.0, 2.0]),
+                Observation::new(vec![3.0, 4.0]),
+                Observation::new(vec![5.0, 6.0]),
+            ],
+            infos: vec![ResetInfo::default(); 3],
+        };
+        let enc = EncodedObservation::BatchF32 {
+            num_envs: 3,
+            obs_dim: 2,
+            payload: vec![],
+        };
+        let resp = Response::from_batch_reset_binary(result, enc);
+        if let Response::BatchReset {
+            observations,
+            obs_encoding,
+            ..
+        } = resp
+        {
+            assert_eq!(observations.len(), 3);
+            assert!(observations.iter().all(Observation::is_empty));
+            assert!(matches!(
+                obs_encoding,
+                Some(EncodedObservation::BatchF32 {
+                    num_envs: 3,
+                    obs_dim: 2,
+                    ..
+                }),
+            ));
+        } else {
+            panic!("expected BatchReset");
+        }
+    }
+
+    #[test]
+    fn response_from_batch_step_binary_replaces_observations_with_empty_sentinels() {
+        use clankers_core::types::BatchStepResult;
+        let result = BatchStepResult {
+            observations: vec![
+                Observation::new(vec![1.0, 2.0]),
+                Observation::new(vec![3.0, 4.0]),
+            ],
+            rewards: vec![0.5, -0.5],
+            terminated: vec![false, true],
+            truncated: vec![false, false],
+            infos: vec![StepInfo::default(); 2],
+        };
+        let enc = EncodedObservation::BatchF32 {
+            num_envs: 2,
+            obs_dim: 2,
+            payload: vec![],
+        };
+        let resp = Response::from_batch_step_binary(result, enc);
+        if let Response::BatchStep {
+            observations,
+            rewards,
+            terminated,
+            obs_encoding,
+            ..
+        } = resp
+        {
+            assert!(observations.iter().all(Observation::is_empty));
+            assert_eq!(rewards, vec![0.5, -0.5]);
+            assert_eq!(terminated, vec![false, true]);
+            assert!(matches!(
+                obs_encoding,
+                Some(EncodedObservation::BatchF32 { .. })
+            ));
+        } else {
+            panic!("expected BatchStep");
+        }
     }
 
     // ---- Protocol version & constants ----

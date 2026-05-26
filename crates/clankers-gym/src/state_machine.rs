@@ -436,6 +436,7 @@ mod tests {
         sm.on_response(&Response::BatchReset {
             observations: vec![clankers_core::types::Observation::zeros(1)],
             infos: vec![clankers_core::types::ResetInfo::default()],
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
     }
@@ -478,6 +479,7 @@ mod tests {
             terminated: vec![true],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::Ready);
     }
@@ -496,6 +498,7 @@ mod tests {
             terminated: vec![false],
             truncated: vec![false],
             infos: vec![clankers_core::types::StepInfo::default()],
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
     }

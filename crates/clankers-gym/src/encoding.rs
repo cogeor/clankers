@@ -29,7 +29,7 @@
 
 use std::collections::BTreeMap;
 
-use clankers_core::types::ObservationSpace;
+use clankers_core::types::{BatchResetResult, BatchStepResult, ObservationSpace};
 use clankers_core::view::ObservationView;
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +116,50 @@ pub enum EncodedObservation {
         /// Per-key sub-observation encodings.
         spaces: BTreeMap<String, Self>,
     },
+    /// Batched `f32` observations carried as a single binary frame.
+    ///
+    /// Added in protocol `1.2.0` (W7 PR2). The JSON header carries
+    /// `num_envs` and `obs_dim`; the raw `f32` bytes (length
+    /// `num_envs * obs_dim * 4`) ship as a separate length-prefixed
+    /// binary frame containing a [`crate::binary_frame::BinaryFrameHeader`]
+    /// + payload.
+    ///
+    /// The `payload` field is `#[serde(skip)]` so it never appears in
+    /// the JSON; on the read side it is reconstructed by calling
+    /// [`crate::binary_frame::decode_batch_f32`] on the follow-up
+    /// binary frame.
+    BatchF32 {
+        /// Number of environments in the batch.
+        num_envs: u32,
+        /// Per-env observation dimensionality.
+        obs_dim: u32,
+        /// In-process payload bytes. Never serialised; populated by the
+        /// read side from the follow-up binary frame.
+        #[serde(skip)]
+        payload: Vec<u8>,
+    },
+    /// Batched raw `u8` image stack carried as a single binary frame.
+    ///
+    /// Added in protocol `1.2.0` (W7 PR2). The header (`num_envs`,
+    /// `width`, `height`, `channels`, `layout`) is JSON; the pixel
+    /// bytes ship as a separate length-prefixed binary frame containing
+    /// a [`crate::binary_frame::BinaryFrameHeader`] + payload.
+    BatchRawU8Image {
+        /// Number of environments in the batch.
+        num_envs: u32,
+        /// Image width in pixels (per env).
+        width: u32,
+        /// Image height in pixels (per env).
+        height: u32,
+        /// Number of channels (e.g. 3 for RGB).
+        channels: u8,
+        /// Memory layout of each per-env image tile.
+        layout: ImageLayout,
+        /// In-process payload bytes. Never serialised; populated by the
+        /// read side from the follow-up binary frame.
+        #[serde(skip)]
+        payload: Vec<u8>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +219,64 @@ pub fn encode_observation(
             None,
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Batch binary encoders (W7 PR2)
+// ---------------------------------------------------------------------------
+
+/// Flatten a batched `f32` step result into an
+/// [`EncodedObservation::BatchF32`] JSON header + a single binary
+/// frame (header + payload) for transmission.
+///
+/// The returned `Vec<u8>` is the bytes to be written as a separate
+/// length-prefixed binary frame immediately after the JSON envelope.
+///
+/// # Panics
+///
+/// Panics if `result.observations` is empty (the dispatch site must
+/// only call this when `num_envs > 0`) or if observations have
+/// inconsistent `obs_dim`.
+#[must_use]
+pub fn encode_batch_step_binary(result: &BatchStepResult) -> (EncodedObservation, Vec<u8>) {
+    encode_batch_flat_f32(&result.observations)
+}
+
+/// Same as [`encode_batch_step_binary`] but for a [`BatchResetResult`].
+#[must_use]
+pub fn encode_batch_reset_binary(result: &BatchResetResult) -> (EncodedObservation, Vec<u8>) {
+    encode_batch_flat_f32(&result.observations)
+}
+
+fn encode_batch_flat_f32(
+    observations: &[clankers_core::types::Observation],
+) -> (EncodedObservation, Vec<u8>) {
+    assert!(
+        !observations.is_empty(),
+        "encode_batch_flat_f32 requires at least one observation",
+    );
+    let num_envs = u32::try_from(observations.len()).expect("num_envs overflows u32");
+    let obs_dim_usize = observations[0].len();
+    let obs_dim = u32::try_from(obs_dim_usize).expect("obs_dim overflows u32");
+
+    let total = num_envs as usize * obs_dim_usize;
+    let mut flat = Vec::with_capacity(total);
+    for obs in observations {
+        debug_assert_eq!(
+            obs.len(),
+            obs_dim_usize,
+            "batch observations must share obs_dim",
+        );
+        flat.extend_from_slice(obs.as_slice());
+    }
+
+    let payload = crate::binary_frame::encode_batch_f32(num_envs, obs_dim, &flat);
+    let enc = EncodedObservation::BatchF32 {
+        num_envs,
+        obs_dim,
+        payload: Vec::new(),
+    };
+    (enc, payload)
 }
 
 // ---------------------------------------------------------------------------
@@ -331,5 +433,136 @@ mod tests {
         let (enc, payload) = encode_observation(&view, &space, false);
         assert!(payload.is_none());
         assert!(matches!(enc, EncodedObservation::FlatF32 { .. }));
+    }
+
+    // ---- W7 PR2: BatchF32 / BatchRawU8Image variants ----
+
+    #[test]
+    fn encoded_observation_batch_f32_roundtrip() {
+        let enc = EncodedObservation::BatchF32 {
+            num_envs: 4,
+            obs_dim: 17,
+            payload: vec![0xAA, 0xBB], // must NOT appear in JSON
+        };
+        let json = serde_json::to_string(&enc).unwrap();
+        assert!(json.contains("BatchF32"));
+        assert!(json.contains("num_envs"));
+        assert!(json.contains("obs_dim"));
+        assert!(!json.contains("payload"));
+
+        let back: EncodedObservation = serde_json::from_str(&json).unwrap();
+        match back {
+            EncodedObservation::BatchF32 {
+                num_envs,
+                obs_dim,
+                payload,
+            } => {
+                assert_eq!(num_envs, 4);
+                assert_eq!(obs_dim, 17);
+                assert!(payload.is_empty());
+            }
+            _ => panic!("expected BatchF32"),
+        }
+    }
+
+    #[test]
+    fn encoded_observation_batch_raw_u8_roundtrip() {
+        let enc = EncodedObservation::BatchRawU8Image {
+            num_envs: 8,
+            width: 64,
+            height: 64,
+            channels: 3,
+            layout: ImageLayout::Hwc,
+            payload: vec![0xCC],
+        };
+        let json = serde_json::to_string(&enc).unwrap();
+        assert!(json.contains("BatchRawU8Image"));
+        assert!(json.contains("num_envs"));
+        assert!(json.contains("width"));
+        assert!(json.contains("height"));
+        assert!(json.contains("channels"));
+        assert!(json.contains("layout"));
+        assert!(json.contains("Hwc"));
+        assert!(!json.contains("payload"));
+
+        let back: EncodedObservation = serde_json::from_str(&json).unwrap();
+        match back {
+            EncodedObservation::BatchRawU8Image {
+                num_envs,
+                width,
+                height,
+                channels,
+                layout,
+                payload,
+            } => {
+                assert_eq!(num_envs, 8);
+                assert_eq!(width, 64);
+                assert_eq!(height, 64);
+                assert_eq!(channels, 3);
+                assert_eq!(layout, ImageLayout::Hwc);
+                assert!(payload.is_empty());
+            }
+            _ => panic!("expected BatchRawU8Image"),
+        }
+    }
+
+    #[test]
+    fn encode_batch_step_binary_produces_flat_payload() {
+        use clankers_core::types::{Observation, StepInfo};
+        let result = BatchStepResult {
+            observations: vec![
+                Observation::new(vec![1.0, 2.0, 3.0]),
+                Observation::new(vec![4.0, 5.0, 6.0]),
+            ],
+            rewards: vec![0.0, 0.0],
+            terminated: vec![false, false],
+            truncated: vec![false, false],
+            infos: vec![StepInfo::default(), StepInfo::default()],
+        };
+        let (enc, payload) = encode_batch_step_binary(&result);
+        match enc {
+            EncodedObservation::BatchF32 {
+                num_envs,
+                obs_dim,
+                payload: jpay,
+            } => {
+                assert_eq!(num_envs, 2);
+                assert_eq!(obs_dim, 3);
+                assert!(jpay.is_empty());
+            }
+            _ => panic!("expected BatchF32"),
+        }
+        // Header is 24 B + 6 f32 = 24 + 24 = 48 B.
+        assert_eq!(payload.len(), 24 + 6 * 4);
+
+        let (header, flat) = crate::binary_frame::decode_batch_f32(&payload).unwrap();
+        assert_eq!(header.num_envs, 2);
+        assert_eq!(header.dim, 3);
+        assert_eq!(flat, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn encode_batch_reset_binary_produces_flat_payload() {
+        use clankers_core::types::{Observation, ResetInfo};
+        let result = BatchResetResult {
+            observations: vec![
+                Observation::new(vec![0.1, 0.2]),
+                Observation::new(vec![0.3, 0.4]),
+            ],
+            infos: vec![ResetInfo::default(), ResetInfo::default()],
+        };
+        let (enc, payload) = encode_batch_reset_binary(&result);
+        assert!(matches!(
+            enc,
+            EncodedObservation::BatchF32 {
+                num_envs: 2,
+                obs_dim: 2,
+                ..
+            },
+        ));
+        let (header, flat) = crate::binary_frame::decode_batch_f32(&payload).unwrap();
+        assert_eq!(header.num_envs, 2);
+        assert_eq!(header.dim, 2);
+        assert_eq!(flat, &[0.1, 0.2, 0.3, 0.4]);
     }
 }

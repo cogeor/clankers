@@ -13,9 +13,14 @@ Channels
     JSON-encoded action vectors (float arrays).
 ``/reward``
     JSON-encoded scalar reward values.
-``/camera/image``
+``/camera/<label>``
     Raw ``uint8`` bytes with ``width`` and ``height`` in the channel
-    metadata. Each message is a flat ``H*W*C`` buffer.
+    metadata. Each message is a flat ``H*W*C`` buffer. The recorder
+    writes one channel per camera label (e.g. ``/camera/front``,
+    ``/camera/wrist``); the loader returns these as
+    ``data["images_by_camera"]: dict[str, NDArray[np.uint8]]``.
+    Back-compat: when a single label ``"image"`` is present,
+    ``data["images"]`` is also populated (same ndarray).
 
 Optional dependency
 -------------------
@@ -31,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from typing import Any
 
 import numpy as np
@@ -72,7 +78,11 @@ class McapEpisodeLoader:
     CHANNEL_JOINT_STATES = "/joint_states"
     CHANNEL_ACTIONS = "/actions"
     CHANNEL_REWARD = "/reward"
-    CHANNEL_IMAGE = "/camera/image"
+    CAMERA_TOPIC_PREFIX = "/camera/"
+    # Back-compat alias for external code that imported
+    # ``McapEpisodeLoader.CHANNEL_IMAGE`` directly. Removal is deferred
+    # one release; see WS6-plan § 8 risk 2.
+    CHANNEL_IMAGE = CAMERA_TOPIC_PREFIX + "image"
     CHANNEL_BODY_POSES = "/body_poses"
 
     def __init__(self, path: str) -> None:
@@ -98,7 +108,12 @@ class McapEpisodeLoader:
         ``rewards`` : NDArray[np.float32] | None, shape (T,)
             Scalar rewards.  ``None`` if channel not present.
         ``images`` : NDArray[np.uint8] | None, shape (T, H, W, C)
-            Camera images.  ``None`` if channel not present.
+            Camera images. Populated only when exactly one camera with
+            label ``"image"`` is present (back-compat). ``None``
+            otherwise; consult ``images_by_camera`` instead.
+        ``images_by_camera`` : dict[str, NDArray[np.uint8]] | None
+            Per-camera images keyed by label. Shape ``(T, H, W, C)``
+            per camera. ``None`` if no camera channels are present.
         """
         if self._loaded is not None:
             return self._loaded
@@ -107,13 +122,14 @@ class McapEpisodeLoader:
             "joint_states": [],
             "actions": [],
             "rewards": [],
-            "images": [],
             "body_poses": [],
             "timestamps_ns": [],
         }
-        # Metadata for images (width, height, channels) extracted from channel
-        # schema or first message.
-        image_meta: dict[str, int] = {}
+        # Per-camera accumulators keyed by label (the substring after
+        # CAMERA_TOPIC_PREFIX in the topic). Filled by the iter_messages
+        # loop; converted to ndarrays in the post-pass below.
+        images_by_camera: dict[str, list[bytes]] = {}
+        image_meta_by_camera: dict[str, dict[str, int]] = {}
 
         with open(self.path, "rb") as f:
             reader = make_reader(f)  # type: ignore[possibly-undefined]
@@ -122,11 +138,14 @@ class McapEpisodeLoader:
             assert summary is not None, "MCAP file has no summary"
             for channel in summary.channels.values():
                 topic = channel.topic
-                if topic == self.CHANNEL_IMAGE and channel.metadata:
+                if topic.startswith(self.CAMERA_TOPIC_PREFIX) and channel.metadata:
+                    label = topic[len(self.CAMERA_TOPIC_PREFIX) :]
+                    meta: dict[str, int] = {}
                     try:
-                        image_meta["width"] = int(channel.metadata.get("width", 0))
-                        image_meta["height"] = int(channel.metadata.get("height", 0))
-                        image_meta["channels"] = int(channel.metadata.get("channels", 3))
+                        meta["width"] = int(channel.metadata.get("width", 0))
+                        meta["height"] = int(channel.metadata.get("height", 0))
+                        meta["channels"] = int(channel.metadata.get("channels", 3))
+                        image_meta_by_camera[label] = meta
                     except (ValueError, TypeError):
                         pass
 
@@ -154,12 +173,9 @@ class McapEpisodeLoader:
                 elif topic == self.CHANNEL_BODY_POSES:
                     frame = json.loads(message.data.decode("utf-8"))
                     raw["body_poses"].append(frame)
-                elif topic == self.CHANNEL_IMAGE:
-                    raw["images"].append(bytes(message.data))
-                    # Try to get image dimensions from first message if metadata missing.
-                    if not image_meta:
-                        # Cannot infer without metadata; will require explicit metadata.
-                        pass
+                elif topic.startswith(self.CAMERA_TOPIC_PREFIX):
+                    label = topic[len(self.CAMERA_TOPIC_PREFIX) :]
+                    images_by_camera.setdefault(label, []).append(bytes(message.data))
 
         result: dict[str, Any] = {
             "timestamps_ns": None,
@@ -169,6 +185,7 @@ class McapEpisodeLoader:
             "actions": None,
             "rewards": None,
             "images": None,
+            "images_by_camera": None,
             "body_poses": None,
         }
 
@@ -189,19 +206,33 @@ class McapEpisodeLoader:
         if raw["rewards"]:
             result["rewards"] = np.array(raw["rewards"], dtype=np.float32)
 
-        if raw["images"] and image_meta:
-            width = image_meta.get("width", 0)
-            height = image_meta.get("height", 0)
-            channels = image_meta.get("channels", 3)
-            if width > 0 and height > 0:
-                frames = []
+        if images_by_camera:
+            per_label: dict[str, np.ndarray] = {}
+            for label, raw_list in images_by_camera.items():
+                label_meta = image_meta_by_camera.get(label)
+                if not label_meta:
+                    continue  # No metadata -> cannot reshape.
+                width = label_meta.get("width", 0)
+                height = label_meta.get("height", 0)
+                channels = label_meta.get("channels", 3)
+                if width <= 0 or height <= 0:
+                    continue
                 expected = height * width * channels
-                for raw_bytes in raw["images"]:
+                frames = []
+                for raw_bytes in raw_list:
                     arr = np.frombuffer(raw_bytes, dtype=np.uint8)
                     if arr.size == expected:
                         frames.append(arr.reshape(height, width, channels))
                 if frames:
-                    result["images"] = np.stack(frames, axis=0)
+                    per_label[label] = np.stack(frames, axis=0)
+            if per_label:
+                result["images_by_camera"] = per_label
+                # Back-compat: when the only camera is labelled "image",
+                # mirror its ndarray to result["images"] (no copy --
+                # object-identity preserved, asserted by
+                # test_single_camera_back_compat).
+                if set(per_label.keys()) == {"image"}:
+                    result["images"] = per_label["image"]
 
         if raw["body_poses"]:
             # Each entry is a dict with "timestamp_ns" and "poses" keys.
@@ -248,6 +279,21 @@ class McapEpisodeLoader:
             assert imgs is not None
             # Transpose to channel-first: (T, C, H, W).
             obs_array = imgs.transpose(0, 3, 1, 2)
+        elif data.get("images_by_camera"):
+            cameras = data["images_by_camera"]
+            assert cameras is not None
+            # Deterministic pick: alphabetically-first camera label.
+            label = sorted(cameras)[0]
+            if len(cameras) > 1:
+                warnings.warn(
+                    f"Multiple cameras present ({sorted(cameras)!r}); "
+                    f"to_sb3_replay_buffer picked {label!r}. Pass a "
+                    f"specific camera via a follow-up loader API.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            # Transpose to channel-first: (T, C, H, W).
+            obs_array = cameras[label].transpose(0, 3, 1, 2)
         elif data.get("joint_positions") is not None:
             obs_array = data["joint_positions"]
         else:

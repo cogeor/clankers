@@ -19,6 +19,8 @@ sys.path.insert(0, "python/examples")
 from clankers.joint_encoder import JointEncoder
 from clankers.trajectory_dataset import TrajectoryDataset
 
+pytestmark = pytest.mark.slow
+
 
 def _make_trace(n_steps: int = 50, n_joints: int = 6, dt: float = 0.02) -> dict:
     """Generate a synthetic trace with smooth sinusoidal motion."""

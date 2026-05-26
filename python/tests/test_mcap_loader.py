@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -92,6 +93,46 @@ def _write_synthetic_mcap(path: str) -> None:
                 publish_time=ts,
                 data=json.dumps(reward).encode("utf-8"),
             )
+
+        writer.finish()
+
+
+def _write_single_camera_mcap(path: str) -> None:
+    """Write a synthetic MCAP file with ONE ``/camera/image`` channel.
+
+    Used by :func:`test_single_camera_back_compat` to pin the back-compat
+    contract: a single-label ``"image"`` MCAP populates both
+    ``data["images"]`` AND ``data["images_by_camera"]["image"]`` with the
+    SAME ndarray (no copy).
+    """
+    width = 8
+    height = 8
+    channels = 3
+    frame_bytes = bytes(width * height * channels)  # one zero-filled frame
+
+    with open(path, "wb") as f:
+        writer = Writer(f, compression=CompressionType.NONE)
+        writer.start()
+
+        schema_id = writer.register_schema(name="raw", encoding="", data=b"")
+        image_ch = writer.register_channel(
+            topic="/camera/image",
+            message_encoding="raw",
+            schema_id=schema_id,
+            metadata={
+                "width": str(width),
+                "height": str(height),
+                "channels": str(channels),
+            },
+        )
+
+        ts = 1_000_000
+        writer.add_message(
+            channel_id=image_ch,
+            log_time=ts,
+            publish_time=ts,
+            data=frame_bytes,
+        )
 
         writer.finish()
 
@@ -355,3 +396,94 @@ class TestLoaderErrors:
 
         with pytest.raises((FileNotFoundError, OSError)):
             loader.load()
+
+
+# ---------------------------------------------------------------------------
+# Multi-camera tests (WS6 PR2)
+# ---------------------------------------------------------------------------
+
+
+def test_multi_camera_discovery():
+    """Loads the loop-01 fixture and discovers both camera labels."""
+    from clankers.mcap_loader import McapEpisodeLoader
+
+    # Fixture lives at python/tests/fixtures/two_camera.mcap; resolve
+    # relative to this test file so both pytest (from python/) and
+    # direct invocation (from repo root) work.
+    fixture = Path(__file__).parent / "fixtures" / "two_camera.mcap"
+    loader = McapEpisodeLoader(str(fixture))
+    data = loader.load()
+
+    assert data["images_by_camera"] is not None
+    assert set(data["images_by_camera"].keys()) == {"front", "wrist"}
+    # 3 frames per camera x 16x16x3 (loop 01 IMPLEMENTATION.md confirms).
+    assert data["images_by_camera"]["front"].shape == (3, 16, 16, 3)
+    assert data["images_by_camera"]["front"].dtype == np.uint8
+    # Multi-camera => back-compat images key stays None.
+    assert data["images"] is None
+
+
+def test_single_camera_back_compat(tmp_path):
+    """Single ``/camera/image`` channel populates both keys (same ndarray)."""
+    from clankers.mcap_loader import McapEpisodeLoader
+
+    path = str(tmp_path / "single_cam.mcap")
+    _write_single_camera_mcap(path)
+
+    data = McapEpisodeLoader(path).load()
+    assert data["images"] is not None
+    assert data["images"].shape == (1, 8, 8, 3)
+    assert data["images_by_camera"] == {"image": data["images"]}
+    # Object-identity: back-compat key is the SAME ndarray, no copy.
+    assert data["images_by_camera"]["image"] is data["images"]
+
+
+def test_no_camera_returns_none(synthetic_mcap):
+    """Joint-only MCAP returns ``images=None`` and ``images_by_camera=None``."""
+    from clankers.mcap_loader import McapEpisodeLoader
+
+    # synthetic_mcap fixture already produces a joint+action+reward MCAP
+    # with NO camera channels (see _write_synthetic_mcap at the top of
+    # this file).
+    data = McapEpisodeLoader(synthetic_mcap).load()
+    assert data["images"] is None
+    # No /camera/* channels at all => images_by_camera stays at the
+    # init sentinel (None). WS6-plan deviation: ships `is None` (not
+    # `== {}`) for symmetry with every other "absent channel" sentinel
+    # in `result`. See loop 02 PLAN deviation 2 / Risk R6.
+    assert data["images_by_camera"] is None
+
+
+def test_multi_camera_sb3_replay_buffer_picks_first_camera_sorted():
+    """Multi-camera fixture => SB3 buffer picks alphabetically-first label.
+
+    The loop-01 fixture has only camera channels (no /actions, no /reward).
+    ``to_sb3_replay_buffer()`` first emits the multi-camera ``UserWarning``
+    from the alphabetic-pick logic, then raises ``ValueError`` for the
+    missing ``/actions`` channel. We assert both: the warning IS the
+    first-camera-pick contract; the ValueError is downstream.
+    """
+    from clankers.mcap_loader import McapEpisodeLoader
+
+    fixture = Path(__file__).parent / "fixtures" / "two_camera.mcap"
+    loader = McapEpisodeLoader(str(fixture))
+
+    with (
+        pytest.warns(UserWarning, match="Multiple cameras"),
+        pytest.raises(ValueError, match=r"missing /actions"),
+    ):
+        loader.to_sb3_replay_buffer()
+
+
+def test_loader_constants_exported():
+    """Public class constants survive the rewrite."""
+    from clankers.mcap_loader import McapEpisodeLoader
+
+    assert McapEpisodeLoader.CAMERA_TOPIC_PREFIX == "/camera/"
+    # Back-compat alias must point to the canonical single-camera topic.
+    assert McapEpisodeLoader.CHANNEL_IMAGE == "/camera/image"
+    # Other constants untouched.
+    assert McapEpisodeLoader.CHANNEL_JOINT_STATES == "/joint_states"
+    assert McapEpisodeLoader.CHANNEL_ACTIONS == "/actions"
+    assert McapEpisodeLoader.CHANNEL_REWARD == "/reward"
+    assert McapEpisodeLoader.CHANNEL_BODY_POSES == "/body_poses"

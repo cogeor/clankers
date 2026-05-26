@@ -1984,6 +1984,7 @@ dependencies = [
  "clankers-viz",
  "clap",
  "ctrlc",
+ "mcap",
  "predicates",
  "serde",
  "serde_json",

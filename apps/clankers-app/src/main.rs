@@ -1,9 +1,4 @@
-//! Clankers robotics simulation CLI.
-//!
-//! Subcommands ship in W5 across PR1–PR4. Read-only (`info`, `validate`,
-//! `inspect`) ship in PR1; write/run (`run`, `serve`, `record`, `replay`,
-//! `bench`) ship in PR2–PR4. The legacy `headless`, `serve`, `viz`
-//! variants remain available during the transition.
+//! Clankers robotics simulation CLI. Subcommands ship in W5 PR1–PR4.
 
 use std::process::ExitCode;
 
@@ -12,6 +7,8 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 use commands::inspect::InspectTarget;
+use commands::record::RecordArgs;
+use commands::replay::ReplayArgs;
 use commands::run::RunArgs;
 use commands::serve::ServeArgs;
 use commands::validate::ValidateArgs;
@@ -51,8 +48,16 @@ enum Commands {
     /// clients.
     Serve(ServeArgs),
 
-    // ---- Legacy (preserved during W5 PR1–PR2) -------------------------
-    /// Run episodes locally with the legacy empty-app body.
+    // ---- W5 PR3: data lifecycle ---------------------------------------
+    /// Capture a scenario run to MCAP.
+    Record(RecordArgs),
+
+    /// Replay an MCAP recording.
+    Replay(ReplayArgs),
+
+    // ---- Legacy (preserved during W5 PR1–PR3; removal is W8 PR3) -----
+    /// Deprecated: use `run --scenario <name>`. Hidden from `--help`.
+    #[command(hide = true)]
     Headless {
         #[arg(short = 'n', long, default_value_t = 1)]
         episodes: u32,
@@ -83,11 +88,14 @@ fn main() -> ExitCode {
         Some(Commands::Inspect { target }) => commands::inspect::execute(target),
         Some(Commands::Run(args)) => commands::run::execute(&args),
         Some(Commands::Serve(args)) => commands::serve::execute(&args),
+        Some(Commands::Record(args)) => commands::record::execute(&args),
+        Some(Commands::Replay(args)) => commands::replay::execute(&args),
         Some(Commands::Headless {
             episodes,
             max_steps,
             seed,
         }) => {
+            eprintln!("clankers-app headless is deprecated; use `run --scenario <name>` instead.");
             commands::run::execute_default(episodes, max_steps, seed);
             ExitCode::SUCCESS
         }

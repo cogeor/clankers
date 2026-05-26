@@ -8,7 +8,7 @@ Binary observation protocol
 ---------------------------
 When ``binary_obs=True`` is requested (via capabilities), the server may
 respond to step requests with an ``obs_encoding`` field in the JSON.  If
-``obs_encoding["type"] == "RawU8"``, a second framed binary message
+``obs_encoding["type"] == "RawU8Image"``, a second framed binary message
 immediately follows the JSON frame.  The helper :meth:`recv_binary_frame`
 reads that follow-up frame (4-byte LE u32 length + raw bytes).
 """
@@ -23,12 +23,12 @@ from typing import Any
 
 import numpy as np
 
+from clankers._errors import ProtocolError  # re-export for back-compat
+
 PROTOCOL_VERSION = "1.0.0"
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024  # 16 MiB
 
-
-class ProtocolError(Exception):
-    """Raised when a protocol-level error occurs."""
+__all__ = ["GymClient", "ProtocolError", "PROTOCOL_VERSION", "MAX_MESSAGE_SIZE"]
 
 
 class GymClient:
@@ -64,7 +64,7 @@ class GymClient:
         self._sock: socket.socket | None = None
         self._negotiated_capabilities: dict[str, bool] = {}
         self._env_info: dict[str, Any] = {}
-        # Set when binary_obs is negotiated and the server sends RawU8 frames.
+        # Set when binary_obs is negotiated and the server sends RawU8Image frames.
         self._binary_obs_active: bool = False
 
     @property
@@ -119,22 +119,26 @@ class GymClient:
     def send(self, request: dict[str, Any]) -> dict[str, Any]:
         """Send a request and return the response.
 
-        For step requests, if the server negotiated ``binary_obs`` and responds
-        with ``obs_encoding.type == "RawU8"``, the observation is decoded from
-        a follow-up binary frame and stored under ``"_image_obs"`` in the
-        returned dict as a ``np.ndarray`` of shape ``(H, W, C)`` and
-        dtype ``uint8``.  The original ``observation`` sentinel field is still
-        present for backward compatibility but its data should be ignored.
+        For step *and* reset requests, if the server negotiated ``binary_obs``
+        and responds with ``obs_encoding.type == "RawU8Image"``, the
+        observation is decoded from a follow-up binary frame and stored under
+        ``"_image_obs"`` in the returned dict as a ``np.ndarray`` of shape
+        ``(H, W, C)`` and dtype ``uint8``.  The original ``observation``
+        sentinel field is still present for backward compatibility but its
+        data should be ignored.
+
+        Image-on-reset parity was added server-side in W4 PR1 (loop 03); the
+        dispatcher below is response-shape-agnostic so the same decode path
+        applies to both ``Response::Step`` and ``Response::Reset``.
         """
         if self._sock is None:
-            msg = "Not connected. Call connect() first."
-            raise ProtocolError(msg)
+            raise ProtocolError("not connected: call connect() first")
         self._send_raw(request)
         resp = self._recv_raw()
 
-        # Binary obs path: read extra binary frame if server sends RawU8.
+        # Binary obs path: read extra binary frame if server sends RawU8Image.
         obs_encoding = resp.get("obs_encoding")
-        if obs_encoding is not None and obs_encoding.get("type") == "RawU8":
+        if obs_encoding is not None and obs_encoding.get("type") == "RawU8Image":
             width = int(obs_encoding["width"])
             height = int(obs_encoding["height"])
             channels = int(obs_encoding["channels"])
@@ -176,7 +180,8 @@ class GymClient:
 
     def _send_raw(self, msg: dict[str, Any]) -> None:
         """Encode and send a length-prefixed JSON message."""
-        assert self._sock is not None
+        if self._sock is None:
+            raise ProtocolError("not connected: call connect() first")
         payload = json.dumps(msg).encode("utf-8")
         if len(payload) > MAX_MESSAGE_SIZE:
             msg_str = f"Payload too large: {len(payload)} bytes"
@@ -186,7 +191,8 @@ class GymClient:
 
     def _recv_raw(self) -> dict[str, Any]:
         """Read a length-prefixed JSON message."""
-        assert self._sock is not None
+        if self._sock is None:
+            raise ProtocolError("not connected: call connect() first")
         header = self._recv_exact(4)
         if len(header) < 4:
             raise ProtocolError("Connection closed during read")
@@ -200,7 +206,8 @@ class GymClient:
 
     def _recv_exact(self, n: int) -> bytes:
         """Read exactly n bytes from the socket."""
-        assert self._sock is not None
+        if self._sock is None:
+            raise ProtocolError("not connected: call connect() first")
         data = bytearray()
         while len(data) < n:
             chunk = self._sock.recv(n - len(data))

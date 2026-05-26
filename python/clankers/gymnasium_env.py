@@ -157,7 +157,7 @@ class ClankerGymnasiumEnv(gymnasium.Env):  # type: ignore[misc]
     def _obs_from_resp(self, resp: dict[str, Any]) -> _FlatObs | _ImageObs:
         """Extract the observation array from a step/reset response dict."""
         if getattr(self, "_image_obs_mode", False):
-            # Binary obs path: server sends RawU8 encoded image.
+            # Binary obs path: server sends RawU8Image encoded image.
             image = resp.get("_image_obs")
             if image is not None:
                 # image is (H, W, C); transpose to (C, H, W) unless channel_last.

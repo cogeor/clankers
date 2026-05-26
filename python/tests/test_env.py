@@ -16,6 +16,8 @@ class TestClankerEnv:
         env._connected = False
         env.observation_space = None
         env.action_space = None
+        env._schema = None
+        env._validated_this_episode = False
 
         env._client.connect.return_value = {
             "type": "init_response",
@@ -34,6 +36,8 @@ class TestClankerEnv:
         env = ClankerEnv.__new__(ClankerEnv)
         env._client = MagicMock()
         env._connected = True
+        env._schema = None
+        env._validated_this_episode = False
 
         env._client.send.return_value = {
             "type": "reset",
@@ -50,6 +54,8 @@ class TestClankerEnv:
         env = ClankerEnv.__new__(ClankerEnv)
         env._client = MagicMock()
         env._connected = True
+        env._schema = None
+        env._validated_this_episode = False
 
         env._client.send.return_value = {
             "type": "step",
@@ -72,6 +78,8 @@ class TestClankerEnv:
         env = ClankerEnv.__new__(ClankerEnv)
         env._client = MagicMock()
         env._connected = True
+        env._schema = None
+        env._validated_this_episode = False
 
         env._client.send.return_value = {
             "type": "step",
@@ -89,6 +97,8 @@ class TestClankerEnv:
         env = ClankerEnv.__new__(ClankerEnv)
         env._client = MagicMock()
         env._connected = True
+        env._schema = None
+        env._validated_this_episode = False
 
         env.close()
         env._client.close.assert_called_once()
@@ -98,6 +108,8 @@ class TestClankerEnv:
         env = ClankerEnv.__new__(ClankerEnv)
         env._client = MagicMock()
         env._connected = True
+        env._schema = None
+        env._validated_this_episode = False
 
         with env:
             pass

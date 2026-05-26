@@ -1,5 +1,6 @@
 """Clanker Gym: Python client for Clankers simulation training."""
 
+from clankers._errors import ProtocolError
 from clankers.client import GymClient
 from clankers.env import ClankerEnv
 from clankers.rewards import (
@@ -26,6 +27,8 @@ __all__ = [
     "Box",
     "Dict",
     "Discrete",
+    # Errors
+    "ProtocolError",
     "GymClient",
     "ClankerEnv",
     "ClankerVecEnv",

@@ -33,7 +33,16 @@ __pycache__/
 
 # Notes, scratch reports, ad-hoc captures.
 # Anything experimental or one-off lives here. Promote to docs/ when it earns its place.
-notes/
+# Use `notes/*` (not `notes/`) so we can un-ignore specific subpaths below.
+notes/*
+# Exception: tracked baseline CSVs for `clankers-app bench` regression
+# checks (W5 PR4). The schema is LOCKED in
+# apps/clankers-app/src/commands/bench.rs; W8 CI compares fresh runs
+# against these committed values. Only .csv files in this directory are
+# tracked — keep one row per scenario.
+!notes/baselines/
+notes/baselines/*
+!notes/baselines/*.csv
 
 # Generated simulation captures / datasets.
 # Keep small fixtures under crates/*/tests/fixtures/ or a dedicated fixtures/ tree.

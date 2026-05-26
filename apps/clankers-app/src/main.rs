@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod commands;
 
+use commands::bench::BenchArgs;
 use commands::inspect::InspectTarget;
 use commands::record::RecordArgs;
 use commands::replay::ReplayArgs;
@@ -23,7 +24,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    // ---- W5 PR1: read-only ---------------------------------------------
     /// Print workspace metadata.
     Info {
         /// Emit structured JSON to stdout.
@@ -40,7 +40,6 @@ enum Commands {
         target: InspectTarget,
     },
 
-    // ---- W5 PR2: scenario-driven --------------------------------------
     /// Run a scenario locally and print per-episode summaries.
     Run(RunArgs),
 
@@ -48,14 +47,15 @@ enum Commands {
     /// clients.
     Serve(ServeArgs),
 
-    // ---- W5 PR3: data lifecycle ---------------------------------------
     /// Capture a scenario run to MCAP.
     Record(RecordArgs),
 
     /// Replay an MCAP recording.
     Replay(ReplayArgs),
 
-    // ---- Legacy (preserved during W5 PR1–PR3; removal is W8 PR3) -----
+    /// Measure scenario throughput headlessly; emit CSV/JSON row.
+    Bench(BenchArgs),
+
     /// Deprecated: use `run --scenario <name>`. Hidden from `--help`.
     #[command(hide = true)]
     Headless {
@@ -90,6 +90,7 @@ fn main() -> ExitCode {
         Some(Commands::Serve(args)) => commands::serve::execute(&args),
         Some(Commands::Record(args)) => commands::record::execute(&args),
         Some(Commands::Replay(args)) => commands::replay::execute(&args),
+        Some(Commands::Bench(args)) => commands::bench::execute(&args),
         Some(Commands::Headless {
             episodes,
             max_steps,

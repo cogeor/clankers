@@ -17,6 +17,7 @@ clankers-physics.workspace = true
 clankers-record.workspace = true
 clankers-teleop.workspace = true
 mcap = { workspace = true }
+csv = { workspace = true }
 clankers-urdf.workspace = true
 clankers-viz.workspace = true
 bevy = { workspace = true, features = ["default"] }

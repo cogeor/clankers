@@ -26,6 +26,7 @@
 use std::process::ExitCode;
 
 use clankers_sim::{ScenarioRegistry, scenarios::register_builtin};
+use clap::Args;
 use serde::Serialize;
 
 const CRATES_HAND_CURATED: &[&str] = &[
@@ -38,6 +39,25 @@ const CRATES_HAND_CURATED: &[&str] = &[
     "clankers-physics",
     "clankers-viz",
 ];
+
+/// Flags for `clankers-app info`.
+#[derive(Args, Debug)]
+pub struct InfoArgs {
+    /// Emit structured JSON to stdout.
+    #[arg(long)]
+    pub json: bool,
+    /// W7 PR4 diagnostic: print a JSON object describing the recorder
+    /// dropped-frame state.
+    ///
+    /// **Loop-6 plan-deviation:** the printed value is always 0 because
+    /// reading a live `DroppedFrames` counter requires cross-process
+    /// IPC out of scope for this loop. The flag plumbing exists so the
+    /// end-to-end shape is stable; W8 will tighten the value semantics
+    /// when the recorder grows a status socket. Tests assert only the
+    /// JSON shape, not the numeric value.
+    #[arg(long)]
+    pub record_stats: bool,
+}
 
 #[derive(Serialize)]
 struct CrateEntry {
@@ -55,8 +75,22 @@ struct InfoOutput {
     scenarios: Vec<&'static str>,
 }
 
+#[derive(Serialize)]
+struct RecordStatsOutput {
+    dropped_frames: u64,
+}
+
 /// Print workspace metadata. Returns `SUCCESS` unconditionally.
-pub fn execute(json: bool) -> ExitCode {
+pub fn execute(args: &InfoArgs) -> ExitCode {
+    if args.record_stats {
+        // Plan-deviation: reading a live recorder counter requires
+        // IPC. For W7 PR4 we surface the JSON shape with a static 0.
+        let stats = RecordStatsOutput { dropped_frames: 0 };
+        let s = serde_json::to_string(&stats).expect("RecordStatsOutput serialisable");
+        println!("{s}");
+        return ExitCode::SUCCESS;
+    }
+
     let mut registry = ScenarioRegistry::new();
     register_builtin(&mut registry);
     let scenarios = registry.list_builtin();
@@ -83,7 +117,7 @@ pub fn execute(json: bool) -> ExitCode {
         scenarios,
     };
 
-    if json {
+    if args.json {
         let s = serde_json::to_string_pretty(&out).expect("InfoOutput is always serializable");
         println!("{s}");
     } else {

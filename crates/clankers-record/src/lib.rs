@@ -24,6 +24,7 @@
 //! app.add_plugins(RecorderPlugin);
 //! ```
 
+pub mod async_writer;
 pub mod plugin;
 pub mod recorder;
 pub mod schema;
@@ -35,11 +36,12 @@ pub mod types;
 
 pub mod prelude {
     pub use crate::{
+        async_writer::{AsyncRecorder, AsyncSink, DroppedFrames, RecorderMessage},
         plugin::RecorderPlugin,
         recorder::{PendingAction, PendingBodyPoses, PendingReward, Recorder, RecordingConfig},
         schema::{
-            ACTIONS_TOPIC, BODY_POSES_TOPIC, CAMERA_TOPIC_PREFIX, JOINT_STATES_TOPIC, REWARD_TOPIC,
-            camera_topic, recorder_schema,
+            ACTIONS_TOPIC, BODY_POSES_TOPIC, CAMERA_TOPIC_PREFIX, JOINT_STATES_TOPIC,
+            MANIFEST_TOPIC, REWARD_TOPIC, camera_topic, recorder_schema,
         },
         types::{ActionFrame, BodyPoseFrame, ImageFrame, JointFrame, RewardFrame},
     };
@@ -69,6 +71,7 @@ mod tests {
             record_actions: false,
             record_rewards: false,
             record_body_poses: false,
+            ..RecordingConfig::default()
         });
         app.add_plugins(RecorderPlugin);
         app.finish();

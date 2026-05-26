@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 use commands::bench::BenchArgs;
+use commands::info::InfoArgs;
 use commands::inspect::InspectTarget;
 use commands::record::RecordArgs;
 use commands::replay::ReplayArgs;
@@ -25,11 +26,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Print workspace metadata.
-    Info {
-        /// Emit structured JSON to stdout.
-        #[arg(long)]
-        json: bool,
-    },
+    Info(InfoArgs),
 
     /// Validate a URDF / scenario / scene / policy artefact.
     Validate(ValidateArgs),
@@ -83,7 +80,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Info { json }) => commands::info::execute(json),
+        Some(Commands::Info(args)) => commands::info::execute(&args),
         Some(Commands::Validate(args)) => commands::validate::execute(&args),
         Some(Commands::Inspect { target }) => commands::inspect::execute(target),
         Some(Commands::Run(args)) => commands::run::execute(&args),

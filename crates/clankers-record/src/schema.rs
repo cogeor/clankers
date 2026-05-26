@@ -56,6 +56,19 @@ pub const BODY_POSES_TOPIC: &str = "/body_poses";
 /// `L` is `"/camera/L"` — build it with [`camera_topic`].
 pub const CAMERA_TOPIC_PREFIX: &str = "/camera/";
 
+/// Topic for the versioned [`RecorderSchema`] manifest record written
+/// **once** at recording open, immediately after channel registration.
+///
+/// The manifest is the W6 PR1 [`recorder_schema`] output serialised as
+/// JSON; see
+/// [`crate::recorder::setup_channels`] for the write site. The Python
+/// loader prefers the manifest over topic-glob discovery; if the
+/// manifest is missing or empty the loader falls back to the per-topic
+/// scan. The W7 PR4 loop attaches the manifest with zero camera labels;
+/// per-camera entries are discovered lazily from the channel set at
+/// load time (see the loop 01 deferral discussion).
+pub const MANIFEST_TOPIC: &str = "/manifest";
+
 // ---------------------------------------------------------------------------
 // Topic builder
 // ---------------------------------------------------------------------------
@@ -186,6 +199,7 @@ mod tests {
         assert_eq!(REWARD_TOPIC, "/reward");
         assert_eq!(BODY_POSES_TOPIC, "/body_poses");
         assert_eq!(CAMERA_TOPIC_PREFIX, "/camera/");
+        assert_eq!(MANIFEST_TOPIC, "/manifest");
     }
 
     #[test]

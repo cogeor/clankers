@@ -31,6 +31,18 @@ ctrlc = "3"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+# Criterion target shares the W7 PR4 `bench vec` body with the CLI so
+# `cargo bench --bench vec` and `clankers bench vec` produce matching
+# numbers. `default-features = false` strips the gnuplot HTML reports
+# that would otherwise need a system `gnuplot` install.
+criterion = { version = "0.5", default-features = false }
+
+# The bench target lives at the workspace root `benches/vec.rs` per
+# LOOPS.yaml loop 6. The path is relative to this Cargo.toml.
+[[bench]]
+name = "vec"
+path = "../../benches/vec.rs"
+harness = false
 
 [lints]
 workspace = true

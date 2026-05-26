@@ -41,9 +41,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test -j 24 --workspace --exclude clankers-examples
-      - run: cargo doc --workspace --no-deps
+      - run: cargo clippy -j 8 --workspace --all-targets -- -D warnings
+      - run: cargo test -j 8 --workspace --exclude clankers-examples
+      - run: cargo doc -j 8 --workspace --no-deps
+      # W7 PR4: baseline regression gate. Builds the release CLI,
+      # runs a lightweight `bench vec` sweep, and compares against the
+      # committed baseline with a 15% slowdown tolerance. The
+      # comparator is stdlib-only Python so it does not depend on the
+      # `python` job above. CLAUDE.md mandates `-j 8` workspace-wide
+      # because the paging file cannot absorb `-j 24` during the
+      # release build's link step.
+      - name: Bench regression gate
+        env:
+          RAYON_NUM_THREADS: "8"
+        run: |
+          cargo build -j 8 -p clankers-app --release
+          ./target/release/clankers-app bench vec \
+            --envs 1,2,4,8 \
+            --runs 3 \
+            --warmup-runs 1 \
+            --max-steps 500 \
+            --csv benches/current_vec.csv
+          python scripts/compare_baseline.py \
+            benches/current_vec.csv \
+            notes/baselines/vec_baseline.csv \
+            --tolerance 0.15
 
   python:
     name: Python

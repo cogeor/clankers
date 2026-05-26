@@ -151,6 +151,7 @@ fn main() {
         record_actions: false,
         record_rewards: false,
         record_body_poses: false,
+        ..RecordingConfig::default()
     });
     app.add_plugins(RecorderPlugin);
 

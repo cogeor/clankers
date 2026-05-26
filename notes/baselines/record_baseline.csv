@@ -1,0 +1,5 @@
+scenario,steps,runs,max_steps,wall_ms_total,wall_ms_per_run_mean,wall_ms_per_run_std,steps_per_sec_mean,step_us_p50,step_us_p99,notes,num_envs,p95_us,dropped_frames,throughput_x
+record_sync,50000,5,1000,78.3072,15.661439999999999,1.773140686183699,644289.122277371,0.5,1.3,hostname=PC1;commit=local;unix_ts=1779798072;profile=release-like;warmup_runs=3;kind=record;mode=sync;joints=8;frames=10000,0,0.7,0,0.0
+record_async@256,50000,5,1000,36.1228,7.224559999999999,0.1313681201814198,1384531.9770550414,0.39999999999999997,0.7,hostname=PC1;commit=local;unix_ts=1779798073;profile=release-like;warmup_runs=3;kind=record;mode=async@256;joints=8;frames=10000,0,0.5,3320,0.0
+record_async@1024,50000,5,1000,36.0795,7.2159,0.13584062352624887,1386219.8926821896,0.3,0.6,hostname=PC1;commit=local;unix_ts=1779798073;profile=release-like;warmup_runs=3;kind=record;mode=async@1024;joints=8;frames=10000,0,0.5,2552,0.0
+record_async@4096,50000,5,1000,35.4682,7.093640000000001,0.12992556715288925,1410095.018803976,0.3,0.7,hostname=PC1;commit=local;unix_ts=1779798073;profile=release-like;warmup_runs=3;kind=record;mode=async@4096;joints=8;frames=10000,0,0.5,0,0.0

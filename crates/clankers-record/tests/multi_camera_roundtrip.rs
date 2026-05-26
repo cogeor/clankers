@@ -80,6 +80,7 @@ fn recorder_writes_per_label_topics() {
             record_actions: false,
             record_rewards: false,
             record_body_poses: false,
+            ..RecordingConfig::default()
         });
         app.add_plugins(RecorderPlugin);
         app.finish();
@@ -130,6 +131,68 @@ fn recorder_topic_constants_match_doc_table() {
     assert_eq!(clankers_record::schema::REWARD_TOPIC, "/reward");
     assert_eq!(clankers_record::schema::BODY_POSES_TOPIC, "/body_poses");
     assert_eq!(clankers_record::schema::CAMERA_TOPIC_PREFIX, "/camera/");
+}
+
+/// W7 PR4: the recorder writes a [`clankers_record::schema::recorder_schema`]
+/// manifest record on the [`clankers_record::schema::MANIFEST_TOPIC`]
+/// channel as the **first** MCAP message of every recording. This test
+/// closes the W6 PR1 deferral.
+#[test]
+fn manifest_record_attached_as_first_message() {
+    let path = temp_mcap_path("manifest_first");
+    {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(SimTime::new());
+        // No cameras — the manifest carries zero camera labels on
+        // first emission per the W7 PR4 lazy-camera design.
+        app.insert_resource(RecordingConfig {
+            output_path: path.clone(),
+            record_joints: false,
+            record_actions: false,
+            record_rewards: false,
+            record_body_poses: false,
+            ..RecordingConfig::default()
+        });
+        app.add_plugins(RecorderPlugin);
+        app.finish();
+        app.cleanup();
+        app.update();
+    }
+
+    let data = std::fs::read(&path).expect("read mcap file");
+    let stream = mcap::MessageStream::new(&data).expect("parse mcap");
+
+    // Take the first message in stream order. The manifest write happens
+    // during `setup_channels` (before any per-frame writer runs), so it
+    // must be record #0.
+    let first = stream
+        .into_iter()
+        .next()
+        .expect("expected at least one message")
+        .expect("read first message");
+    assert_eq!(
+        first.channel.topic,
+        clankers_record::schema::MANIFEST_TOPIC,
+        "first message must be the /manifest record"
+    );
+
+    // The payload decodes to a RecorderSchema with the four fixed
+    // channels and zero camera entries.
+    let manifest: clankers_core::schema::RecorderSchema =
+        serde_json::from_slice(&first.data).expect("manifest deserializes");
+    assert_eq!(
+        manifest.version,
+        clankers_core::schema::RecorderSchema::SCHEMA_VERSION
+    );
+    assert_eq!(
+        manifest.channels.len(),
+        4,
+        "expected 4 fixed channels and 0 camera entries, got {}",
+        manifest.channels.len()
+    );
+
+    let _ = std::fs::remove_file(&path);
 }
 
 /// `camera_topic(label)` is the single source of truth — verify the

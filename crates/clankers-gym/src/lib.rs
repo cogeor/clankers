@@ -16,6 +16,7 @@
 //! Connections begin with a handshake (`Init`/`InitResponse`) and then
 //! follow the standard Gymnasium `reset`/`step`/`close` pattern.
 
+pub mod encoding;
 pub mod env;
 pub mod framing;
 pub mod protocol;
@@ -27,10 +28,12 @@ pub mod vec_env;
 // Re-exports
 // ---------------------------------------------------------------------------
 
+pub use encoding::{EncodedObservation, ImageLayout};
 pub use env::GymEnv;
+#[allow(deprecated)]
+pub use protocol::ObsEncoding;
 pub use protocol::{
-    EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
-    negotiate_version,
+    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
 };
 pub use server::{GymServer, ServerConfig, VecGymServer};
 pub use state_machine::ProtocolStateMachine;
@@ -41,11 +44,14 @@ pub use vec_env::GymVecEnv;
 // ---------------------------------------------------------------------------
 
 pub mod prelude {
+    #[allow(deprecated)]
+    pub use crate::protocol::ObsEncoding;
     pub use crate::{
-        GymEnv, GymServer, GymVecEnv, ProtocolStateMachine, ServerConfig, VecGymServer,
+        EncodedObservation, GymEnv, GymServer, GymVecEnv, ImageLayout, ProtocolStateMachine,
+        ServerConfig, VecGymServer,
         protocol::{
-            EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request,
-            Response, negotiate_version,
+            EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
+            negotiate_version,
         },
     };
 }

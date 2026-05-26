@@ -287,7 +287,6 @@ mod tests {
 
     impl ActionApplicator for TestApplicator {
         fn apply(&self, world: &mut World, action: &Action) {
-            // W4 PR1 (loop 03) replaces .expect(...) with .ok_or(ProtocolError::DiscreteActionForContinuousSpace)?
             let values = action
                 .as_continuous()
                 .expect("ActionApplicator contract: continuous action expected");

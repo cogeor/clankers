@@ -7,13 +7,14 @@
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 
-use clankers_core::types::ObservationSpace;
+use clankers_core::schema::SchemaDtype;
+use clankers_core::view::ObservationView;
 
+use crate::encoding::{self, EncodedObservation};
 use crate::env::GymEnv;
 use crate::framing::{read_message, write_binary_frame, write_message};
 use crate::protocol::{
-    EnvInfo, ObsEncoding, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
-    negotiate_version,
+    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
 };
 use crate::state_machine::ProtocolStateMachine;
 use crate::vec_env::GymVecEnv;
@@ -268,37 +269,37 @@ fn dispatch(
             },
             None,
         ),
-        Request::Reset { seed } => (Response::from_reset(env.reset(*seed)), None),
+        Request::Reset { seed } => {
+            let result = env.reset(*seed);
+            let space = env.observation_space();
+            let data = result.observation.as_slice();
+            let shape = [data.len()];
+            let view = ObservationView::new(data, SchemaDtype::F32, &shape);
+            let (enc, payload) = encoding::encode_observation(&view, space, session.binary_obs);
+            match (enc, payload) {
+                // Image + binary: replace the JSON observation with the
+                // empty sentinel; pixel bytes ship as a follow-up binary
+                // frame.
+                (enc @ EncodedObservation::RawU8Image { .. }, Some(bytes)) => {
+                    (Response::from_reset_binary(result, enc), Some(bytes))
+                }
+                // Flat / fallback: standard JSON-encoded reset.
+                _ => (Response::from_reset(result), None),
+            }
+        }
         Request::Step { action } => {
             let result = env.step(action);
-            if session.binary_obs
-                && let ObservationSpace::Image {
-                    width,
-                    height,
-                    channels,
-                } = env.observation_space()
-            {
-                // Convert f32 observation data to u8 pixels (multiply by 255)
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let pixel_bytes: Vec<u8> = result
-                    .observation
-                    .as_slice()
-                    .iter()
-                    .map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8)
-                    .collect();
-
-                let encoding = ObsEncoding::RawU8 {
-                    width: *width,
-                    height: *height,
-                    #[allow(clippy::cast_possible_truncation)]
-                    channels: *channels as u8,
-                };
-                return (
-                    Response::from_step_binary(result, encoding),
-                    Some(pixel_bytes),
-                );
+            let space = env.observation_space();
+            let data = result.observation.as_slice();
+            let shape = [data.len()];
+            let view = ObservationView::new(data, SchemaDtype::F32, &shape);
+            let (enc, payload) = encoding::encode_observation(&view, space, session.binary_obs);
+            match (enc, payload) {
+                (enc @ EncodedObservation::RawU8Image { .. }, Some(bytes)) => {
+                    (Response::from_step_binary(result, enc), Some(bytes))
+                }
+                _ => (Response::from_step(result), None),
             }
-            (Response::from_step(result), None)
         }
         Request::Close => (Response::Close, None),
         Request::BatchReset { .. } | Request::BatchStep { .. } => (

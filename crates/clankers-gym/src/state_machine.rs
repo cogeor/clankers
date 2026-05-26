@@ -270,6 +270,7 @@ mod tests {
         sm.on_response(&Response::Reset {
             observation: clankers_core::types::Observation::zeros(1),
             info: clankers_core::types::ResetInfo::default(),
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
     }
@@ -538,6 +539,7 @@ mod tests {
         sm.on_response(&Response::Reset {
             observation: clankers_core::types::Observation::zeros(1),
             info: clankers_core::types::ResetInfo::default(),
+            obs_encoding: None,
         });
         assert_eq!(sm.state(), ProtocolState::EpisodeRunning);
         sm

@@ -8,7 +8,62 @@
 //! 1. Client sends a [`Request`]
 //! 2. Server processes it and replies with a [`Response`]
 //!
-//! All messages are newline-delimited JSON.
+//! # Wire format
+//!
+//! Each message on the wire is a **4-byte little-endian `u32` length
+//! prefix** followed by that many bytes of UTF-8 JSON payload. When an
+//! image observation is sent (negotiated via the `binary_obs`
+//! capability), a *second* length-prefixed frame carrying the raw `u8`
+//! pixel bytes follows immediately after the JSON response frame. See
+//! [`crate::framing`] for the helpers and
+//! [`crate::encoding::EncodedObservation`] for the JSON header shape.
+//!
+//! Wire format unchanged since `1.0.0`; this is a documentation
+//! correction. The version bump to `1.1.0` advertises that image
+//! observations now ship on `Reset` as well as `Step`.
+//!
+//! # Annotated hex example
+//!
+//! A `Reset` response carrying a 64×64×3 RGB image looks like:
+//!
+//! ```text
+//! +--------+--------------------------------------------+
+//! | 4 B LE | JSON header                                |
+//! | length | {"type":"reset","observation":{"data":[]}, |
+//! |        |  "info":{...},"obs_encoding":{             |
+//! |        |     "type":"RawU8Image","width":64,        |
+//! |        |     "height":64,"channels":3,              |
+//! |        |     "layout":"Hwc"}}                       |
+//! +--------+--------------------------------------------+
+//! +--------+--------------------------------------------+
+//! | 4 B LE | 12_288 bytes of raw RGB pixel data         |
+//! | = 12288| (64 * 64 * 3, row-major HWC)               |
+//! +--------+--------------------------------------------+
+//! ```
+//!
+//! ```
+//! // protocol_doc_matches_wire_format: round-trip a Reset response
+//! // through the documented 4-byte LE length-prefixed framing.
+//! use clankers_gym::framing::{read_message, write_message};
+//! use clankers_gym::protocol::Response;
+//! use std::io::Cursor;
+//!
+//! let resp = Response::Reset {
+//!     observation: clankers_core::types::Observation::zeros(0),
+//!     info: clankers_core::types::ResetInfo::default(),
+//!     obs_encoding: None,
+//! };
+//! let mut buf = Vec::new();
+//! write_message(&mut buf, &resp).unwrap();
+//!
+//! // First 4 bytes are the little-endian length prefix.
+//! let len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+//! assert_eq!(len, buf.len() - 4);
+//!
+//! let mut cursor = Cursor::new(&buf);
+//! let decoded: Response = read_message(&mut cursor).unwrap().unwrap();
+//! assert!(matches!(decoded, Response::Reset { .. }));
+//! ```
 
 use std::collections::HashMap;
 
@@ -19,6 +74,8 @@ use clankers_core::types::{
     Action, ActionSpace, BatchResetResult, BatchStepResult, Observation, ObservationSpace,
     ResetInfo, ResetResult, StepInfo, StepResult,
 };
+
+pub use crate::encoding::{EncodedObservation, ImageLayout};
 
 // ---------------------------------------------------------------------------
 // Request
@@ -152,6 +209,15 @@ pub enum Response {
     Reset {
         observation: Observation,
         info: ResetInfo,
+        /// Observation encoding used for this response.
+        ///
+        /// When `Some(EncodedObservation::RawU8Image { .. })`, the
+        /// `observation` field contains an empty sentinel and raw pixel
+        /// bytes follow as a binary frame immediately after the JSON
+        /// message. Added in protocol `1.1.0` so image envs satisfy the
+        /// Gymnasium space contract on the first reset.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        obs_encoding: Option<EncodedObservation>,
     },
     /// Result of a step operation.
     Step {
@@ -164,11 +230,12 @@ pub enum Response {
         info: StepInfo,
         /// Observation encoding used for this response.
         ///
-        /// When `Some(ObsEncoding::RawU8 { .. })`, the `observation` field
-        /// contains an empty sentinel and raw pixel bytes follow as a binary
-        /// frame immediately after the JSON message.
+        /// When `Some(EncodedObservation::RawU8Image { .. })`, the
+        /// `observation` field contains an empty sentinel and raw pixel
+        /// bytes follow as a binary frame immediately after the JSON
+        /// message.
         #[serde(skip_serializing_if = "Option::is_none")]
-        obs_encoding: Option<ObsEncoding>,
+        obs_encoding: Option<EncodedObservation>,
     },
     /// Batched reset results for multiple environments.
     BatchReset {
@@ -211,6 +278,23 @@ impl Response {
         Self::Reset {
             observation: result.observation,
             info: result.info,
+            obs_encoding: None,
+        }
+    }
+
+    /// Create a reset response from a [`ResetResult`] with binary observation encoding.
+    ///
+    /// The `observation` field is set to an empty sentinel. The caller must
+    /// send the raw pixel bytes as a binary frame immediately after this JSON message.
+    ///
+    /// Added in protocol `1.1.0` so image envs satisfy the Gymnasium
+    /// space contract on the first reset (W4 PR1).
+    #[must_use]
+    pub fn from_reset_binary(result: ResetResult, encoding: EncodedObservation) -> Self {
+        Self::Reset {
+            observation: Observation::zeros(0),
+            info: result.info,
+            obs_encoding: Some(encoding),
         }
     }
 
@@ -232,7 +316,7 @@ impl Response {
     /// The `observation` field is set to an empty sentinel. The caller must
     /// send the raw pixel bytes as a binary frame immediately after this JSON message.
     #[must_use]
-    pub fn from_step_binary(result: StepResult, encoding: ObsEncoding) -> Self {
+    pub fn from_step_binary(result: StepResult, encoding: EncodedObservation) -> Self {
         Self::Step {
             observation: Observation::zeros(0),
             reward: result.reward,
@@ -282,6 +366,14 @@ impl Response {
 /// When binary observation transfer is active (`binary_obs` capability),
 /// the server sends raw pixel bytes after the JSON step response frame.
 /// The JSON `observation` field contains an empty sentinel in that case.
+///
+/// Deprecated in W4 PR1: superseded by
+/// [`crate::encoding::EncodedObservation`]. Kept as a `#[deprecated]`
+/// enum for source-compat with any external Rust caller that
+/// pattern-matches on `ObsEncoding::Json` / `ObsEncoding::RawU8`. The
+/// server stops constructing this type internally; it is no longer
+/// used by [`Response::Step`] or [`Response::Reset`].
+#[deprecated(note = "use EncodedObservation")]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type")]
 pub enum ObsEncoding {
@@ -303,7 +395,11 @@ pub enum ObsEncoding {
 // ---------------------------------------------------------------------------
 
 /// Protocol version string (semantic versioning) per `PROTOCOL_SPEC.md`.
-pub const PROTOCOL_VERSION: &str = "1.0.0";
+///
+/// Bumped to `1.1.0` in W4 PR1 to advertise that image observations
+/// now ship on `Reset` as well as `Step` (the wire format itself is
+/// unchanged since `1.0.0`).
+pub const PROTOCOL_VERSION: &str = "1.1.0";
 
 /// Maximum JSON payload size in bytes (16 MiB).
 pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
@@ -932,10 +1028,14 @@ mod tests {
                 custom: HashMap::new(),
                 ..Default::default()
             },
+            obs_encoding: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let resp2: Response = serde_json::from_str(&json).unwrap();
-        if let Response::Reset { observation, info } = resp2 {
+        if let Response::Reset {
+            observation, info, ..
+        } = resp2
+        {
             assert_eq!(observation.len(), 2);
             assert_eq!(info.seed, Some(7));
         } else {
@@ -1264,58 +1364,80 @@ mod tests {
         assert!(msg.contains("step"));
     }
 
-    // ---- ObsEncoding ----
+    // ---- EncodedObservation (W4 PR1) ----
+    //
+    // Migrated in W4 PR1 from the legacy `ObsEncoding::{Json, RawU8}`
+    // tests to `EncodedObservation::{FlatF32, RawU8Image, Dict}`. The
+    // legacy enum is still present (deprecated) but no longer
+    // constructed by the server. Wire-tag rename `RawU8` → `RawU8Image`
+    // is intentional and documented in `CHANGELOG.md`.
 
     #[test]
-    fn obs_encoding_json_roundtrip() {
-        let enc = ObsEncoding::Json;
-        let json = serde_json::to_string(&enc).unwrap();
-        let enc2: ObsEncoding = serde_json::from_str(&json).unwrap();
-        assert_eq!(enc, enc2);
-        assert!(json.contains("Json"));
-    }
-
-    #[test]
-    fn obs_encoding_raw_u8_roundtrip() {
-        let enc = ObsEncoding::RawU8 {
-            width: 320,
-            height: 240,
-            channels: 3,
+    fn encoded_observation_flat_f32_roundtrip() {
+        let enc = EncodedObservation::FlatF32 {
+            data: vec![1.0, 2.0],
         };
         let json = serde_json::to_string(&enc).unwrap();
-        let enc2: ObsEncoding = serde_json::from_str(&json).unwrap();
-        assert_eq!(enc, enc2);
-        if let ObsEncoding::RawU8 {
-            width,
-            height,
-            channels,
-        } = enc2
-        {
-            assert_eq!(width, 320);
-            assert_eq!(height, 240);
-            assert_eq!(channels, 3);
-        } else {
-            panic!("expected RawU8");
+        let back: EncodedObservation = serde_json::from_str(&json).unwrap();
+        assert!(json.contains("FlatF32"));
+        match back {
+            EncodedObservation::FlatF32 { data } => assert_eq!(data, vec![1.0, 2.0]),
+            _ => panic!("expected FlatF32"),
         }
     }
 
     #[test]
-    fn obs_encoding_raw_u8_type_tag() {
-        let enc = ObsEncoding::RawU8 {
-            width: 64,
-            height: 64,
-            channels: 1,
+    fn encoded_observation_raw_u8_image_roundtrip() {
+        let enc = EncodedObservation::RawU8Image {
+            width: 320,
+            height: 240,
+            channels: 3,
+            layout: ImageLayout::Hwc,
+            payload: vec![],
         };
         let json = serde_json::to_string(&enc).unwrap();
-        // The serde tag "type" should be present
-        assert!(json.contains("RawU8"));
-        assert!(json.contains("width"));
-        assert!(json.contains("height"));
-        assert!(json.contains("channels"));
+        let back: EncodedObservation = serde_json::from_str(&json).unwrap();
+        match back {
+            EncodedObservation::RawU8Image {
+                width,
+                height,
+                channels,
+                layout,
+                payload,
+            } => {
+                assert_eq!(width, 320);
+                assert_eq!(height, 240);
+                assert_eq!(channels, 3);
+                assert_eq!(layout, ImageLayout::Hwc);
+                assert!(payload.is_empty());
+            }
+            _ => panic!("expected RawU8Image"),
+        }
     }
 
     #[test]
-    fn response_step_with_obs_encoding_roundtrip() {
+    fn encoded_observation_raw_u8_image_type_tag() {
+        let enc = EncodedObservation::RawU8Image {
+            width: 64,
+            height: 64,
+            channels: 1,
+            layout: ImageLayout::Hwc,
+            payload: vec![],
+        };
+        let json = serde_json::to_string(&enc).unwrap();
+        // The serde tag "type" should be present and use the new
+        // variant name.
+        assert!(json.contains("RawU8Image"));
+        assert!(json.contains("width"));
+        assert!(json.contains("height"));
+        assert!(json.contains("channels"));
+        assert!(json.contains("layout"));
+        // payload is #[serde(skip)] — must not appear on the wire.
+        assert!(!json.contains("payload"));
+    }
+
+    #[test]
+    fn response_step_with_encoded_observation_roundtrip() {
         let resp = Response::Step {
             observation: Observation::zeros(0),
             reward: 0.0,
@@ -1326,10 +1448,12 @@ mod tests {
                 custom: HashMap::new(),
                 ..Default::default()
             },
-            obs_encoding: Some(ObsEncoding::RawU8 {
+            obs_encoding: Some(EncodedObservation::RawU8Image {
                 width: 84,
                 height: 84,
                 channels: 3,
+                layout: ImageLayout::Hwc,
+                payload: vec![],
             }),
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -1338,10 +1462,12 @@ mod tests {
             let enc = obs_encoding.unwrap();
             assert!(matches!(
                 enc,
-                ObsEncoding::RawU8 {
+                EncodedObservation::RawU8Image {
                     width: 84,
                     height: 84,
-                    channels: 3
+                    channels: 3,
+                    layout: ImageLayout::Hwc,
+                    ..
                 }
             ));
         } else {
@@ -1371,6 +1497,87 @@ mod tests {
             assert!(obs_encoding.is_none());
         } else {
             panic!("expected Step");
+        }
+    }
+
+    #[test]
+    fn response_reset_with_encoded_observation_roundtrip() {
+        let resp = Response::Reset {
+            observation: Observation::zeros(0),
+            info: ResetInfo::default(),
+            obs_encoding: Some(EncodedObservation::RawU8Image {
+                width: 64,
+                height: 64,
+                channels: 3,
+                layout: ImageLayout::Hwc,
+                payload: vec![],
+            }),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::Reset { obs_encoding, .. } = resp2 {
+            assert!(matches!(
+                obs_encoding,
+                Some(EncodedObservation::RawU8Image {
+                    width: 64,
+                    height: 64,
+                    channels: 3,
+                    layout: ImageLayout::Hwc,
+                    ..
+                })
+            ));
+        } else {
+            panic!("expected Reset");
+        }
+    }
+
+    #[test]
+    fn response_reset_without_obs_encoding_omits_field() {
+        let result = ResetResult {
+            observation: Observation::new(vec![0.5]),
+            info: ResetInfo::default(),
+        };
+        let resp = Response::from_reset(result);
+        let json = serde_json::to_string(&resp).unwrap();
+        // obs_encoding field should be absent when None.
+        assert!(!json.contains("obs_encoding"));
+        let resp2: Response = serde_json::from_str(&json).unwrap();
+        if let Response::Reset { obs_encoding, .. } = resp2 {
+            assert!(obs_encoding.is_none());
+        } else {
+            panic!("expected Reset");
+        }
+    }
+
+    #[test]
+    fn response_from_reset_binary_constructs_with_empty_observation() {
+        let result = ResetResult {
+            observation: Observation::new(vec![0.1, 0.2, 0.3]),
+            info: ResetInfo::default(),
+        };
+        let encoding = EncodedObservation::RawU8Image {
+            width: 8,
+            height: 8,
+            channels: 3,
+            layout: ImageLayout::Hwc,
+            payload: vec![],
+        };
+        let resp = Response::from_reset_binary(result, encoding);
+        if let Response::Reset {
+            observation,
+            obs_encoding,
+            ..
+        } = resp
+        {
+            // observation is replaced by an empty sentinel; bytes go on
+            // the binary frame.
+            assert_eq!(observation.len(), 0);
+            assert!(matches!(
+                obs_encoding,
+                Some(EncodedObservation::RawU8Image { width: 8, .. })
+            ));
+        } else {
+            panic!("expected Reset");
         }
     }
 }

@@ -1,218 +1,122 @@
-//! Multi-robot scene with independent control.
-//!
-//! Tests: SceneBuilder with multiple URDFs, RobotGroup, RobotId tagging,
-//! robot-scoped sensors, independent joint commands per robot.
+//! Multi-robot scene with independent control. Thin wrapper over
+//! [`clankers_sim::scenarios::multi_robot::MultiRobotScenario`].
 //!
 //! Run: `cargo run -p clankers-examples --bin multi_robot`
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::traits::Sensor;
-use clankers_core::types::RobotGroup;
-use clankers_env::prelude::*;
-use clankers_examples::{PENDULUM_URDF, SIX_DOF_ARM_URDF, TWO_LINK_ARM_URDF};
-use clankers_sim::{EpisodeStats, SceneBuilder};
+use clankers_core::types::{RobotGroup, RobotId};
+use clankers_env::prelude::{Episode, RobotJointStateSensor};
+use clankers_sim::scenarios::multi_robot::{MultiRobotConfig, MultiRobotScenario};
+use clankers_sim::{EpisodeStats, ScenarioConfig};
 
 fn main() {
     println!("=== Multi-Robot Scene Example ===\n");
-
-    // ---------------------------------------------------------------
-    // 1. Build scene with 3 different robots
-    // ---------------------------------------------------------------
-    let pendulum_model =
-        clankers_urdf::parse_string(PENDULUM_URDF).expect("failed to parse pendulum URDF");
-    let two_arm_model =
-        clankers_urdf::parse_string(TWO_LINK_ARM_URDF).expect("failed to parse arm URDF");
-    let six_arm_model =
-        clankers_urdf::parse_string(SIX_DOF_ARM_URDF).expect("failed to parse 6-DOF arm URDF");
-
-    let mut scene = SceneBuilder::new()
-        .with_max_episode_steps(30)
-        .with_robot(pendulum_model.clone(), HashMap::new())
-        .with_robot(two_arm_model.clone(), HashMap::new())
-        .with_robot(six_arm_model.clone(), HashMap::new())
-        .build();
-
-    println!("Robots in scene: {}", scene.robots.len());
-    for (name, bot) in &scene.robots {
-        println!("  {} — {} joints", name, bot.joint_count());
+    let mut art =
+        MultiRobotScenario::build_with(&ScenarioConfig::default(), &MultiRobotConfig::default());
+    println!("Robots in scene: {}", art.scene.robots.len());
+    for (nm, bot) in &art.scene.robots {
+        println!("  {nm} — {} joints", bot.joint_count());
     }
-
-    // ---------------------------------------------------------------
-    // 2. Verify RobotGroup assignment
-    // ---------------------------------------------------------------
-    let group = scene.app.world().resource::<RobotGroup>();
-    println!("\nRobotGroup ({} robots):", group.len());
-    for id in 0..group.len() {
-        let info = group.get(clankers_core::types::RobotId(id as u32)).unwrap();
+    let grp = art.scene.app.world().resource::<RobotGroup>();
+    for id in 0..grp.len() {
+        let info = grp.get(RobotId(id as u32)).unwrap();
         println!(
             "  RobotId({id}): '{}' — {} joints",
             info.name(),
             info.joint_count()
         );
     }
-
-    // ---------------------------------------------------------------
-    // 3. Run episode with independent commands per robot
-    // ---------------------------------------------------------------
-    println!("\n--- Running episode ---");
-    scene
+    art.scene
         .app
         .world_mut()
         .resource_mut::<Episode>()
         .reset(Some(42));
-
+    let piv = art.scene.robots["pendulum"].joint_entity("pivot").unwrap();
+    let sho = art.scene.robots["two_link_arm"]
+        .joint_entity("shoulder")
+        .unwrap();
+    let elb = art.scene.robots["two_link_arm"]
+        .joint_entity("elbow")
+        .unwrap();
+    let six_names = [
+        "j1_base_yaw",
+        "j2_shoulder_pitch",
+        "j3_elbow_pitch",
+        "j4_forearm_roll",
+        "j5_wrist_pitch",
+        "j6_wrist_roll",
+    ];
     for step in 0..30 {
-        let t = step as f32 * 0.02;
-
-        // Pendulum: sinusoidal torque
-        let pivot = scene.robots["pendulum"].joint_entity("pivot").unwrap();
-        scene
+        let tm = step as f32 * 0.02;
+        art.scene
             .app
             .world_mut()
-            .get_mut::<JointCommand>(pivot)
+            .get_mut::<JointCommand>(piv)
             .unwrap()
-            .value = 8.0 * (t * 5.0).sin();
-
-        // 2-link arm: constant shoulder, oscillating elbow
-        let shoulder = scene.robots["two_link_arm"]
-            .joint_entity("shoulder")
-            .unwrap();
-        scene
+            .value = 8.0 * (tm * 5.0).sin();
+        art.scene
             .app
             .world_mut()
-            .get_mut::<JointCommand>(shoulder)
+            .get_mut::<JointCommand>(sho)
             .unwrap()
             .value = 10.0;
-
-        let elbow = scene.robots["two_link_arm"].joint_entity("elbow").unwrap();
-        scene
+        art.scene
             .app
             .world_mut()
-            .get_mut::<JointCommand>(elbow)
+            .get_mut::<JointCommand>(elb)
             .unwrap()
-            .value = 5.0 * (t * 2.0).cos();
-
-        // 6-DOF arm: small constant commands on all joints
-        for joint_name in [
-            "j1_base_yaw",
-            "j2_shoulder_pitch",
-            "j3_elbow_pitch",
-            "j4_forearm_roll",
-            "j5_wrist_pitch",
-            "j6_wrist_roll",
-        ] {
-            if let Some(entity) = scene.robots["six_dof_arm"].joint_entity(joint_name) {
-                scene
+            .value = 5.0 * (tm * 2.0).cos();
+        for jn in six_names {
+            if let Some(ent) = art.scene.robots["six_dof_arm"].joint_entity(jn) {
+                art.scene
                     .app
                     .world_mut()
-                    .get_mut::<JointCommand>(entity)
+                    .get_mut::<JointCommand>(ent)
                     .unwrap()
                     .value = 2.0;
             }
         }
-
-        scene.app.update();
-
+        art.scene.app.update();
         if step % 10 == 0 {
-            let pend_state = scene.app.world().get::<JointState>(pivot).unwrap();
-            let sh_state = scene.app.world().get::<JointState>(shoulder).unwrap();
-            let el_state = scene.app.world().get::<JointState>(elbow).unwrap();
-            println!(
-                "  step {:2}: pendulum={:+5.3}rad  shoulder={:+5.3}rad  elbow={:+5.3}rad",
-                step, pend_state.position, sh_state.position, el_state.position,
-            );
+            let pp = art
+                .scene
+                .app
+                .world()
+                .get::<JointState>(piv)
+                .unwrap()
+                .position;
+            let ss = art
+                .scene
+                .app
+                .world()
+                .get::<JointState>(sho)
+                .unwrap()
+                .position;
+            let ee = art
+                .scene
+                .app
+                .world()
+                .get::<JointState>(elb)
+                .unwrap()
+                .position;
+            println!("  step {step:2}: pendulum={pp:+5.3}  shoulder={ss:+5.3}  elbow={ee:+5.3}");
         }
-
-        if scene.app.world().resource::<Episode>().is_done() {
-            println!("  -> episode terminated at step {step}");
+        if art.scene.app.world().resource::<Episode>().is_done() {
             break;
         }
     }
-
-    // ---------------------------------------------------------------
-    // 4. Test robot-scoped sensors
-    // ---------------------------------------------------------------
-    println!("\n--- Robot-scoped sensor reads ---");
-
-    // Build per-robot layouts bound to spawned joint entities.
-    let build_layout = |model: &clankers_urdf::RobotModel, robot_name: &str| {
-        let bot = &scene.robots[robot_name];
-        let mut layout = model.to_layout();
-        let entities: Vec<bevy::prelude::Entity> = layout
-            .joints()
-            .iter()
-            .map(|spec| {
-                bot.joint_entity(&spec.name)
-                    .unwrap_or_else(|| panic!("joint {} not in {}", spec.name, robot_name))
-            })
-            .collect();
-        layout.bind_entities(&entities);
-        Arc::new(layout)
-    };
-
-    let pend_layout = build_layout(&pendulum_model, "pendulum");
-    let two_arm_layout = build_layout(&two_arm_model, "two_link_arm");
-    let six_arm_layout = build_layout(&six_arm_model, "six_dof_arm");
-
-    // Pendulum (RobotId 0): 1 joint -> 2 state values
-    let mut pend_sensor =
-        RobotJointStateSensor::new(clankers_core::types::RobotId(0), pend_layout.clone());
-    let pend_obs = pend_sensor.read(scene.app.world_mut());
+    let mut pend_sensor = RobotJointStateSensor::new(RobotId(0), art.layouts["pendulum"].clone());
+    let pend_obs = pend_sensor.read(art.scene.app.world_mut());
     println!(
-        "Pendulum state sensor:  {} values — pos={:.3} vel={:.3}",
+        "\nPendulum state sensor: {} values — pos={:.3} vel={:.3}",
         pend_obs.len(),
         pend_obs[0],
-        pend_obs[1],
+        pend_obs[1]
     );
-
-    // 2-link arm (RobotId 1): 2 joints -> 4 state values
-    let mut arm_sensor =
-        RobotJointStateSensor::new(clankers_core::types::RobotId(1), two_arm_layout.clone());
-    let arm_obs = arm_sensor.read(scene.app.world_mut());
+    let stats = art.scene.app.world().resource::<EpisodeStats>();
     println!(
-        "Arm state sensor:       {} values — {:?}",
-        arm_obs.len(),
-        arm_obs.as_slice(),
-    );
-
-    // 6-DOF arm (RobotId 2): 6 joints -> 12 state values
-    let mut six_sensor =
-        RobotJointStateSensor::new(clankers_core::types::RobotId(2), six_arm_layout);
-    let six_obs = six_sensor.read(scene.app.world_mut());
-    println!("6-DOF arm state sensor: {} values", six_obs.len(),);
-
-    // Robot-scoped command sensors
-    let mut pend_cmd_sensor =
-        RobotJointCommandSensor::new(clankers_core::types::RobotId(0), pend_layout);
-    let pend_cmd = pend_cmd_sensor.read(scene.app.world_mut());
-    println!(
-        "Pendulum cmd sensor:    {} values — cmd={:.2}",
-        pend_cmd.len(),
-        pend_cmd[0],
-    );
-
-    // Robot-scoped torque sensors
-    let mut arm_torque_sensor =
-        RobotJointTorqueSensor::new(clankers_core::types::RobotId(1), two_arm_layout);
-    let arm_torques = arm_torque_sensor.read(scene.app.world_mut());
-    println!(
-        "Arm torque sensor:      {} values — {:?}",
-        arm_torques.len(),
-        arm_torques.as_slice(),
-    );
-
-    // ---------------------------------------------------------------
-    // 5. Stats
-    // ---------------------------------------------------------------
-    let stats = scene.app.world().resource::<EpisodeStats>();
-    println!("\n=== Summary ===");
-    println!(
-        "Episodes: {}  Total steps: {}",
+        "\nEpisodes: {}  Total steps: {}\nMulti-robot scene example PASSED",
         stats.episodes_completed, stats.total_steps
     );
-
-    println!("\nMulti-robot scene example PASSED");
 }

@@ -74,14 +74,14 @@ pub const SOFT_BASELINES: &[(&str, usize)] = &[
     ("arm_pick_replay.rs", 876),
     ("arm_policy_viz.rs", 441),
     ("arm_with_policy.rs", 164),
-    ("cartpole_gym.rs", 186),
+    // cartpole_gym shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
+    // cartpole_vec_gym shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
+    // cartpole_vec_benchmark shrunk in loop 8 (W8 PR2 Phase 3) — under 60 tier.
     ("cartpole_policy_viz.rs", 357),
-    ("cartpole_vec_benchmark.rs", 199),
-    ("cartpole_vec_gym.rs", 172),
-    ("domain_rand.rs", 229),
-    ("multi_robot.rs", 218),
+    // domain_rand shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
+    // multi_robot shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
     ("multi_robot_viz.rs", 518),
-    ("pendulum_headless.rs", 131),
+    // pendulum_headless shrunk in loop 8 (W8 PR2 Phase 4) — under 60 tier.
     ("pendulum_viz.rs", 411),
     ("quadruped_mpc.rs", 299),
     ("quadruped_mpc_bench.rs", 491),

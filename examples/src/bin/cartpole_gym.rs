@@ -1,181 +1,43 @@
-//! Cart-pole gym server with Rapier physics.
-//!
-//! Headless cart-pole environment matching OpenAI Gym CartPole-v1 parameters.
-//! Serves a single GymEnv over TCP for Python RL training.
+//! Cart-pole gym server. Thin wrapper over
+//! [`clankers_sim::scenarios::cartpole::CartpoleScenario`].
 //!
 //! Run: `cargo run -p clankers-examples --bin cartpole_gym`
-//! Then connect with: `python python/examples/cartpole_read_state.py`
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use bevy::prelude::*;
-use clankers_actuator::components::{JointCommand, JointState};
-use clankers_core::layout::JointLayout;
-use clankers_core::prelude::*;
-use clankers_env::prelude::*;
-use clankers_examples::CARTPOLE_URDF;
-use clankers_gym::prelude::*;
-use clankers_physics::ClankersPhysicsPlugin;
-use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
-use clankers_sim::SceneBuilder;
-
-/// Writes action values to joint commands in layout slot order.
-///
-/// Action layout: [cart_force, pole_torque]
-/// For standard CartPole, only cart_force (index 0) is used;
-/// pole_torque (index 1) should be 0 (passive joint).
-struct CartPoleApplicator {
-    layout: Arc<JointLayout>,
-}
-
-impl ActionApplicator for CartPoleApplicator {
-    fn apply(&self, world: &mut World, action: &Action) {
-        let values = action
-            .as_continuous()
-            .expect("ActionApplicator contract: continuous action expected");
-        for (i, entity) in self.layout.bound_entities().enumerate() {
-            if i >= values.len() {
-                break;
-            }
-            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                cmd.value = values[i];
-            }
-        }
-    }
-
-    #[allow(clippy::unnecessary_literal_bound)]
-    fn name(&self) -> &str {
-        "CartPoleApplicator"
-    }
-
-    fn layout(&self) -> &JointLayout {
-        &self.layout
-    }
-}
+use clankers_core::types::{ActionSpace, ObservationSpace};
+use clankers_gym::prelude::{GymEnv, GymServer};
+use clankers_sim::ScenarioConfig;
+use clankers_sim::scenarios::cartpole::{CartPoleApplicator, CartpoleConfig, CartpoleScenario};
 
 fn main() {
     println!("=== Cart-Pole Gym Server (with Rapier Physics) ===\n");
-
-    let max_steps: u32 = 500;
-    let num_joints: usize = 2; // cart_slide (prismatic) + pole_hinge (continuous)
     let address = "127.0.0.1:9877";
-
-    // ---------------------------------------------------------------
-    // 1. Parse URDF
-    // ---------------------------------------------------------------
-    let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("failed to parse cartpole URDF");
-    println!("Robot: {}", model.name);
-    println!("DOF:   {}", model.dof());
-    // Use the JointLayout joint names (alphabetic order — the
-    // deprecated `actuated_joint_names` returns the same set).
-    let layout_for_print = model.to_layout();
-    let layout_names: Vec<&str> = layout_for_print.joint_names().collect();
-    println!("Joints: {layout_names:?}");
-
-    // ---------------------------------------------------------------
-    // 2. Build scene with SceneBuilder + physics
-    // ---------------------------------------------------------------
-    let mut scene = SceneBuilder::new()
-        .with_max_episode_steps(max_steps)
-        .with_robot(model.clone(), HashMap::new())
-        .build();
-
-    // Add Rapier physics backend
-    scene
-        .app
-        .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
-
-    // Register robot bodies/joints with the rapier context
-    {
-        let spawned = &scene.robots["cartpole"];
-        let world = scene.app.world_mut();
-        let mut ctx = world.remove_resource::<RapierContext>().unwrap();
-        register_robot(&mut ctx, &model, spawned, world, true);
-        world.insert_resource(ctx);
-    }
-
-    println!(
-        "Spawned '{}' with {} joints + Rapier physics",
-        scene.robots["cartpole"].name,
-        scene.robots["cartpole"].joint_count()
-    );
-
-    // ---------------------------------------------------------------
-    // 3. Build layout bound to spawned joint entities + register sensors
-    // ---------------------------------------------------------------
-    let layout = {
-        let bot = &scene.robots["cartpole"];
-        let mut layout = model.to_layout();
-        let entities: Vec<Entity> = layout
-            .joints()
-            .iter()
-            .map(|spec| {
-                bot.joint_entity(&spec.name)
-                    .unwrap_or_else(|| panic!("joint {} not in spawned robot", spec.name))
-            })
-            .collect();
-        layout.bind_entities(&entities);
-        Arc::new(layout)
-    };
-    {
-        let world = scene.app.world_mut();
-        let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
-        let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        // Joint state: 2 joints × 2 (pos + vel) = 4 obs values
-        // Layout: [cart_pos, cart_vel, pole_angle, pole_vel]
-        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
-        println!("Observation dim: {}", buffer.dim());
-        world.insert_resource(buffer);
-        world.insert_resource(registry);
-    }
-
-    // ---------------------------------------------------------------
-    // 4. Create gym environment
-    // ---------------------------------------------------------------
-    let obs_dim = num_joints * 2; // 4: [cart_pos, cart_vel, pole_angle, pole_vel]
+    let mut artefacts =
+        CartpoleScenario::build_with(&ScenarioConfig::default(), &CartpoleConfig::default());
+    println!("Robot: {}", artefacts.model.name);
+    println!("DOF:   {}", artefacts.model.dof());
+    let obs_dim = 4usize;
+    let act_dim = 2usize;
     let obs_space = ObservationSpace::Box {
         low: vec![-10.0; obs_dim],
         high: vec![10.0; obs_dim],
     };
-    // Action: [cart_force, pole_torque] normalized to [-1, 1]
-    // The actuator scales by effort limit (10N for cart, 0N for pole)
     let act_space = ActionSpace::Box {
-        low: vec![-1.0; num_joints],
-        high: vec![1.0; num_joints],
+        low: vec![-1.0; act_dim],
+        high: vec![1.0; act_dim],
     };
-
+    let app = std::mem::take(&mut artefacts.scene.app);
     let mut env = GymEnv::new(
-        scene.app,
+        app,
         obs_space,
         act_space,
-        Box::new(CartPoleApplicator { layout }),
+        Box::new(CartPoleApplicator::new(artefacts.layout.clone())),
     )
-    .with_reset_fn(|world: &mut World| {
-        // Reset rapier rigid body positions and velocities
-        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-            ctx.reset_to_initial();
-            world.insert_resource(ctx);
-        }
-        // Reset joint states and commands
-        let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
-        for (mut state, mut cmd) in query.iter_mut(world) {
-            state.position = 0.0;
-            state.velocity = 0.0;
-            cmd.value = 0.0;
-        }
-    });
-
-    // ---------------------------------------------------------------
-    // 5. Start server
-    // ---------------------------------------------------------------
-    let server = GymServer::bind(address).expect("failed to bind server");
-    let addr = server.local_addr().expect("failed to get address");
+    .with_reset_fn(CartpoleScenario::reset_world);
+    let server = GymServer::bind(address).expect("bind");
+    let addr = server.local_addr().expect("addr");
     println!("\nCart-pole gym server listening on {addr}");
-    println!("joints={num_joints}, obs_dim={obs_dim}, act_dim={num_joints}, max_steps={max_steps}");
-    println!("Physics: Rapier3D, gravity [0,0,-9.81], 20 substeps/frame");
+    println!("joints={act_dim}, obs_dim={obs_dim}, act_dim={act_dim}, max_steps=500");
     println!("Connect with: python python/examples/cartpole_read_state.py\n");
-
     loop {
         println!("waiting for client...");
         match server.serve_one(&mut env) {

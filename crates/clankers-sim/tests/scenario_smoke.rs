@@ -1,35 +1,34 @@
-//! W8 PR1 scenario smoke matrix.
+//! Scenario smoke matrix.
 //!
-//! Iterates the four arm-family entries of
-//! [`clankers_sim::scenarios::REGISTRY`] and asserts each one builds
-//! into a fresh Bevy `App`, advances 10 frames without panicking, and
-//! records at least 10 steps in
+//! Iterates every entry of [`clankers_sim::scenarios::REGISTRY`] and
+//! asserts each one builds into a fresh Bevy `App`, advances 12 frames
+//! without panicking, and records at least 10 steps in
 //! [`clankers_sim::EpisodeStats`](clankers_sim::EpisodeStats).
 //!
 //! Per the WS8-plan § 6 test contract:
 //! - `pub const REGISTRY: &[(&str, fn(&mut App, ScenarioConfig))]`
-//! - 10-frame advance per scenario.
+//! - 12-frame advance per scenario.
 //! - `EpisodeStats::total_steps >= 10`.
 //!
-//! Cartpole is intentionally skipped here — loop 8 will add it to the
-//! matrix once the cartpole bins also use the const registry.
+//! Loop 7 (W8 PR1) shipped this for the arm family; loop 8 (W8 PR2)
+//! extends to iterate the full REGISTRY (8 entries after this loop).
+//!
+//! # Note on quadruped (not present yet)
+//!
+//! Loop 8 does NOT add a `quadruped_trot` scenario; the quadruped
+//! scenario lift is deferred to a follow-up (see IMPLEMENTATION.md
+//! "Scope deferred"). When it lands, this test picks it up
+//! automatically.
 
 use bevy::prelude::App;
 use clankers_env::episode::{Episode, EpisodeConfig};
 use clankers_sim::{ClankersSimPlugin, EpisodeStats, REGISTRY, ScenarioConfig};
 
-/// Names exercised by [`each_arm_scenario_builds`]. Sourced from the
-/// PLAN.md "Loop 7" scope step 4.
-const ARM_SCENARIO_NAMES: &[&str] = &["arm_bench", "arm_ik", "arm_pick", "arm_two_link"];
-
 #[test]
-fn each_arm_scenario_builds() {
-    for name in ARM_SCENARIO_NAMES {
-        let (_, builder) = REGISTRY
-            .iter()
-            .find(|(n, _)| n == name)
-            .unwrap_or_else(|| panic!("scenario {name} missing from REGISTRY"));
+fn each_first_class_scenario_builds() {
+    assert!(!REGISTRY.is_empty(), "REGISTRY must not be empty");
 
+    for (name, builder) in REGISTRY {
         let mut app = App::new();
         app.add_plugins(ClankersSimPlugin);
 

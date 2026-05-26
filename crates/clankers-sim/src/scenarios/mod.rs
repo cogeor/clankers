@@ -45,6 +45,9 @@ pub mod arm_ik;
 pub mod arm_pick;
 pub mod arm_two_link;
 pub mod cartpole;
+pub mod domain_rand_pendulum;
+pub mod multi_robot;
+pub mod pendulum;
 
 // ---------------------------------------------------------------------------
 // ScenarioConfig
@@ -189,6 +192,9 @@ pub fn register_builtin(registry: &mut ScenarioRegistry) {
     registry.register(Box::new(arm_pick::ArmPickScenario));
     registry.register(Box::new(arm_two_link::ArmTwoLinkScenario));
     registry.register(Box::new(cartpole::CartpoleScenario));
+    registry.register(Box::new(domain_rand_pendulum::DomainRandPendulumScenario));
+    registry.register(Box::new(multi_robot::MultiRobotScenario));
+    registry.register(Box::new(pendulum::PendulumScenario));
 }
 
 /// Static name → builder function table.
@@ -225,6 +231,15 @@ pub const REGISTRY: &[(&str, fn(&mut App, ScenarioConfig))] = &[
     }),
     ("cartpole", |app, cfg| {
         let _ = cartpole::CartpoleScenario.build(app, &cfg);
+    }),
+    ("domain_rand_pendulum", |app, cfg| {
+        let _ = domain_rand_pendulum::DomainRandPendulumScenario.build(app, &cfg);
+    }),
+    ("multi_robot", |app, cfg| {
+        let _ = multi_robot::MultiRobotScenario.build(app, &cfg);
+    }),
+    ("pendulum", |app, cfg| {
+        let _ = pendulum::PendulumScenario.build(app, &cfg);
     }),
 ];
 
@@ -332,7 +347,10 @@ mod tests {
                 "arm_ik",
                 "arm_pick",
                 "arm_two_link",
-                "cartpole"
+                "cartpole",
+                "domain_rand_pendulum",
+                "multi_robot",
+                "pendulum",
             ]
         );
     }

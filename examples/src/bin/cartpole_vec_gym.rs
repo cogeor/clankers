@@ -1,167 +1,65 @@
-//! Vectorized cart-pole gym server with Rapier physics.
-//!
-//! Creates N headless cart-pole environments and serves them via VecGymServer.
+//! Vectorized cart-pole gym server. Thin wrapper over
+//! [`clankers_sim::scenarios::cartpole::CartpoleScenario`].
 //!
 //! Run: `cargo run -p clankers-examples --bin cartpole_vec_gym -- 8`
-//! Then: `python python/examples/cartpole_vec_benchmark.py`
 
-use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
 
-use bevy::prelude::*;
-use clankers_actuator::components::{JointCommand, JointState};
-use clankers_core::layout::JointLayout;
-use clankers_core::prelude::*;
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
-use clankers_env::prelude::*;
 use clankers_env::vec_env::VecEnvConfig;
 use clankers_env::vec_runner::VecEnvInstance;
-use clankers_examples::CARTPOLE_URDF;
-use clankers_gym::prelude::*;
-use clankers_physics::ClankersPhysicsPlugin;
-use clankers_physics::rapier::{RapierBackend, RapierContext, bridge::register_robot};
-use clankers_sim::SceneBuilder;
+use clankers_gym::prelude::{GymEnv, GymVecEnv, VecGymServer};
+use clankers_sim::ScenarioConfig;
+use clankers_sim::scenarios::cartpole::{CartPoleApplicator, CartpoleConfig, CartpoleScenario};
 
-struct CartPoleApplicator {
-    layout: Arc<JointLayout>,
-}
-
-impl ActionApplicator for CartPoleApplicator {
-    fn apply(&self, world: &mut World, action: &Action) {
-        let values = action
-            .as_continuous()
-            .expect("ActionApplicator contract: continuous action expected");
-        for (i, entity) in self.layout.bound_entities().enumerate() {
-            if i >= values.len() {
-                break;
-            }
-            if let Some(mut cmd) = world.get_mut::<JointCommand>(entity) {
-                cmd.value = values[i];
-            }
-        }
-    }
-
-    #[allow(clippy::unnecessary_literal_bound)]
-    fn name(&self) -> &str {
-        "CartPoleApplicator"
-    }
-
-    fn layout(&self) -> &JointLayout {
-        &self.layout
-    }
-}
-
-fn make_cartpole_env() -> GymEnv {
-    let max_steps: u32 = 500;
-    let num_joints: usize = 2;
-
-    let model = clankers_urdf::parse_string(CARTPOLE_URDF).expect("parse URDF");
-
-    let mut scene = SceneBuilder::new()
-        .with_max_episode_steps(max_steps)
-        .with_robot(model.clone(), HashMap::new())
-        .build();
-
-    scene
-        .app
-        .add_plugins(ClankersPhysicsPlugin::new(RapierBackend));
-
-    {
-        let spawned = &scene.robots["cartpole"];
-        let world = scene.app.world_mut();
-        let mut ctx = world.remove_resource::<RapierContext>().unwrap();
-        register_robot(&mut ctx, &model, spawned, world, true);
-        world.insert_resource(ctx);
-    }
-
-    // Build layout bound to spawned joint entities.
-    let layout = {
-        let bot = &scene.robots["cartpole"];
-        let mut layout = model.to_layout();
-        let entities: Vec<Entity> = layout
-            .joints()
-            .iter()
-            .map(|spec| bot.joint_entity(&spec.name).expect("joint spawned"))
-            .collect();
-        layout.bind_entities(&entities);
-        Arc::new(layout)
-    };
-
-    {
-        let world = scene.app.world_mut();
-        let mut registry = world.remove_resource::<SensorRegistry>().unwrap();
-        let mut buffer = world.remove_resource::<ObservationBuffer>().unwrap();
-        registry.register(Box::new(JointStateSensor::new(layout.clone())), &mut buffer);
-        world.insert_resource(buffer);
-        world.insert_resource(registry);
-    }
-
-    let obs_dim = num_joints * 2;
+fn make_env() -> GymEnv {
+    let mut a =
+        CartpoleScenario::build_with(&ScenarioConfig::default(), &CartpoleConfig::default());
     let obs_space = ObservationSpace::Box {
-        low: vec![-10.0; obs_dim],
-        high: vec![10.0; obs_dim],
-    };
-    let act_space = ActionSpace::Box {
-        low: vec![-1.0; num_joints],
-        high: vec![1.0; num_joints],
-    };
-
-    GymEnv::new(
-        scene.app,
-        obs_space,
-        act_space,
-        Box::new(CartPoleApplicator { layout }),
-    )
-    .with_reset_fn(|world: &mut World| {
-        if let Some(mut ctx) = world.remove_resource::<RapierContext>() {
-            ctx.reset_to_initial();
-            world.insert_resource(ctx);
-        }
-        let mut query = world.query::<(&mut JointState, &mut JointCommand)>();
-        for (mut state, mut cmd) in query.iter_mut(world) {
-            state.position = 0.0;
-            state.velocity = 0.0;
-            cmd.value = 0.0;
-        }
-    })
-}
-
-fn main() {
-    let num_envs: usize = env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
-
-    let address = "127.0.0.1:9878";
-
-    println!("=== Vectorized Cart-Pole Gym Server ===\n");
-    println!("Creating {num_envs} cart-pole environments with Rapier physics...");
-
-    let envs: Vec<Box<dyn VecEnvInstance>> = (0..num_envs)
-        .map(|i| {
-            let env = make_cartpole_env();
-            println!("  env {i}: ready");
-            Box::new(env) as Box<dyn VecEnvInstance>
-        })
-        .collect();
-
-    let obs_dim = 4;
-    let config = VecEnvConfig::new(num_envs as u16);
-    let obs_space = ObservationSpace::Box {
-        low: vec![-10.0; obs_dim],
-        high: vec![10.0; obs_dim],
+        low: vec![-10.0; 4],
+        high: vec![10.0; 4],
     };
     let act_space = ActionSpace::Box {
         low: vec![-1.0; 2],
         high: vec![1.0; 2],
     };
+    let app = std::mem::take(&mut a.scene.app);
+    GymEnv::new(
+        app,
+        obs_space,
+        act_space,
+        Box::new(CartPoleApplicator::new(a.layout)),
+    )
+    .with_reset_fn(CartpoleScenario::reset_world)
+}
 
+fn main() {
+    let num_envs: usize = env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4);
+    let address = "127.0.0.1:9878";
+    println!("=== Vectorized Cart-Pole Gym Server ===\nCreating {num_envs} envs with Rapier...");
+    let envs: Vec<Box<dyn VecEnvInstance>> = (0..num_envs)
+        .map(|i| {
+            let e = make_env();
+            println!("  env {i}: ready");
+            Box::new(e) as Box<dyn VecEnvInstance>
+        })
+        .collect();
+    let config = VecEnvConfig::new(num_envs as u16);
+    let obs_space = ObservationSpace::Box {
+        low: vec![-10.0; 4],
+        high: vec![10.0; 4],
+    };
+    let act_space = ActionSpace::Box {
+        low: vec![-1.0; 2],
+        high: vec![1.0; 2],
+    };
     let mut vec_env = GymVecEnv::new(envs, config, obs_space, act_space);
-
-    let server = VecGymServer::bind(address).expect("failed to bind server");
-    let addr = server.local_addr().expect("failed to get address");
-    println!("\nVec cart-pole gym server listening on {addr}");
-    println!("num_envs={num_envs}, obs_dim={obs_dim}, act_dim=2, max_steps=500");
-    println!("Connect with: python python/examples/cartpole_vec_benchmark.py\n");
-
+    let _ = std::mem::size_of::<Action>();
+    let server = VecGymServer::bind(address).expect("bind");
+    println!(
+        "\nVec cart-pole gym server listening on {}\nnum_envs={num_envs}, obs_dim=4, act_dim=2",
+        server.local_addr().expect("addr")
+    );
     loop {
         println!("waiting for client...");
         match server.serve_one(&mut vec_env) {

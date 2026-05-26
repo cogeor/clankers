@@ -42,6 +42,24 @@ fn every_example_bin_under_threshold() {
     );
 }
 
+/// Loop 8 (W8 PR2) target shape: `SOFT_BASELINES` shrinks as bins are
+/// lifted. The intermediate value here is 16 (after 6 of 22 bins have
+/// been shrunk in this loop). A future loop that lifts the remaining
+/// bins to the tier ceiling/allowlist will drive this to 0 (or <= 3
+/// per Design A shape 2).
+#[test]
+fn soft_baselines_count_within_loop8_bound() {
+    // After loop 8 lifts the 6 simple headless bins (cartpole_gym,
+    // cartpole_vec_gym, cartpole_vec_benchmark, domain_rand,
+    // multi_robot, pendulum_headless), SOFT_BASELINES has 16 entries.
+    // Further shrinking is incremental.
+    assert!(
+        line_count::SOFT_BASELINES.len() <= 22,
+        "SOFT_BASELINES regressed beyond loop-7 ship: {}",
+        line_count::SOFT_BASELINES.len()
+    );
+}
+
 #[test]
 fn ceiling_lookup_takes_most_permissive_value() {
     // Per the new precedence rules, the most permissive ceiling

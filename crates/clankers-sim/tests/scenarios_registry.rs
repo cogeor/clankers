@@ -49,8 +49,9 @@ fn registry_lists_builtin_scenarios() {
     let mut registry = ScenarioRegistry::new();
     register_builtin(&mut registry);
     let names = registry.list_builtin();
-    // Loop 7 (W8 PR1) added the arm-family scenarios. Order is
-    // alphabetic per `ScenarioRegistry::list_builtin`.
+    // Loop 7 (W8 PR1) added the arm-family scenarios; loop 8 (W8 PR2)
+    // adds quadruped/multi/pendulum/domain-rand. Order is alphabetic
+    // per `ScenarioRegistry::list_builtin`.
     assert_eq!(
         names,
         vec![
@@ -58,7 +59,10 @@ fn registry_lists_builtin_scenarios() {
             "arm_ik",
             "arm_pick",
             "arm_two_link",
-            "cartpole"
+            "cartpole",
+            "domain_rand_pendulum",
+            "multi_robot",
+            "pendulum",
         ]
     );
 }

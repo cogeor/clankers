@@ -248,7 +248,10 @@ fn apply_velocity_action(
         return;
     }
 
-    let action = runner.action().as_slice();
+    let action = runner
+        .action()
+        .as_continuous()
+        .expect("ActionApplicator contract: continuous action expected");
 
     // Arm joints (0..6): velocity integration with stiff PD motor
     for (i, &entity) in joints_res.0.iter().enumerate() {

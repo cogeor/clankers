@@ -214,7 +214,10 @@ fn apply_policy_action(
     joints: Res<CartPoleJoints>,
     mut commands: Query<&mut JointCommand>,
 ) {
-    let action = runner.action().as_slice();
+    let action = runner
+        .action()
+        .as_continuous()
+        .expect("ActionApplicator contract: continuous action expected");
 
     // Cart force (action index 0)
     if let Ok(mut cmd) = commands.get_mut(joints.cart) {

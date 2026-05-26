@@ -43,7 +43,9 @@ struct PickApplicator {
 
 impl clankers_core::traits::ActionApplicator for PickApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
-        let values = action.as_slice();
+        let values = action
+            .as_continuous()
+            .expect("ActionApplicator contract: continuous action expected");
         let entities = world.resource::<PickJointEntities>().0.clone();
         let mut overrides = world.resource_mut::<MotorOverrides>();
         for (i, &entity) in entities.iter().enumerate() {

@@ -118,8 +118,9 @@ impl Action {
     }
 
     /// Fallible slice view: returns `Some(&[f32])` for [`Self::Continuous`],
-    /// `None` for any other variant. The non-panicking replacement for
-    /// [`Self::as_slice`].
+    /// `None` for any other variant. The non-panicking accessor for the
+    /// continuous payload (replacing the pre-W3 `as_slice()` panicker that
+    /// was deleted in W3 PR2).
     ///
     /// # Example
     ///
@@ -138,7 +139,9 @@ impl Action {
 
     /// Fallible owning conversion: returns `Ok(Vec<f32>)` for
     /// [`Self::Continuous`], `Err(ActionKindError::ExpectedContinuous { .. })`
-    /// otherwise. The non-panicking replacement for [`Self::into_vec`].
+    /// otherwise. The non-panicking owning conversion for the continuous
+    /// payload (replacing the pre-W3 `into_vec()` panicker that was deleted
+    /// in W3 PR2).
     ///
     /// # Example
     ///
@@ -168,43 +171,19 @@ impl Action {
         }
     }
 
-    /// Slice view for continuous actions. Panics on discrete variants.
-    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
-    pub fn as_slice(&self) -> &[f32] {
-        match self {
-            Self::Continuous(v) => v.as_slice(),
-            _ => panic!("as_slice() only valid for Action::Continuous"),
-        }
-    }
-
-    /// Alias for [`Self::as_continuous`] that retains the legacy panicking
+    /// Panicking alias for [`Self::as_continuous`] that retains the legacy
     /// contract for `Discrete` / `MultiDiscrete` inputs. The body uses the
-    /// new fallible accessor internally so the library itself does not
-    /// trigger its own deprecation warning; the panic message is kept
+    /// new fallible accessor internally; the panic message is kept
     /// byte-equal to the pre-W3 `as_slice()` message so downstream tests
     /// that snapshot it continue to pass.
+    ///
+    /// Prefer [`Self::as_continuous`] for new code — `values()` is kept as
+    /// an ergonomic alias for read sites where the caller statically knows
+    /// the action is continuous.
     pub const fn values(&self) -> &[f32] {
         match self.as_continuous() {
             Some(v) => v,
             None => panic!("as_slice() only valid for Action::Continuous"),
-        }
-    }
-
-    /// Mutable slice for continuous actions. Panics on discrete variants.
-    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
-    pub fn as_mut_slice(&mut self) -> &mut [f32] {
-        match self {
-            Self::Continuous(v) => v.as_mut_slice(),
-            _ => panic!("as_mut_slice() only valid for Action::Continuous"),
-        }
-    }
-
-    /// Consume into `Vec<f32>`. Panics on discrete variants.
-    #[deprecated(since = "0.1.0", note = "use as_continuous() / try_into_continuous()")]
-    pub fn into_vec(self) -> Vec<f32> {
-        match self {
-            Self::Continuous(v) => v,
-            _ => panic!("into_vec() only valid for Action::Continuous"),
         }
     }
 
@@ -222,9 +201,9 @@ impl Action {
     /// # Panics
     ///
     /// Panics if the action is not [`Self::Continuous`]. The internal call
-    /// site uses <code>[Self::as_continuous]().expect(...)</code> rather than
-    /// the deprecated [`Self::as_slice`] so the library does not emit a
-    /// self-deprecation warning when callers invoke `scale`.
+    /// site uses <code>[Self::as_continuous]().expect(...)</code> so the body
+    /// stays compatible after the deprecated `as_slice()` panicker was
+    /// removed in W3 PR2.
     pub fn scale(&self, low: &[f32], high: &[f32]) -> Vec<f32> {
         let s = self
             .as_continuous()
@@ -1082,14 +1061,14 @@ mod tests {
         assert_eq!(action.len(), 2);
         assert_eq!(action.dim(), 2);
         assert!(!action.is_empty());
-        assert_eq!(action.as_slice(), &[0.5, -0.5]);
+        assert_eq!(action.as_continuous().unwrap(), &[0.5, -0.5]);
     }
 
     #[test]
     fn action_zeros() {
         let action = Action::zeros(3);
         assert_eq!(action.len(), 3);
-        assert_eq!(action.as_slice(), &[0.0, 0.0, 0.0]);
+        assert_eq!(action.as_continuous().unwrap(), &[0.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -1109,58 +1088,16 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "as_slice() only valid for Action::Continuous")]
-    fn action_discrete_as_slice_panics() {
-        let action = Action::Discrete(1);
-        let _ = action.as_slice();
-    }
-
-    #[test]
-    #[should_panic(expected = "as_slice() only valid for Action::Continuous")]
     fn action_discrete_values_panics() {
         let action = Action::Discrete(1);
         let _ = action.values();
     }
 
     #[test]
-    #[should_panic(expected = "as_mut_slice() only valid for Action::Continuous")]
-    fn action_discrete_as_mut_slice_panics() {
-        let mut action = Action::Discrete(1);
-        let _ = action.as_mut_slice();
-    }
-
-    #[test]
-    #[should_panic(expected = "into_vec() only valid for Action::Continuous")]
-    fn action_discrete_into_vec_panics() {
-        let action = Action::Discrete(1);
-        let _ = action.into_vec();
-    }
-
-    #[test]
-    #[should_panic(expected = "as_slice() only valid for Action::Continuous")]
-    fn action_multi_discrete_as_slice_panics() {
-        let action = Action::MultiDiscrete(vec![1, 2]);
-        let _ = action.as_slice();
-    }
-
-    #[test]
-    #[should_panic(expected = "as_mut_slice() only valid for Action::Continuous")]
-    fn action_multi_discrete_as_mut_slice_panics() {
-        let mut action = Action::MultiDiscrete(vec![1, 2]);
-        let _ = action.as_mut_slice();
-    }
-
-    #[test]
-    #[should_panic(expected = "into_vec() only valid for Action::Continuous")]
-    fn action_multi_discrete_into_vec_panics() {
-        let action = Action::MultiDiscrete(vec![1, 2]);
-        let _ = action.into_vec();
-    }
-
-    #[test]
     fn action_clip_normalized_continuous() {
         let mut action = Action::new(vec![-2.0, 0.5, 1.5]);
         action.clip_normalized();
-        assert_eq!(action.as_slice(), &[-1.0, 0.5, 1.0]);
+        assert_eq!(action.as_continuous().unwrap(), &[-1.0, 0.5, 1.0]);
     }
 
     #[test]
@@ -1235,17 +1172,21 @@ mod tests {
     }
 
     #[test]
-    fn action_into_vec_roundtrip() {
+    fn action_try_into_continuous_roundtrip() {
         let data = vec![1.0, 2.0, 3.0];
         let action = Action::new(data.clone());
-        assert_eq!(action.into_vec(), data);
+        assert_eq!(action.try_into_continuous().unwrap(), data);
     }
 
     #[test]
-    fn action_as_mut_slice() {
-        let mut action = Action::new(vec![1.0, 2.0]);
-        action.as_mut_slice()[0] = 99.0;
-        assert!((action.as_slice()[0] - 99.0).abs() < f32::EPSILON);
+    fn action_mutate_via_try_into_continuous() {
+        // `as_mut_slice` was removed in W3 PR2. Rebuild the
+        // mutate-in-place pattern via `try_into_continuous` + `Action::Continuous`.
+        let action = Action::new(vec![1.0, 2.0]);
+        let mut v = action.try_into_continuous().unwrap();
+        v[0] = 99.0;
+        let action = Action::Continuous(v);
+        assert!((action.as_continuous().unwrap()[0] - 99.0).abs() < f32::EPSILON);
     }
 
     #[test]

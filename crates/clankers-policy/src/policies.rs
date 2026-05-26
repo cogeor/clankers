@@ -171,8 +171,9 @@ mod tests {
     fn zero_policy_returns_zeros() {
         let policy = ZeroPolicy::new(4);
         let action = policy.get_action(&dummy_obs());
-        assert_eq!(action.as_slice().len(), 4);
-        for &v in action.as_slice() {
+        let values = action.as_continuous().unwrap();
+        assert_eq!(values.len(), 4);
+        for &v in values {
             assert!((v).abs() < f32::EPSILON);
         }
     }
@@ -196,7 +197,10 @@ mod tests {
         let action = Action::from(vec![1.0, 2.0, 3.0]);
         let policy = ConstantPolicy::new(action.clone());
         let result = policy.get_action(&dummy_obs());
-        assert_eq!(result.as_slice(), action.as_slice());
+        assert_eq!(
+            result.as_continuous().unwrap(),
+            action.as_continuous().unwrap()
+        );
     }
 
     #[test]
@@ -215,7 +219,7 @@ mod tests {
         };
         let policy = RandomPolicy::new(space, 42);
         let action = policy.get_action(&dummy_obs());
-        let vals = action.as_slice();
+        let vals = action.as_continuous().unwrap();
         assert_eq!(vals.len(), 2);
         for &v in vals {
             assert!((-1.0..1.0).contains(&v), "got {v}");
@@ -232,7 +236,7 @@ mod tests {
         let p2 = RandomPolicy::new(space, 123);
         let a1 = p1.get_action(&dummy_obs());
         let a2 = p2.get_action(&dummy_obs());
-        assert_eq!(a1.as_slice(), a2.as_slice());
+        assert_eq!(a1.as_continuous().unwrap(), a2.as_continuous().unwrap());
     }
 
     #[test]
@@ -263,11 +267,23 @@ mod tests {
         ];
         let policy = ScriptedPolicy::new(actions);
 
-        assert_eq!(policy.get_action(&dummy_obs()).as_slice(), &[1.0]);
-        assert_eq!(policy.get_action(&dummy_obs()).as_slice(), &[2.0]);
-        assert_eq!(policy.get_action(&dummy_obs()).as_slice(), &[3.0]);
+        assert_eq!(
+            policy.get_action(&dummy_obs()).as_continuous().unwrap(),
+            &[1.0]
+        );
+        assert_eq!(
+            policy.get_action(&dummy_obs()).as_continuous().unwrap(),
+            &[2.0]
+        );
+        assert_eq!(
+            policy.get_action(&dummy_obs()).as_continuous().unwrap(),
+            &[3.0]
+        );
         // Cycles back
-        assert_eq!(policy.get_action(&dummy_obs()).as_slice(), &[1.0]);
+        assert_eq!(
+            policy.get_action(&dummy_obs()).as_continuous().unwrap(),
+            &[1.0]
+        );
     }
 
     #[test]

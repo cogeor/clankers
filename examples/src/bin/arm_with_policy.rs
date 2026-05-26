@@ -28,7 +28,10 @@ fn apply_action_system(
     if !episode.is_running() {
         return;
     }
-    let values = runner.action().as_slice();
+    let values = runner
+        .action()
+        .as_continuous()
+        .expect("ActionApplicator contract: continuous action expected");
     for (i, mut cmd) in commands.iter_mut().enumerate() {
         if i < values.len() {
             cmd.value = values[i];
@@ -119,7 +122,10 @@ fn run_with_policy(policy: Box<dyn clankers_core::traits::Policy>, name: &str) {
     }
 
     let runner = scene.app.world().resource::<PolicyRunner>();
-    println!("  Final action: {:?}", runner.action().as_slice());
+    println!(
+        "  Final action: {:?}",
+        runner.action().as_continuous().unwrap_or(&[])
+    );
 
     let stats = scene.app.world().resource::<EpisodeStats>();
     println!(

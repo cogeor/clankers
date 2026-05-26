@@ -153,12 +153,6 @@ impl ObservationBuffer {
     pub fn clear(&mut self) {
         self.data.fill(0.0);
     }
-
-    /// Raw data slice.
-    #[deprecated(since = "0.1.0", note = "use view()")]
-    pub fn as_slice(&self) -> &[f32] {
-        &self.data
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +168,7 @@ mod tests {
         let buf = ObservationBuffer::new();
         assert_eq!(buf.dim(), 0);
         assert_eq!(buf.sensor_count(), 0);
-        assert!(buf.as_slice().is_empty());
+        assert!(buf.view().as_f32().is_empty());
     }
 
     #[test]

@@ -661,7 +661,7 @@ mod tests {
         };
         let obs = Observation::new(vec![0.0, 0.0, 0.0, 0.0]);
         let action = policy.get_action(&obs);
-        for &v in action.as_slice() {
+        for &v in action.as_continuous().unwrap() {
             assert!(v.abs() < 1e-6, "Expected near-zero action, got {v}",);
         }
     }
@@ -674,7 +674,7 @@ mod tests {
         let obs = Observation::new(vec![1.0, 2.0, 3.0, 4.0]);
         let a1 = policy.get_action(&obs);
         let a2 = policy.get_action(&obs);
-        assert_eq!(a1.as_slice(), a2.as_slice());
+        assert_eq!(a1.as_continuous().unwrap(), a2.as_continuous().unwrap());
     }
 
     // -- Action transform tests --
@@ -691,7 +691,12 @@ mod tests {
         // The raw model uses identity weights, so raw output for [1,0,0,0]
         // is [1.0, 0.0]. After transform: [1.0*2.0+0.0, 0.0*2.0+0.0] = [2.0, 0.0].
         let expected = [2.0f32, 0.0];
-        for (t, e) in action_tanh.as_slice().iter().zip(expected.iter()) {
+        for (t, e) in action_tanh
+            .as_continuous()
+            .unwrap()
+            .iter()
+            .zip(expected.iter())
+        {
             assert!((t - e).abs() < 1e-5, "Expected {e}, got {t}",);
         }
     }

@@ -110,7 +110,9 @@ mod tests {
 
     impl ActionApplicator for JointCommandApplicator {
         fn apply(&self, world: &mut bevy::prelude::World, action: &Action) {
-            let values = action.as_slice();
+            let values = action
+                .as_continuous()
+                .expect("ActionApplicator contract: continuous action expected");
             for (i, entity) in self.layout.bound_entities().enumerate() {
                 if i >= values.len() {
                     break;

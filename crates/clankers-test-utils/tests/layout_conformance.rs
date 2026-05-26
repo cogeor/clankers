@@ -150,7 +150,8 @@ fn action_index_maps_to_layout_entity() {
         // and writes action[i] into the entity bound at slot i.
         for (i, slot) in layout.joints().iter().enumerate() {
             let entity = slot.entity.expect("entity bound at slot");
-            world.get_mut::<JointCommand>(entity).unwrap().value = action.as_slice()[i];
+            world.get_mut::<JointCommand>(entity).unwrap().value =
+                action.as_continuous().unwrap()[i];
         }
 
         // The bound entity at slot k must read 1.0 …

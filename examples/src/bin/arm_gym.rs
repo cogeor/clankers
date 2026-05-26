@@ -31,7 +31,9 @@ struct ArmApplicator {
 
 impl clankers_core::traits::ActionApplicator for ArmApplicator {
     fn apply(&self, world: &mut World, action: &Action) {
-        let values = action.as_slice();
+        let values = action
+            .as_continuous()
+            .expect("ActionApplicator contract: continuous action expected");
         for (i, entity) in self.chain_entities.iter().enumerate() {
             if i < values.len()
                 && let Some(mut cmd) = world.get_mut::<JointCommand>(*entity)

@@ -287,7 +287,10 @@ mod tests {
 
     impl ActionApplicator for TestApplicator {
         fn apply(&self, world: &mut World, action: &Action) {
-            let values = action.as_slice();
+            // W4 PR1 (loop 03) replaces .expect(...) with .ok_or(ProtocolError::DiscreteActionForContinuousSpace)?
+            let values = action
+                .as_continuous()
+                .expect("ActionApplicator contract: continuous action expected");
             for (i, entity) in self.layout.bound_entities().enumerate() {
                 if i >= values.len() {
                     break;

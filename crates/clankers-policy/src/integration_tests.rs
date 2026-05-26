@@ -101,7 +101,7 @@ mod tests {
 
         // Verify policy ran and produced an action
         let runner = app.world().resource::<PolicyRunner>();
-        assert_eq!(runner.action().as_slice().len(), 1);
+        assert_eq!(runner.action().as_continuous().unwrap().len(), 1);
 
         // Verify episode advanced
         let ep = app.world().resource::<Episode>();
@@ -166,7 +166,7 @@ mod tests {
 
         let runner = app.world().resource::<PolicyRunner>();
         // Action should still be zeros (policy didn't run)
-        assert_eq!(runner.action().as_slice(), &[0.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[0.0]);
     }
 
     #[test]

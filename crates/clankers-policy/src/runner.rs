@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn policy_runner_new() {
         let runner = PolicyRunner::new(Box::new(ZeroPolicy::new(3)), 3);
-        assert_eq!(runner.action().as_slice(), &[0.0, 0.0, 0.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[0.0, 0.0, 0.0]);
         assert_eq!(runner.policy_name(), "ZeroPolicy");
     }
 
@@ -99,7 +99,7 @@ mod tests {
         let mut runner = PolicyRunner::new(Box::new(ZeroPolicy::new(2)), 2);
         let obs = Observation::new(vec![1.0, 2.0, 3.0]);
         runner.decide(&obs);
-        assert_eq!(runner.action().as_slice(), &[0.0, 0.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[0.0, 0.0]);
     }
 
     #[test]
@@ -112,10 +112,10 @@ mod tests {
         );
         let obs = Observation::new(vec![1.0]);
         runner.decide(&obs);
-        assert_eq!(runner.action().as_slice(), &[5.0, 10.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[5.0, 10.0]);
 
         runner.reset();
-        assert_eq!(runner.action().as_slice(), &[0.0, 0.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[0.0, 0.0]);
     }
 
     fn build_test_app(runner: PolicyRunner) -> App {
@@ -144,7 +144,7 @@ mod tests {
         app.update();
 
         let runner = app.world().resource::<PolicyRunner>();
-        assert_eq!(runner.action().as_slice(), &[7.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[7.0]);
     }
 
     #[test]
@@ -161,6 +161,6 @@ mod tests {
         app.update();
 
         let runner = app.world().resource::<PolicyRunner>();
-        assert_eq!(runner.action().as_slice(), &[0.0]); // Still zeros
+        assert_eq!(runner.action().as_continuous().unwrap(), &[0.0]); // Still zeros
     }
 }

@@ -350,7 +350,7 @@ fn observation_section(ui: &mut egui::Ui, buffer: &ObservationBuffer) {
                 .show(ui, |ui| {
                     let slots = buffer.slots();
                     if slots.is_empty() {
-                        for (i, &v) in buffer.as_slice().iter().enumerate() {
+                        for (i, &v) in buffer.view().as_f32().iter().enumerate() {
                             ui.label(format!("[{i}] {v:.4}"));
                         }
                     } else {
@@ -385,7 +385,13 @@ fn action_section(
             VizMode::Policy => {
                 if let Some(runner) = policy_runner {
                     ui.label(format!("Policy: {}", runner.policy_name()));
-                    for (i, &v) in runner.action().as_slice().iter().enumerate() {
+                    for (i, &v) in runner
+                        .action()
+                        .as_continuous()
+                        .expect("ActionApplicator contract: continuous action expected")
+                        .iter()
+                        .enumerate()
+                    {
                         ui.label(format!("[{i}] {v:.4}"));
                     }
                 } else {

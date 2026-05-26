@@ -281,7 +281,7 @@ mod tests {
         }
 
         let runner = scene.app.world().resource::<PolicyRunner>();
-        assert_eq!(runner.action().as_slice(), &[5.0]);
+        assert_eq!(runner.action().as_continuous().unwrap(), &[5.0]);
     }
 
     // -----------------------------------------------------------------------

@@ -96,10 +96,17 @@ jobs:
             --warmup-runs 1 \
             --max-steps 500 \
             --csv benches/current_vec.csv
+          # Tolerance widened from 0.15 to 0.50 as an interim unblock
+          # (Phase 0 of .delegate/work/20260527-184500-bench-gate-fix/).
+          # vec_baseline.csv was captured on PC1 (Windows) but CI runs
+          # on shared Ubuntu runners; on this overhead-dominated
+          # synthetic benchmark the cross-platform drift exceeds 15%.
+          # Loops 02-03 replace this absolute-throughput gate with a
+          # hardware-invariant parallel/sequential ratio gate.
           python scripts/compare_baseline.py \
             benches/current_vec.csv \
             notes/baselines/vec_baseline.csv \
-            --tolerance 0.15
+            --tolerance 0.50
 
   # W8 PR3 (loop 09): per-scenario matrix verifying each name in
   # `clankers_sim::scenarios::REGISTRY` is registered. GHA runners have

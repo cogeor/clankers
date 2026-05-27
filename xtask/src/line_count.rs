@@ -211,8 +211,9 @@ pub fn count_lines(path: &Path) -> std::io::Result<usize> {
     Ok(n)
 }
 
-/// Locate the workspace's `examples/examples/` directory by walking up
-/// from `CARGO_MANIFEST_DIR`. The xtask crate sits at
+/// Locate the workspace's `examples/examples/` directory.
+///
+/// Walks up from `CARGO_MANIFEST_DIR`. The xtask crate sits at
 /// `<workspace>/xtask/`, so the dir is `../examples/examples/`.
 /// (Pre-refactor this was `../examples/src/bin/`; the bins were lifted
 /// to `[[example]]` targets so `cargo test --workspace` stops building

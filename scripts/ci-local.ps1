@@ -101,16 +101,12 @@ try {
         Step 'cargo build --release -p clankers-app' {
             cargo build -j 8 -p clankers-app --release
         }
-        Step 'bench vec sweep' {
+        Step 'bench vec ratio gate' {
             $env:RAYON_NUM_THREADS = '8'
             & .\target\release\clankers-app.exe bench vec `
                 --envs 1,2,4,8 --runs 3 --warmup-runs 1 --max-steps 500 `
+                --work-us 100 --ratio-gate 2.0 `
                 --csv benches/current_vec.csv
-        }
-        Step 'compare baseline (15% tolerance)' {
-            python scripts/compare_baseline.py `
-                benches/current_vec.csv notes/baselines/vec_baseline.csv `
-                --tolerance 0.15
         }
     }
 } finally { Pop-Location }

@@ -142,6 +142,17 @@ pub struct VecArgs {
     /// realistic-work value: `100`.
     #[arg(long, default_value_t = 0)]
     pub work_us: u32,
+
+    /// Optional parallel/sequential throughput ratio floor. When `>0.0`,
+    /// the bench exits non-zero if the gated row's `throughput_x < K`.
+    /// Default `0.0` = no gate (dev runs unaffected). CI passes `2.0`
+    /// (conservative for a 4-core GHA runner; dev hardware sees ~4.5).
+    /// Gates on the row matching `--envs` value `8` when present, else
+    /// the highest-N row available (with a warning).
+    /// Requires `--work-us > 0` — otherwise exits 2 (misconfigured)
+    /// because the overhead-floor scenario can't satisfy a >1.0 ratio.
+    #[arg(long, default_value_t = 0.0)]
+    pub ratio_gate: f64,
 }
 
 /// `bench protocol` subcommand-specific flags.
@@ -478,6 +489,16 @@ fn bench_vec(args: &BenchArgs, vec_args: &VecArgs) -> ExitCode {
     let seed = args.seed.unwrap_or(0);
     let work_us = vec_args.work_us;
 
+    if vec_args.ratio_gate > 0.0 && work_us == 0 {
+        eprintln!(
+            "bench vec: --ratio-gate {:.2} requires --work-us > 0 (the overhead-floor scenario `vec_parallel` cannot satisfy a >1.0 ratio gate). Re-run with --work-us 100 or drop --ratio-gate.",
+            vec_args.ratio_gate
+        );
+        return ExitCode::from(2);
+    }
+
+    let mut gate_rows: Vec<(u16, f64)> = Vec::with_capacity(env_counts.len());
+
     for &n in &env_counts {
         // Warmup: parallel and sequential each warmed once.
         let _ = run_vec_cell(
@@ -509,6 +530,8 @@ fn bench_vec(args: &BenchArgs, vec_args: &VecArgs) -> ExitCode {
         } else {
             0.0
         };
+
+        gate_rows.push((n, throughput_ratio));
 
         if n == 8 && throughput_ratio < 3.0 && throughput_ratio > 0.0 {
             eprintln!(
@@ -557,7 +580,27 @@ fn bench_vec(args: &BenchArgs, vec_args: &VecArgs) -> ExitCode {
         }
     }
 
-    ExitCode::SUCCESS
+    evaluate_gate(&gate_rows, vec_args.ratio_gate)
+}
+
+/// Apply the ratio gate (if enabled) and convert to the canonical
+/// `ExitCode` (0 pass / no gate, 1 fail). Extracted from `bench_vec` to
+/// keep that function under the workspace clippy `too_many_lines` cap and
+/// to keep the gate's exit-code mapping in one auditable spot.
+fn evaluate_gate(gate_rows: &[(u16, f64)], gate: f64) -> ExitCode {
+    if gate <= 0.0 {
+        return ExitCode::SUCCESS;
+    }
+    match check_ratio_gate(gate_rows, gate) {
+        Ok((n, x)) => {
+            eprintln!("RATIO GATE: PASS N={n} throughput_x={x:.3} >= {gate:.3}");
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn run_vec_cell(
@@ -1212,6 +1255,50 @@ pub fn bench_vec_cell(n: u16, runs: u32, max_steps: u32, parallel: bool, work_us
 }
 
 // ---------------------------------------------------------------------------
+// Ratio-gate helper
+// ---------------------------------------------------------------------------
+
+/// Outcome of a ratio-gate check.
+///
+/// `Ok((n, x))` — gate passed (or no rows to gate on; returns sentinel
+/// `(0, 0.0)`). `Err(msg)` — gate failed; `msg` is the human-readable
+/// failure reason already formatted for stderr (starts with `RATIO GATE: FAIL`).
+/// The caller is responsible for emitting the `RATIO GATE: PASS ...` line
+/// on success and choosing the exit code.
+///
+/// `rows` is a list of `(num_envs, throughput_x)` pairs in the order the
+/// bench loop produced them. The gate prefers `N=8` and falls back to the
+/// highest-N row available, logging a warning to stderr in the fallback case.
+fn check_ratio_gate(rows: &[(u16, f64)], gate: f64) -> Result<(u16, f64), String> {
+    if rows.is_empty() {
+        eprintln!("RATIO GATE: no rows; gate skipped");
+        return Ok((0, 0.0));
+    }
+
+    let (n, x) = if let Some(&row) = rows.iter().find(|(n, _)| *n == 8) {
+        row
+    } else {
+        let &row = rows
+            .iter()
+            .max_by_key(|(n, _)| *n)
+            .expect("rows non-empty (checked above)");
+        eprintln!(
+            "RATIO GATE: --envs did not include 8; gating on N={} instead",
+            row.0
+        );
+        row
+    };
+
+    if x >= gate {
+        Ok((n, x))
+    } else {
+        Err(format!(
+            "RATIO GATE: FAIL N={n} throughput_x={x:.3} < {gate:.3}"
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1327,5 +1414,51 @@ mod tests {
     fn bench_vec_cell_produces_positive_throughput() {
         let sps = bench_vec_cell(2, 1, 100, false, 0);
         assert!(sps > 0.0, "expected positive sps, got {sps}");
+    }
+
+    #[test]
+    fn check_ratio_gate_empty_rows_passes_with_warning() {
+        // Opt-in gate; if the bench produced no rows (e.g. degenerate
+        // --envs), don't fail CI — that's a configuration problem,
+        // not a regression. The helper returns Ok with sentinel (0, 0.0).
+        let result = check_ratio_gate(&[], 2.0);
+        assert!(result.is_ok(), "empty rows should not fail the gate");
+    }
+
+    #[test]
+    fn check_ratio_gate_passes_when_ratio_meets_floor() {
+        // N=8 row with throughput_x = 4.5 vs gate K=2.0 -> pass.
+        let rows = vec![(1u16, 1.0_f64), (8u16, 4.5_f64)];
+        let result = check_ratio_gate(&rows, 2.0);
+        assert!(result.is_ok());
+        let (n, x) = result.unwrap();
+        assert_eq!(n, 8);
+        assert!((x - 4.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn check_ratio_gate_fails_with_specific_message_when_below_floor() {
+        // N=8 row with throughput_x = 0.5 vs gate K=2.0 -> fail.
+        let rows = vec![(1u16, 1.0_f64), (8u16, 0.5_f64)];
+        let result = check_ratio_gate(&rows, 2.0);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        // The message MUST mention both the observed value and the
+        // gate, so the CI log tells the on-call engineer why it failed.
+        assert!(msg.contains("0.5") || msg.contains("0.500"), "msg={msg}");
+        assert!(msg.contains("2.0") || msg.contains("2.000"), "msg={msg}");
+        assert!(msg.to_uppercase().contains("FAIL"), "msg={msg}");
+    }
+
+    #[test]
+    fn check_ratio_gate_falls_back_to_highest_n_when_8_missing() {
+        // --envs 1,2,4 -> no N=8 row. Gate on N=4 instead, passing if
+        // that row meets the floor.
+        let rows = vec![(1u16, 1.0_f64), (2u16, 1.8_f64), (4u16, 3.2_f64)];
+        let result = check_ratio_gate(&rows, 2.0);
+        assert!(result.is_ok());
+        let (n, x) = result.unwrap();
+        assert_eq!(n, 4, "fallback should pick highest-N row");
+        assert!((x - 3.2).abs() < 1e-9);
     }
 }

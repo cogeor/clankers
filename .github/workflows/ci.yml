@@ -78,14 +78,27 @@ jobs:
       # so no `-j` flag.
       - name: Enforce example-bin LOC ceiling
         run: cargo xtask check-bin-size
-      # W7 PR4: baseline regression gate. Builds the release CLI,
-      # runs a lightweight `bench vec` sweep, and compares against the
-      # committed baseline with a 15% slowdown tolerance. The
-      # comparator is stdlib-only Python so it does not depend on the
-      # `python` job above. CLAUDE.md mandates `-j 8` workspace-wide
-      # because the paging file cannot absorb higher parallelism
-      # during the release build's link step.
-      - name: Bench regression gate
+      # Bench ratio gate. Builds the release CLI, runs a lightweight
+      # `bench vec` sweep with `--work-us 100` (representative per-
+      # step work), and exits non-zero if the N=8 parallel/sequential
+      # throughput ratio falls below 2.0. The gate is hardware-
+      # invariant by construction (both arms run on the same runner,
+      # in the same process, with the same per-step work budget), so
+      # it does NOT depend on the PC1-captured baselines under
+      # `notes/baselines/`. The previous absolute-throughput
+      # comparator (compare_baseline.py vec_baseline.csv, widened to
+      # 0.50 tolerance in loop 01 of this task) is removed — the
+      # ratio gate replaces it.
+      #
+      # Calibration: dev's Windows box reports throughput_x ~4.5 at
+      # N=8 with --work-us 100. The 2.0 floor leaves ~2x margin for
+      # GHA's 4-core shared runners. If this proves too tight in
+      # practice, lower to 1.5 and revisit in a follow-up loop.
+      #
+      # CLAUDE.md mandates `-j 8` workspace-wide because the paging
+      # file cannot absorb higher parallelism during the release
+      # build's link step.
+      - name: Bench ratio gate
         env:
           RAYON_NUM_THREADS: "8"
         run: |
@@ -95,18 +108,9 @@ jobs:
             --runs 3 \
             --warmup-runs 1 \
             --max-steps 500 \
+            --work-us 100 \
+            --ratio-gate 2.0 \
             --csv benches/current_vec.csv
-          # Tolerance widened from 0.15 to 0.50 as an interim unblock
-          # (Phase 0 of .delegate/work/20260527-184500-bench-gate-fix/).
-          # vec_baseline.csv was captured on PC1 (Windows) but CI runs
-          # on shared Ubuntu runners; on this overhead-dominated
-          # synthetic benchmark the cross-platform drift exceeds 15%.
-          # Loops 02-03 replace this absolute-throughput gate with a
-          # hardware-invariant parallel/sequential ratio gate.
-          python scripts/compare_baseline.py \
-            benches/current_vec.csv \
-            notes/baselines/vec_baseline.csv \
-            --tolerance 0.50
 
   # W8 PR3 (loop 09): per-scenario matrix verifying each name in
   # `clankers_sim::scenarios::REGISTRY` is registered. GHA runners have

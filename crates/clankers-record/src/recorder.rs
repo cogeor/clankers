@@ -63,8 +63,8 @@ pub struct RecordingConfig {
     /// Whether to record body poses (`/body_poses` channel).
     pub record_body_poses: bool,
     /// When `true`, the recorder dispatches every JSON write through the
-    /// W7 PR4 [`AsyncRecorder`](crate::async_writer::AsyncRecorder)
-    /// background worker rather than blocking the Bevy `PostUpdate`
+    /// W7 PR4 [`AsyncRecorder`] background worker rather than blocking
+    /// the Bevy `PostUpdate`
     /// schedule on disk I/O. Default `false` for back-compat —
     /// existing recordings are byte-identical to the pre-W7 sync path
     /// when this stays unset.
@@ -124,9 +124,9 @@ pub struct ChannelIds {
 /// # Sync vs async backend (W7 PR4)
 ///
 /// When [`RecordingConfig::async_mode`] is `false` (default) every
-/// [`Self::write_json`] call writes directly through the inline
+/// `Self::write_json` call writes directly through the inline
 /// [`mcap::write::Writer`] — byte-identical to the pre-W7 behaviour.
-/// When `async_mode` is `true`, [`Self::write_json`] dispatches to the
+/// When `async_mode` is `true`, `Self::write_json` dispatches to the
 /// [`AsyncRecorder`] worker thread via a bounded crossbeam channel and
 /// the inline writer is still held but the producer pushes through
 /// `try_send_frame`. The asynchronous path always also publishes

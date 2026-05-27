@@ -25,9 +25,9 @@ use crate::scenarios::{ScenarioBuilder, ScenarioConfig, ScenarioHandle};
 /// Per-scenario knobs for the `arm_bench` scenario.
 ///
 /// Per W8 PR1 Design choice B, scenario-specific tuning rides on a
-/// private config struct consumed by [`ArmBenchScenario::build_with`]
-/// rather than expanding the field-locked
-/// [`ScenarioConfig`](crate::scenarios::ScenarioConfig).
+/// private config struct consumed by
+/// [`ArmBenchScenario::build_with_artifacts`] rather than expanding the
+/// field-locked [`ScenarioConfig`].
 #[derive(Debug, Clone)]
 pub struct ArmBenchConfig {
     /// Hard cap on episode steps. Defaults to 500.

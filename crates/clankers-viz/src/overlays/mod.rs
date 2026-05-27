@@ -4,7 +4,7 @@
 //! # Status (W8 PR1)
 //!
 //! Loop 7 lands the **module skeleton** so the new
-//! [`clankers_sim::scenarios`](clankers_sim::scenarios) registry +
+//! [`clankers_sim::scenarios`] registry +
 //! xtask LOC checker can ship without blocking on the much larger
 //! per-bin lift. The three planned overlay plugins
 //! (`ArmIkOverlayPlugin`, `ArmPolicyOverlayPlugin`,

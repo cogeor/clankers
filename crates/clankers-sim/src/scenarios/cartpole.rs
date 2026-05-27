@@ -12,7 +12,6 @@
 //! - [`CartpoleScenario::build_with`] parametrised entry point.
 //! - [`CartPoleApplicator`] (the action-application glue moved out of
 //!   the example bins).
-//! - [`CartpoleScenario::make_env`] convenience for vec-env builders.
 //!
 //! # App-swap convention
 //!

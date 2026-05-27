@@ -27,8 +27,7 @@ use crate::scenarios::{ScenarioBuilder, ScenarioConfig, ScenarioHandle};
 /// `examples/urdf/two_link_arm.urdf`.
 const TWO_LINK_ARM_URDF: &str = include_str!("../../../../examples/urdf/two_link_arm.urdf");
 
-/// Per-scenario knobs that do NOT belong on
-/// [`ScenarioConfig`](crate::scenarios::ScenarioConfig).
+/// Per-scenario knobs that do NOT belong on [`ScenarioConfig`].
 ///
 /// Per W8 PR1 Design choice B, the W5 PR1 `ScenarioConfig` field set is
 /// locked; scenario-specific tuning rides on private config structs
@@ -38,10 +37,8 @@ pub struct ArmTwoLinkConfig {
     /// Hard cap on episode steps. Defaults to
     /// `ScenarioConfig::max_steps` if not overridden.
     pub max_episode_steps: u32,
-    /// Whether to register a
-    /// [`JointCommandSensor`](clankers_env::prelude::JointCommandSensor)
-    /// alongside the standard
-    /// [`JointStateSensor`](clankers_env::prelude::JointStateSensor).
+    /// Whether to register a [`clankers_env::prelude::JointCommandSensor`]
+    /// alongside the standard [`clankers_env::prelude::JointStateSensor`].
     /// Defaults to `true` (matches `arm_with_policy.rs` today).
     pub register_command_sensor: bool,
 }

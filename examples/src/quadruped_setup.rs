@@ -69,7 +69,7 @@ pub struct QuadrupedSetup {
     /// Layout bound to the 12 quadruped joint entities (4 legs × 3 DOF),
     /// in [`JointLayout`] alphabetic order. Suitable for constructing
     /// layout-bound sensors and motor overrides via
-    /// [`validate_motor_coverage`].
+    /// [`clankers_physics::rapier::systems::validate_motor_coverage`].
     pub joint_layout: std::sync::Arc<clankers_core::layout::JointLayout>,
 }
 

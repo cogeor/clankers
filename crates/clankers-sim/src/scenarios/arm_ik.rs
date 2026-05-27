@@ -4,7 +4,7 @@
 //! into a [`ScenarioBuilder`]: URDF parse → [`crate::SceneBuilder`] →
 //! position-mode PID actuators → Rapier physics with
 //! `num_solver_iterations = 50` → initial motor targets → bound
-//! [`JointLayout`](clankers_core::layout::JointLayout) →
+//! [`clankers_core::layout::JointLayout`] →
 //! [`JointStateSensor`].
 //!
 //! IK logic (chain solver, target cycling, control system) intentionally
@@ -69,7 +69,7 @@ pub const ARM_JOINT_NAMES: [&str; 6] = [
 ///
 /// Per W8 PR1 Design choice B, none of these belong on the field-locked
 /// [`ScenarioConfig`]; the scenario owns its own config struct consumed
-/// by [`ArmIkScenario::build_with`].
+/// by [`ArmIkScenario::build_with_artifacts`].
 #[derive(Debug, Clone)]
 pub struct ArmIkConfig {
     /// Hard cap on episode steps. Loops 7+ pin this to `max_steps` if
@@ -81,8 +81,8 @@ pub struct ArmIkConfig {
     pub use_fixed_update: bool,
     /// Sensor DOF: 6 for the arm joints only, 8 to include the gripper
     /// fingers. The sensor is registered over a chain-order
-    /// [`JointLayout`](clankers_core::layout::JointLayout) — matches
-    /// the pre-PR1 `ArmApplicator` action ordering.
+    /// [`clankers_core::layout::JointLayout`] — matches the pre-PR1
+    /// `ArmApplicator` action ordering.
     pub sensor_dof: usize,
     /// Initial joint positions for the 6 arm joints. Defaults to
     /// [`REST_POSE`].
@@ -100,9 +100,9 @@ impl Default for ArmIkConfig {
     }
 }
 
-/// Handle returned by [`ArmIkScenario::build_with`] alongside the
-/// standard [`ScenarioHandle`]. Carries the data callers need to drive
-/// IK or layout-bound sensors from above.
+/// Handle returned by [`ArmIkScenario::build_with_artifacts`] alongside
+/// the standard [`ScenarioHandle`]. Carries the data callers need to
+/// drive IK or layout-bound sensors from above.
 pub struct ArmIkArtifacts {
     /// The spawned-scene wrapper (re-exported through the handle for
     /// callers that need direct world access).

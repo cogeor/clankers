@@ -134,8 +134,8 @@ pub enum RecorderMessage {
 /// `DroppedFrames::default()` constructs a fresh `Arc<AtomicU64::new(0)>`.
 /// When the recorder runs in sync mode (the default), this counter stays
 /// at 0 — no drops are possible on the sync path because every
-/// [`crate::recorder::Recorder::write_json`] call blocks until the
-/// underlying writer accepts the bytes.
+/// `Recorder::write_json` call blocks until the underlying writer
+/// accepts the bytes. (Not a doc-link: `write_json` is `pub(crate)`.)
 #[derive(Resource, Clone, Debug, Default)]
 pub struct DroppedFrames(pub Arc<AtomicU64>);
 

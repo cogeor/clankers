@@ -1,0 +1,228 @@
+# Baseline recapture workflow
+#
+# WHAT: Builds clankers-app --release and runs every `bench` subcommand
+# whose output lives in notes/baselines/. CSVs are uploaded as one
+# artifact named `baselines-{run-id}-{run-attempt}`. Nothing is
+# auto-committed.
+#
+# WHY: The committed baselines under notes/baselines/ were captured on
+# PC1 (Windows desktop) and embed hostname=PC1 / commit=local in their
+# `notes` column. CI runs on Linux ubuntu-latest shared runners, which
+# diverge by orders of magnitude on every metric. Loop 02 of the
+# bench-gate-fix task replaced the failing absolute-throughput vec gate
+# with a hardware-invariant ratio gate (ci.yml), but the OTHER 5
+# baselines (cartpole, arm_pick, protocol, record, mpc) are still
+# PC1-shaped and would explode the moment they get wired into CI.
+# This workflow lets the maintainer regenerate them on the actual
+# CI runner class so a future "re-enable comparator for X" loop has
+# a usable starting point.
+#
+# WHEN to trigger:
+#   - After significant perf-relevant changes (parallel_runner.rs,
+#     dense joint runtime, recorder hot path, MPC solver).
+#   - One-off to seed post-loop-02 baselines (the immediate use case).
+#   - Whenever the maintainer wants a fresh sanity check against drift.
+#
+# HOW to use (maintainer runbook):
+#   1. GitHub UI -> Actions tab -> "Baselines (recapture)" -> Run workflow.
+#      Select the branch you want baselines for (almost always `main`).
+#   2. Wait ~25-40 min for the job to complete.
+#   3. Download the `baselines-{run-id}-{run-attempt}` artifact from
+#      the run summary page.
+#   4. Diff each downloaded CSV against notes/baselines/<same name>.csv.
+#      Order-of-magnitude differences are EXPECTED (PC1 desktop vs
+#      Linux shared runner). Sanity-check direction (faster/slower
+#      makes sense for the metric), not exact numbers.
+#   5. Copy the downloaded CSVs over notes/baselines/<same name>.csv
+#      and commit on a branch. Include the run URL in the commit
+#      message so future audits can trace where the numbers came from.
+#   6. The new `vec_throughput_baseline.csv` has no historical
+#      counterpart -- commit it as a NEW file (loop 02 added the
+#      vec_throughput_100us scenario; this is its first baseline).
+#
+# Trigger model: workflow_dispatch ONLY. No push, no pull_request, no
+# schedule. Recapture is a deliberate maintainer action; auto-trigger
+# would defeat the manual-review safety net.
+
+name: Baselines (recapture)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  recapture:
+    name: Recapture baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      RAYON_NUM_THREADS: "8"
+    steps:
+      - uses: actions/checkout@v4
+
+      # ubuntu-latest ships with ~14 GB free. Recapture only does
+      # `cargo build --release -p clankers-app` (smaller than ci.yml's
+      # --workspace --tests build), but `bench arm_pick` and `bench mpc`
+      # build Bevy/Rapier scenarios and `bench record` writes MCAP under
+      # /tmp. Reclaim ~25 GB by dropping toolchains we don't use. Inline
+      # to keep the supply chain small (matches ci.yml:49-56).
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.1"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
+
+      # Separate cache namespace from ci.yml's build keeps either side
+      # from invalidating the other (recapture rebuilds only
+      # clankers-app --release; ci.yml builds the full workspace).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: baselines
+
+      # CLAUDE.md mandates -j 8 workspace-wide because the paging file
+      # cannot absorb higher parallelism during the release build's
+      # link step. -p clankers-app only (NOT --workspace) -- this is
+      # the only binary the bench subcommands need.
+      - name: Build clankers-app (release)
+        run: cargo build -j 8 -p clankers-app --release
+
+      # $RUNNER_TEMP is the GHA-recommended scratch path (separate
+      # from /tmp; doesn't get cleared mid-job). Exporting
+      # BASELINES_OUT via $GITHUB_ENV makes subsequent steps reference
+      # one canonical path; if the path ever needs to change, only
+      # this step edits.
+      - name: Prepare output directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/baselines"
+          echo "BASELINES_OUT=$RUNNER_TEMP/baselines" >> "$GITHUB_ENV"
+
+      # vec overhead floor (work_us=0, scenario emitted as
+      # `vec_parallel`). Matches the existing vec_baseline.csv row
+      # family: runs=10, max_steps=5000, warmup_runs=5. No
+      # --ratio-gate -- this is a recapture, not a gate.
+      - name: Capture vec baseline (overhead floor, work_us=0)
+        run: |
+          ./target/release/clankers-app bench vec \
+            --envs 1,2,4,8 \
+            --runs 10 \
+            --warmup-runs 5 \
+            --max-steps 5000 \
+            --work-us 0 \
+            --csv "$BASELINES_OUT/vec_baseline.csv"
+
+      # vec throughput (work_us=100, scenario emitted as
+      # `vec_throughput_100us`). Loop 02 introduced this scenario;
+      # future ratio-gate calibration needs the throughput-mode
+      # reference. Separate file so the two scenario families don't
+      # collide on the (scenario, num_envs) key the comparator uses.
+      # NEW file -- no notes/baselines/ counterpart yet.
+      - name: Capture vec throughput baseline (work_us=100)
+        run: |
+          ./target/release/clankers-app bench vec \
+            --envs 1,2,4,8 \
+            --runs 10 \
+            --warmup-runs 5 \
+            --max-steps 5000 \
+            --work-us 100 \
+            --csv "$BASELINES_OUT/vec_throughput_baseline.csv"
+
+      # cartpole scenario via `bench scenario` (V1 11-column header).
+      # Matches existing cartpole_baseline.csv: runs=5, max_steps=1000,
+      # warmup_runs=3.
+      - name: Capture cartpole baseline
+        run: |
+          ./target/release/clankers-app bench scenario \
+            --scenario cartpole \
+            --runs 5 \
+            --warmup-runs 3 \
+            --max-steps 1000 \
+            --csv "$BASELINES_OUT/cartpole_baseline.csv"
+
+      # arm_pick scenario via `bench scenario` (V1 11-column header).
+      # Matches existing arm_pick_baseline.csv: runs=5, max_steps=1000,
+      # warmup_runs=3.
+      - name: Capture arm_pick baseline
+        run: |
+          ./target/release/clankers-app bench scenario \
+            --scenario arm_pick \
+            --runs 5 \
+            --warmup-runs 3 \
+            --max-steps 1000 \
+            --csv "$BASELINES_OUT/arm_pick_baseline.csv"
+
+      # protocol (binary vs json encoding sweep). Matches existing
+      # protocol_baseline.csv: runs=5, max_steps=1000, warmup_runs=3,
+      # envs=1,2,4,8, obs_dim=16, batches=10000 (default).
+      # --max-steps is global but unused by bench_protocol; including
+      # it preserves the max_steps=1000 column the existing baseline
+      # row has.
+      - name: Capture protocol baseline
+        run: |
+          ./target/release/clankers-app bench protocol \
+            --envs 1,2,4,8 \
+            --obs-dim 16 \
+            --batches 10000 \
+            --runs 5 \
+            --warmup-runs 3 \
+            --max-steps 1000 \
+            --csv "$BASELINES_OUT/protocol_baseline.csv"
+
+      # record (sync + async buffer sweep). Matches existing
+      # record_baseline.csv: runs=5, max_steps=1000, warmup_runs=3,
+      # joints=8, frames=10000, buffers=256,1024,4096 (default).
+      - name: Capture record baseline
+        run: |
+          ./target/release/clankers-app bench record \
+            --frames 10000 \
+            --buffers 256,1024,4096 \
+            --joints 8 \
+            --runs 5 \
+            --warmup-runs 3 \
+            --max-steps 1000 \
+            --csv "$BASELINES_OUT/record_baseline.csv"
+
+      # mpc on arm_pick (the bench_mpc default). Matches existing
+      # mpc_baseline.csv: runs=3, max_steps=500, warmup_runs=1.
+      # MpcArgs has no subcommand-specific flags; --scenario is global.
+      # Pinning to arm_pick explicitly documents intent even though
+      # it's the current default.
+      - name: Capture mpc baseline (arm_pick)
+        run: |
+          ./target/release/clankers-app bench mpc \
+            --scenario arm_pick \
+            --runs 3 \
+            --warmup-runs 1 \
+            --max-steps 500 \
+            --csv "$BASELINES_OUT/mpc_baseline.csv"
+
+      # if: always() -- upload partial artifacts even if one bench
+      # step failed, so the maintainer has data from the steps that
+      # succeeded.
+      # name interpolates run_id + run_attempt for disambiguation
+      # across re-runs of the same trigger.
+      # path with trailing slash uploads directory contents flat.
+      # if-no-files-found: error fails loudly if every bench step
+      # failed before writing (default `warn` silently uploads empty).
+      - name: Upload baselines artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baselines-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BASELINES_OUT }}/
+          retention-days: 90
+          if-no-files-found: error

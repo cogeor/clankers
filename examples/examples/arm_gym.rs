@@ -3,7 +3,7 @@
 //! Headless arm environment serving a single GymEnv over TCP for Python RL
 //! training and data collection.
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_gym`
+//! Run: `cargo run -p clankers-examples --example arm_gym`
 //! Then connect with: `python python/examples/arm_imitation_learning.py --online`
 
 use std::sync::Arc;

@@ -14,8 +14,9 @@
 //! consistency with the established workspace pattern; the assertions
 //! here (channel-set discovery) are satisfied by `MessageStream`
 //! iteration because every camera channel has ≥1 message.
-
-#![cfg(feature = "camera")]
+//!
+//! `#[cfg(feature = "camera")]` lives on the `mod` declaration in
+//! `tests/it/main.rs` instead of an inner attribute here.
 
 use std::collections::HashSet;
 use std::path::PathBuf;

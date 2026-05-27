@@ -3,7 +3,7 @@
 Visualizes the policy in action by printing state at each step.
 
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_gym --release
+    cargo run -p clankers-examples --example cartpole_gym --release
 
 Then run this script:
     py -3.12 python/examples/cartpole_play_ppo.py

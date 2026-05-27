@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [features]
 default = []
@@ -23,6 +24,10 @@ clankers-render = { workspace = true, optional = true }
 # in the workspace. The W7 PR4 async recorder writer uses a bounded
 # crossbeam queue between the Bevy hot path and the I/O worker thread.
 crossbeam-channel = "0.5"
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

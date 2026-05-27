@@ -14,7 +14,7 @@
 //! The hip_link and upper_leg are co-located (hip_pitch origin is 0,0,0
 //! relative to hip_link), so visuals use upper_leg position for the hip sphere.
 //!
-//! Run: `cargo run -p clankers-examples --bin quadruped_mpc_viz`
+//! Run: `cargo run -p clankers-examples --example quadruped_mpc_viz`
 
 use bevy::prelude::*;
 use bevy::time::Fixed;

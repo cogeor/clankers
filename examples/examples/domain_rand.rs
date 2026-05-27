@@ -1,7 +1,7 @@
 //! Domain randomization across episodes. Thin wrapper over
 //! [`clankers_sim::scenarios::domain_rand_pendulum::DomainRandPendulumScenario`].
 //!
-//! Run: `cargo run -p clankers-examples --bin domain_rand`
+//! Run: `cargo run -p clankers-examples --example domain_rand`
 
 use clankers_actuator::components::{Actuator, JointCommand, JointState};
 use clankers_actuator_core::motor::MotorType;

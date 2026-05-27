@@ -3,7 +3,7 @@
 
 Usage:
     1. Start gym server:
-       cargo run -p clankers-examples --bin arm_pick_gym
+       cargo run -p clankers-examples --example arm_pick_gym
 
     2. Run this script:
        python python/clankers_synthetic/scripts/run_arm_pick.py

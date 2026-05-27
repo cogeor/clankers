@@ -4,8 +4,8 @@
 //! real headless/viz examples exactly. Reports performance metrics.
 //!
 //! Usage:
-//!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.3
-//!   cargo run -p clankers-examples --bin quadruped_mpc_bench -- --velocity 0.5 --gait trot --steps 500
+//!   cargo run -p clankers-examples --example quadruped_mpc_bench -- --velocity 0.3
+//!   cargo run -p clankers-examples --example quadruped_mpc_bench -- --velocity 0.5 --gait trot --steps 500
 
 use clankers_actuator::components::JointState;
 use clankers_env::prelude::*;

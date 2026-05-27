@@ -3,7 +3,7 @@
 Connects to a VecGymServer and measures batch step throughput.
 
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_vec_gym -- 8
+    cargo run -p clankers-examples --example cartpole_vec_gym -- 8
 
 Then run this script:
     python python/examples/cartpole_vec_benchmark.py

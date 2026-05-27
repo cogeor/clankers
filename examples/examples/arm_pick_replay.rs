@@ -11,10 +11,10 @@
 //! observation camera viewport.
 //!
 //! ```sh
-//! cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- trace.json --record frames/ --gif replay.gif
+//! cargo run -j 24 -p clankers-examples --example arm_pick_replay -- trace.json --record frames/ --gif replay.gif
 //! ```
 //!
-//! Run: `cargo run -j 24 -p clankers-examples --bin arm_pick_replay -- <trace.json>`
+//! Run: `cargo run -j 24 -p clankers-examples --example arm_pick_replay -- <trace.json>`
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;

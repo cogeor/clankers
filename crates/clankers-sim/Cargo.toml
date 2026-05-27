@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [dependencies]
 clankers-core.workspace = true
@@ -25,6 +26,10 @@ clankers-policy.workspace = true
 clankers-teleop.workspace = true
 clankers-render.workspace = true
 clankers-gym.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

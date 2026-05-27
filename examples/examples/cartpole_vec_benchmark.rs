@@ -1,7 +1,7 @@
 //! Headless multi-environment cart-pole benchmark. Thin wrapper over
 //! [`clankers_sim::scenarios::cartpole::CartpoleScenario`].
 //!
-//! Run: `cargo run -p clankers-examples --bin cartpole_vec_benchmark --release`
+//! Run: `cargo run -p clankers-examples --example cartpole_vec_benchmark --release`
 
 use std::time::Instant;
 

@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [dependencies]
 clankers-core.workspace = true
@@ -22,6 +23,10 @@ bytemuck = { version = "1", features = ["derive"] }
 clankers-actuator.workspace = true
 clankers-test-utils.workspace = true
 static_assertions.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

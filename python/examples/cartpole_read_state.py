@@ -2,7 +2,7 @@
 
 Validates the Rust→TCP→Python observation pipeline.
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_gym
+    cargo run -p clankers-examples --example cartpole_gym
 
 Then run this script:
     python python/examples/cartpole_read_state.py

@@ -16,7 +16,7 @@ fn every_example_bin_under_threshold() {
     let reports = line_count::collect_reports().expect("collect_reports");
     assert!(
         !reports.is_empty(),
-        "expected at least one bin under examples/src/bin"
+        "expected at least one bin under examples/examples"
     );
 
     let mut failures: Vec<String> = Vec::new();

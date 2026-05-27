@@ -19,7 +19,7 @@
 //! Teleop sets `JointCommand`, which the `IdealMotor` converts to torque,
 //! and the Rapier physics engine integrates into joint state.
 //!
-//! Run: `cargo run -p clankers-examples --bin pendulum_viz`
+//! Run: `cargo run -p clankers-examples --example pendulum_viz`
 
 use std::collections::HashMap;
 

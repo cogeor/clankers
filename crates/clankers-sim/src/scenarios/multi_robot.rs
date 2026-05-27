@@ -1,6 +1,6 @@
 //! `multi_robot` scenario — pendulum + 2-link arm + 6-DOF arm in one scene.
 //!
-//! Lifts the scene-setup body of `examples/src/bin/multi_robot.rs`:
+//! Lifts the scene-setup body of `examples/examples/multi_robot.rs`:
 //! three `SceneBuilder::with_robot` calls + `RobotGroup` verification.
 //! Per-robot command driving + sensor reads stay in the bin (orchestration).
 

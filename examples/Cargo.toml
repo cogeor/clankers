@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
+autotests = false
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 clankers-core.workspace = true

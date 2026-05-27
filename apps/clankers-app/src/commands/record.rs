@@ -169,7 +169,7 @@ pub fn execute(args: &RecordArgs) -> ExitCode {
     // and `record_joint_states_system` queries `&Name`. Walk the layout
     // returned by the scenario and attach `Name` components so the
     // recorder sees one row per joint per `PostUpdate` frame. Mirrors the
-    // pattern in `examples/src/bin/arm_pick_record.rs` (lines 363–374).
+    // pattern in `examples/examples/arm_pick_record.rs` (lines 363–374).
     if let Some(layout) = handle.layout.as_ref() {
         let world = app.world_mut();
         for spec in layout.joints() {

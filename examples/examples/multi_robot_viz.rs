@@ -18,7 +18,7 @@
 //!
 //! No policy or ONNX model is needed -- this is teleop-only.
 //!
-//! Run: `cargo run -p clankers-examples --bin multi_robot_viz`
+//! Run: `cargo run -p clankers-examples --example multi_robot_viz`
 
 use std::collections::HashMap;
 

@@ -13,7 +13,7 @@ The model output dimension is auto-detected from ONNX metadata:
 
 Usage:
     1. Start gym server:
-       cargo run -j 24 -p clankers-examples --bin arm_pick_gym
+       cargo run -j 24 -p clankers-examples --example arm_pick_gym
 
     2. Evaluate (8-joint model, recommended):
        py -3.12 python/examples/eval_pick_policy.py \\

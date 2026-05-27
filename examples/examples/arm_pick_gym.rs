@@ -7,7 +7,7 @@
 //! - 16 observation DOF: 8 joint positions + 8 joint velocities
 //! - Body poses (table, red_cube, end_effector, ...) are populated in `info`
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_pick_gym`
+//! Run: `cargo run -p clankers-examples --example arm_pick_gym`
 //! Then connect with: `python python/clankers_synthetic/scripts/run_arm_pick.py`
 
 use std::sync::Arc;

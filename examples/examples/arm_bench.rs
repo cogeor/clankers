@@ -4,8 +4,8 @@
 //! (joint states + actions) to MCAP files for offline imitation learning.
 //!
 //! Usage:
-//!   cargo run -p clankers-examples --bin arm_bench
-//!   cargo run -p clankers-examples --bin arm_bench -- --episodes 5 --output recordings/
+//!   cargo run -p clankers-examples --example arm_bench
+//!   cargo run -p clankers-examples --example arm_bench -- --episodes 5 --output recordings/
 
 use std::path::PathBuf;
 

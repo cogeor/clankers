@@ -6,6 +6,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+# Every test file ships through tests/it/main.rs; opting out of
+# auto-discovery prevents a stray tests/foo.rs from regressing to a
+# separate binary (each ~40 MB linked).
+autotests = false
 
 [dependencies]
 clankers-core.workspace = true
@@ -43,6 +47,10 @@ criterion = { version = "0.5", default-features = false }
 name = "vec"
 path = "../../benches/vec.rs"
 harness = false
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

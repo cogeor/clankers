@@ -6,7 +6,7 @@ runs a few episodes with random actions, and prints observations.
 
 Usage:
     # Terminal 1: start server
-    cargo run -p clankers-examples --bin cartpole_gym
+    cargo run -p clankers-examples --example cartpole_gym
 
     # Terminal 2: run this client
     python examples/python/gym_client.py
@@ -63,7 +63,7 @@ def main() -> None:
     except ConnectionRefusedError:
         print(
             "ERROR: Could not connect. Start the server first:\n"
-            "  cargo run -p clankers-examples --bin cartpole_gym"
+            "  cargo run -p clankers-examples --example cartpole_gym"
         )
         sys.exit(1)
 

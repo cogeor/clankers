@@ -7,7 +7,7 @@ Packages passing traces into a dataset directory and reports success rate.
 
 Usage:
     1. Start gym server:
-       cargo run -j 24 -p clankers-examples --bin arm_pick_gym
+       cargo run -j 24 -p clankers-examples --example arm_pick_gym
 
     2. Run batch generation:
        python python/clankers_synthetic/scripts/batch_generate.py --n-episodes 20

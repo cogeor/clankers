@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [dependencies]
 clankers-core.workspace = true
@@ -16,6 +17,10 @@ bevy.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 rayon.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

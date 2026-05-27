@@ -1,6 +1,6 @@
 //! `pendulum` scenario — headless single-DOF pendulum.
 //!
-//! Lifts the scene-setup body of `examples/src/bin/pendulum_headless.rs`:
+//! Lifts the scene-setup body of `examples/examples/pendulum_headless.rs`:
 //! URDF parse → [`crate::SceneBuilder`] → bound [`JointLayout`] →
 //! optional [`JointStateSensor`] + [`JointTorqueSensor`].
 //!

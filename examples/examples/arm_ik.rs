@@ -4,7 +4,7 @@
 //! Cartesian space, solves for joint angles, and runs the arm through
 //! the physics simulation to verify it reaches the targets.
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_ik`
+//! Run: `cargo run -p clankers-examples --example arm_ik`
 
 use bevy::prelude::*;
 use clankers_core::ClankersSet;

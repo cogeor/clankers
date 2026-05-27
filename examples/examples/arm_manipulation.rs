@@ -10,7 +10,7 @@
 //! - **Joint control** (teleop): keyboard only -- Q/A, W/S, E/D, R/F, T/G,
 //!   Y/H = arm joints 1-6. U/J = gripper open/close.
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_manipulation`
+//! Run: `cargo run -p clankers-examples --example arm_manipulation`
 
 use bevy::prelude::*;
 use clankers_core::ClankersSet;

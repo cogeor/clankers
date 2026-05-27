@@ -4,7 +4,7 @@
 //! Drives sinusoidal torque on the pivot joint and reports episode
 //! statistics.
 //!
-//! Run: `cargo run -p clankers-examples --bin pendulum_headless`
+//! Run: `cargo run -p clankers-examples --example pendulum_headless`
 
 use clankers_actuator::components::{JointCommand, JointState, JointTorque};
 use clankers_core::traits::Sensor;

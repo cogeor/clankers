@@ -1,6 +1,6 @@
 //! `domain_rand_pendulum` scenario — pendulum with motor + friction randomisation.
 //!
-//! Lifts the scene-setup body of `examples/src/bin/domain_rand.rs`
+//! Lifts the scene-setup body of `examples/examples/domain_rand.rs`
 //! lines 22-72: pendulum URDF → `ClankersDomainRandPlugin` →
 //! `DomainRandConfig` with `MotorRandomizer` + `FrictionRandomizer`.
 //!

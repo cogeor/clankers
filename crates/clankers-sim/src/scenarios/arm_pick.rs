@@ -11,7 +11,7 @@
 //! The body of [`ArmPickScenario::build`] is a self-contained
 //! near-duplicate of the headless subset of
 //! `examples/src/arm_setup.rs::setup_arm` + the table/cube/finger
-//! wiring at the top of `examples/src/bin/arm_pick_gym.rs::main`. **W8
+//! wiring at the top of `examples/examples/arm_pick_gym.rs::main`. **W8
 //! PR1 will lift the example bin's setup logic to call this scenario
 //! instead**; until then the two implementations may drift.
 //!

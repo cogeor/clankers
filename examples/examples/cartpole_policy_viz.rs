@@ -7,7 +7,7 @@
 //!     py -3.12 python/examples/export_sb3_to_onnx.py
 //!
 //! Then run:
-//!     cargo run -p clankers-examples --bin cartpole_policy_viz --release -- --model python/examples/cartpole_ppo.onnx
+//!     cargo run -p clankers-examples --example cartpole_policy_viz --release -- --model python/examples/cartpole_ppo.onnx
 
 use std::collections::HashMap;
 use std::path::PathBuf;

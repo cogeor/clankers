@@ -7,7 +7,7 @@ End-to-end RL training pipeline validation:
 4. Compare against PD baseline
 
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_gym
+    cargo run -p clankers-examples --example cartpole_gym
 
 Then run this script (requires Python 3.12 with PyTorch + SB3):
     py -3.12 python/examples/cartpole_train_ppo.py

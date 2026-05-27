@@ -1,5 +1,5 @@
 //! Bin-specific viz overlays — egui control panels, camera glue, and
-//! recording hooks lifted out of `examples/src/bin/arm_*.rs`.
+//! recording hooks lifted out of `examples/examples/arm_*.rs`.
 //!
 //! # Status (W8 PR1)
 //!

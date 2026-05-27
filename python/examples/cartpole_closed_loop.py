@@ -7,7 +7,7 @@ Validates the full Python action pipeline:
 4. Apply action and verify state changes
 
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_gym
+    cargo run -p clankers-examples --example cartpole_gym
 
 Then run this script:
     python python/examples/cartpole_closed_loop.py

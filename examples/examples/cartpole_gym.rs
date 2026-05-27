@@ -1,7 +1,7 @@
 //! Cart-pole gym server. Thin wrapper over
 //! [`clankers_sim::scenarios::cartpole::CartpoleScenario`].
 //!
-//! Run: `cargo run -p clankers-examples --bin cartpole_gym`
+//! Run: `cargo run -p clankers-examples --example cartpole_gym`
 
 use clankers_core::types::{ActionSpace, ObservationSpace};
 use clankers_gym::prelude::{GymEnv, GymServer};

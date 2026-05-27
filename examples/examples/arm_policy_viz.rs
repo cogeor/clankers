@@ -17,7 +17,7 @@
 //! `arm_ik_viz.rs` and `arm_pick_gym.rs` for the canonical pattern.
 //!
 //! Run:
-//!     cargo run -p clankers-examples --bin arm_policy_viz -- --model vision_bc.onnx
+//!     cargo run -p clankers-examples --example arm_policy_viz -- --model vision_bc.onnx
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 use std::path::PathBuf;

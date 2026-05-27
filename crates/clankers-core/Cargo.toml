@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+autotests = false
 
 [dependencies]
 bevy = { workspace = true }
@@ -18,6 +19,10 @@ toml.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 clankers-urdf = { workspace = true }
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [lints]
 workspace = true

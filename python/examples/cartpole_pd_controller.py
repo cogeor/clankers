@@ -5,7 +5,7 @@ should keep the pole balanced for the full 500 steps if the dynamics
 match CartPole-v1.
 
 Start the server first:
-    cargo run -p clankers-examples --bin cartpole_gym
+    cargo run -p clankers-examples --example cartpole_gym
 
 Then run this script:
     python python/examples/cartpole_pd_controller.py

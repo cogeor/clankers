@@ -14,7 +14,7 @@
 //! - The fixed-update variant of the physics backend may be selected.
 //!
 //! IK logic + record glue stay in the example bin
-//! (`examples/src/bin/arm_bench.rs`); `clankers-sim` does NOT depend on
+//! (`examples/examples/arm_bench.rs`); `clankers-sim` does NOT depend on
 //! `clankers-ik` or `clankers-record`.
 
 use bevy::prelude::App;

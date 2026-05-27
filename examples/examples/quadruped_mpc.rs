@@ -9,7 +9,7 @@
 //! This example calls the MPC solver directly (not via the Bevy plugin)
 //! so it works headless without a transform hierarchy.
 //!
-//! Run: `cargo run -p clankers-examples --bin quadruped_mpc`
+//! Run: `cargo run -p clankers-examples --example quadruped_mpc`
 
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_env::prelude::*;

@@ -4,7 +4,7 @@
 //! body poses, and camera images to MCAP files for offline imitation learning.
 //!
 //! Usage:
-//!   cargo run -p clankers-examples --bin arm_pick_record -- --output output/arm_episodes/ep --episodes 3
+//!   cargo run -p clankers-examples --example arm_pick_record -- --output output/arm_episodes/ep --episodes 3
 
 use std::path::PathBuf;
 

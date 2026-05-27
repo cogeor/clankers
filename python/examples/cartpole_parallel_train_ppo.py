@@ -5,10 +5,10 @@ single-env baseline (ClankerGymnasiumEnv).
 
 Start the servers first:
     # Single-env server (port 9877):
-    cargo run -p clankers-examples --bin cartpole_gym --release
+    cargo run -p clankers-examples --example cartpole_gym --release
 
     # Vec-env server (port 9878, N envs):
-    cargo run -p clankers-examples --bin cartpole_vec_gym --release -- 8
+    cargo run -p clankers-examples --example cartpole_vec_gym --release -- 8
 
 Then run this script:
     py -3.12 python/examples/cartpole_parallel_train_ppo.py

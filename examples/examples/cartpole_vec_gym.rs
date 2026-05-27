@@ -1,7 +1,7 @@
 //! Vectorized cart-pole gym server. Thin wrapper over
 //! [`clankers_sim::scenarios::cartpole::CartpoleScenario`].
 //!
-//! Run: `cargo run -p clankers-examples --bin cartpole_vec_gym -- 8`
+//! Run: `cargo run -p clankers-examples --example cartpole_vec_gym -- 8`
 
 use std::env;
 

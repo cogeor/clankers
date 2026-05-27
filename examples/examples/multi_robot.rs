@@ -1,7 +1,7 @@
 //! Multi-robot scene with independent control. Thin wrapper over
 //! [`clankers_sim::scenarios::multi_robot::MultiRobotScenario`].
 //!
-//! Run: `cargo run -p clankers-examples --bin multi_robot`
+//! Run: `cargo run -p clankers-examples --example multi_robot`
 
 use clankers_actuator::components::{JointCommand, JointState};
 use clankers_core::traits::Sensor;

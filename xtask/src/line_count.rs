@@ -211,9 +211,12 @@ pub fn count_lines(path: &Path) -> std::io::Result<usize> {
     Ok(n)
 }
 
-/// Locate the workspace's `examples/src/bin/` directory by walking up
+/// Locate the workspace's `examples/examples/` directory by walking up
 /// from `CARGO_MANIFEST_DIR`. The xtask crate sits at
-/// `<workspace>/xtask/`, so the bin dir is `../examples/src/bin/`.
+/// `<workspace>/xtask/`, so the dir is `../examples/examples/`.
+/// (Pre-refactor this was `../examples/src/bin/`; the bins were lifted
+/// to `[[example]]` targets so `cargo test --workspace` stops building
+/// them as empty test executables.)
 #[must_use]
 pub fn examples_bin_dir() -> PathBuf {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -221,11 +224,10 @@ pub fn examples_bin_dir() -> PathBuf {
         .parent()
         .map_or_else(|| PathBuf::from(".."), Path::to_path_buf)
         .join("examples")
-        .join("src")
-        .join("bin")
+        .join("examples")
 }
 
-/// Enumerate every `*.rs` file directly under `examples/src/bin/` and
+/// Enumerate every `*.rs` file directly under `examples/examples/` and
 /// produce one [`BinReport`] per bin.
 ///
 /// # Errors
@@ -268,7 +270,7 @@ pub fn collect_reports() -> Result<Vec<BinReport>, String> {
 
 /// Run the `check-bin-size` subcommand.
 ///
-/// Walks `examples/src/bin/`, looks up the ceiling for each bin, and
+/// Walks `examples/examples/`, looks up the ceiling for each bin, and
 /// emits a report. Returns `Ok(())` if every bin is within its ceiling
 /// (or its soft baseline, per deviation 5); otherwise returns an
 /// `Err(report)` string suitable for printing to stderr.

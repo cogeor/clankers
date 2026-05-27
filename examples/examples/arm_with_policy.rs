@@ -4,7 +4,7 @@
 //! Zero / Constant / Random / Scripted policies, observation buffer,
 //! action-to-command bridging via a custom Bevy system.
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_with_policy`
+//! Run: `cargo run -p clankers-examples --example arm_with_policy`
 
 use std::collections::HashMap;
 use std::sync::Arc;

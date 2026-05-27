@@ -6,7 +6,7 @@
 //! - **Teleop** (default): control joints via sliders
 //! - **Policy**: arm cycles through 6 IK workspace targets
 //!
-//! Run: `cargo run -p clankers-examples --bin arm_ik_viz`
+//! Run: `cargo run -p clankers-examples --example arm_ik_viz`
 
 use std::f32::consts::{FRAC_PI_2, PI};
 

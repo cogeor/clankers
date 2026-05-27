@@ -1,0 +1,10 @@
+# Pinned set used by .github/workflows/ci.yml `python` job and by
+# scripts/ci-local.ps1 to recreate that exact env in a throwaway venv.
+# Keep in sync with the CI job; nightly extras (torch, mcap) live elsewhere.
+ruff
+mypy
+numpy
+gymnasium
+pytest
+pytest-timeout
+pydantic

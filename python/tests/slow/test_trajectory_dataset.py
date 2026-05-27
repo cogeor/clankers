@@ -10,8 +10,6 @@ import torch
 
 from clankers.trajectory_dataset import TrajectoryDataset
 
-pytestmark = pytest.mark.slow
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -11,6 +11,15 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI is cache-cold across runs (Swatinem/rust-cache caches deps but not
+  # incremental fingerprints), so incremental compilation just bloats /target
+  # without speedup.
+  CARGO_INCREMENTAL: "0"
+  # Keeps backtraces useful while ~halving test-binary size — critical on
+  # ubuntu-latest runners (~14 GB free) where the workspace previously OOM'd
+  # /tmp during the test-binary link step.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   fmt:
@@ -32,6 +41,19 @@ jobs:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
+      # ubuntu-latest ships with ~14 GB free. Workspace (Bevy + Rapier +
+      # ndarray + ort + ~22 example bins built --tests --benches) previously
+      # OOM'd /tmp during the test-binary link step. Reclaim ~25 GB by
+      # dropping toolchains we don't use. Inline (no third-party action) to
+      # keep the supply chain small.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.1"
@@ -135,10 +157,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install ruff mypy numpy gymnasium pytest pytest-timeout pydantic
+      - run: pip install -r requirements-ci.txt
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy --config-file pyproject.toml clankers/
       - name: Run unit tests
+        # tests/slow/ houses tests needing heavy optional deps (torch, onnx,
+        # mcap). They run in nightly.yml with those deps installed. The
+        # `-m "not slow"` filter is belt-and-suspenders for any inline marker.
         run: |
-          python -m pytest tests/ -x -q --timeout=60 -m "not slow"
+          python -m pytest tests/ --ignore=tests/slow -x -q --timeout=60 -m "not slow"

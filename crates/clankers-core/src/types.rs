@@ -171,15 +171,19 @@ impl Action {
         }
     }
 
-    /// Panicking alias for [`Self::as_continuous`] that retains the legacy
-    /// contract for `Discrete` / `MultiDiscrete` inputs. The body uses the
-    /// new fallible accessor internally; the panic message is kept
-    /// byte-equal to the pre-W3 `as_slice()` message so downstream tests
-    /// that snapshot it continue to pass.
+    /// **Legacy panicking alias for [`Self::as_continuous`].** New code
+    /// should call `as_continuous()` and handle the `None` case, or use
+    /// the typed-error path via [`Self::try_into_continuous`]. Kept here
+    /// because read sites where the caller has *statically* established
+    /// the variant (e.g. inside a `match Action::Continuous(_)` arm) are
+    /// concise with `.values()` and would otherwise require `.unwrap()`
+    /// boilerplate.
     ///
-    /// Prefer [`Self::as_continuous`] for new code — `values()` is kept as
-    /// an ergonomic alias for read sites where the caller statically knows
-    /// the action is continuous.
+    /// CODE_QUALITY_REVIEW Finding "Action API Still Exposes Panicking
+    /// Aliases" / P1.9 documents the convention: **no protocol / server /
+    /// env code calls `values()`.** Protocol-boundary code routes
+    /// through the fallible variants because a panic crossing the
+    /// process boundary is a server-side fault, not user-error.
     pub const fn values(&self) -> &[f32] {
         match self.as_continuous() {
             Some(v) => v,
@@ -198,12 +202,18 @@ impl Action {
 
     /// Scale continuous values from [-1, 1] to [low, high].
     ///
+    /// **Panicking alias for [`Self::try_scale`].** Kept for read sites
+    /// where the caller has statically established a `Continuous`
+    /// variant; new code (and especially protocol / server / env code,
+    /// per P1.9) should call `try_scale(...)` and surface the typed
+    /// [`ActionKindError`] instead of panicking.
+    ///
     /// # Panics
     ///
-    /// Panics if the action is not [`Self::Continuous`]. The internal call
-    /// site uses <code>[Self::as_continuous]().expect(...)</code> so the body
-    /// stays compatible after the deprecated `as_slice()` panicker was
-    /// removed in W3 PR2.
+    /// Panics if the action is not [`Self::Continuous`]. The internal
+    /// call site uses <code>[Self::as_continuous]().expect(...)</code>
+    /// so the body stays compatible after the deprecated `as_slice()`
+    /// panicker was removed in W3 PR2.
     pub fn scale(&self, low: &[f32], high: &[f32]) -> Vec<f32> {
         let s = self
             .as_continuous()
@@ -212,6 +222,35 @@ impl Action {
             .zip(low.iter().zip(high.iter()))
             .map(|(a, (l, h))| l + ((a + 1.0) / 2.0) * (h - l))
             .collect()
+    }
+
+    /// Fallible affine rescale from `[-1, 1]` to `[low, high]` per
+    /// element.
+    ///
+    /// Returns [`ActionKindError::ExpectedContinuous`] when the action
+    /// is not [`Self::Continuous`] (Discrete / MultiDiscrete). New code
+    /// — especially protocol / server / env code touched by P1.9 —
+    /// should prefer this over the panicking [`Self::scale`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionKindError::ExpectedContinuous`] when called on
+    /// `Discrete` or `MultiDiscrete`. The `got` field names the actual
+    /// variant. No length validation against `low` / `high` is performed
+    /// here — that is the caller's contract (typically established by
+    /// the `ActionSpace` bound at handshake time).
+    pub fn try_scale(&self, low: &[f32], high: &[f32]) -> Result<Vec<f32>, ActionKindError> {
+        match self {
+            Self::Continuous(s) => Ok(s
+                .iter()
+                .zip(low.iter().zip(high.iter()))
+                .map(|(a, (l, h))| l + ((a + 1.0) / 2.0) * (h - l))
+                .collect()),
+            Self::Discrete(_) => Err(ActionKindError::ExpectedContinuous { got: "Discrete" }),
+            Self::MultiDiscrete(_) => Err(ActionKindError::ExpectedContinuous {
+                got: "MultiDiscrete",
+            }),
+        }
     }
 
     /// Validate action data (no NaN, no Inf in continuous).
@@ -1193,6 +1232,46 @@ mod tests {
         assert!((scaled[0] - 0.0).abs() < f32::EPSILON);
         assert!((scaled[1] - 5.0).abs() < f32::EPSILON);
         assert!((scaled[2] - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn action_try_scale_continuous_matches_scale() {
+        // P1.9: fallible try_scale produces the same vector as scale for
+        // Continuous inputs.
+        let action = Action::new(vec![-1.0, 0.0, 1.0]);
+        let low = [0.0, 0.0, 0.0];
+        let high = [10.0, 10.0, 10.0];
+        let panicking = action.scale(&low, &high);
+        let fallible = action.try_scale(&low, &high).unwrap();
+        assert_eq!(panicking, fallible);
+    }
+
+    #[test]
+    fn action_try_scale_discrete_returns_typed_error() {
+        // P1.9: Discrete returns ActionKindError::ExpectedContinuous {
+        // got: "Discrete" } rather than panicking.
+        let action = Action::Discrete(3);
+        let err = action
+            .try_scale(&[0.0, 0.0], &[1.0, 1.0])
+            .expect_err("Discrete must not pass try_scale");
+        match err {
+            crate::error::ActionKindError::ExpectedContinuous { got } => {
+                assert_eq!(got, "Discrete");
+            }
+        }
+    }
+
+    #[test]
+    fn action_try_scale_multi_discrete_returns_typed_error() {
+        let action = Action::MultiDiscrete(vec![1, 2]);
+        let err = action
+            .try_scale(&[0.0; 2], &[1.0; 2])
+            .expect_err("MultiDiscrete must not pass try_scale");
+        match err {
+            crate::error::ActionKindError::ExpectedContinuous { got } => {
+                assert_eq!(got, "MultiDiscrete");
+            }
+        }
     }
 
     #[test]

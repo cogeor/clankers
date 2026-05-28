@@ -12,6 +12,7 @@ pub mod seed;
 pub mod time;
 pub mod traits;
 pub mod types;
+pub mod user_journeys;
 pub mod validators;
 pub mod view;
 

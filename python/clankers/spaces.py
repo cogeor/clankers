@@ -98,6 +98,162 @@ class Discrete:
         return cls(n=data["n"])
 
 
+@dataclass(frozen=True)
+class MultiDiscrete:
+    """Vector of discrete spaces with per-element cardinality.
+
+    Matches ``gymnasium.spaces.MultiDiscrete`` and Rust
+    ``ObservationSpace::MultiDiscrete { nvec }`` / ``ActionSpace::MultiDiscrete``.
+    The observation/action is a 1-D integer array of length ``len(nvec)``
+    where element ``i`` is in ``{0, 1, ..., nvec[i] - 1}``.
+
+    Added under CODE_QUALITY_REVIEW P1.5 — the Python client previously
+    only modelled Box / Discrete / Dict, so newer Rust envs exposing
+    MultiDiscrete spaces could not be parsed by Python.
+
+    Parameters
+    ----------
+    nvec : array-like of int
+        Per-element cardinalities.
+    """
+
+    nvec: NDArray[np.int64]
+
+    def __init__(self, nvec: Any) -> None:
+        arr = np.asarray(nvec, dtype=np.int64)
+        if arr.ndim != 1:
+            raise ValueError(f"nvec must be 1-D, got shape {arr.shape}")
+        if np.any(arr < 1):
+            raise ValueError(f"every entry of nvec must be >= 1, got {arr.tolist()}")
+        object.__setattr__(self, "nvec", arr)
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (int(self.nvec.shape[0]),)
+
+    @property
+    def dim(self) -> int:
+        return int(self.nvec.shape[0])
+
+    def contains(self, x: Any) -> bool:
+        arr = np.asarray(x)
+        return bool(
+            arr.shape == self.shape
+            and np.issubdtype(arr.dtype, np.integer)
+            and np.all(arr >= 0)
+            and np.all(arr < self.nvec)
+        )
+
+    def sample(self, rng: np.random.Generator | None = None) -> NDArray[np.int64]:
+        if rng is None:
+            rng = np.random.default_rng()
+        return rng.integers(0, self.nvec).astype(np.int64)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MultiDiscrete:
+        return cls(nvec=data["nvec"])
+
+
+@dataclass(frozen=True)
+class MultiBinary:
+    """Vector of ``n`` binary values, each in ``{0, 1}``.
+
+    Matches ``gymnasium.spaces.MultiBinary`` and Rust
+    ``ObservationSpace::MultiBinary { n }`` / ``ActionSpace::MultiBinary``.
+
+    Parameters
+    ----------
+    n : int
+        Number of binary elements.
+    """
+
+    n: int
+
+    def __post_init__(self) -> None:
+        if self.n < 1:
+            raise ValueError(f"n must be >= 1, got {self.n}")
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.n,)
+
+    @property
+    def dim(self) -> int:
+        return self.n
+
+    def contains(self, x: Any) -> bool:
+        arr = np.asarray(x)
+        return bool(arr.shape == (self.n,) and np.all((arr == 0) | (arr == 1)))
+
+    def sample(self, rng: np.random.Generator | None = None) -> NDArray[np.int8]:
+        if rng is None:
+            rng = np.random.default_rng()
+        return rng.integers(0, 2, size=self.n).astype(np.int8)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MultiBinary:
+        return cls(n=data["n"])
+
+
+@dataclass(frozen=True)
+class Image:
+    """Raw image observation space.
+
+    Matches Rust ``ObservationSpace::Image { height, width, channels }``.
+    Observations are ``np.uint8`` arrays of shape ``(height, width, channels)``
+    in HWC layout — same as the existing binary-frame decode path in
+    ``GymClient`` (P1.5 centralises the model definition; the
+    decoder in ``gymnasium_env.py`` continues to produce the same array
+    shape and dtype).
+
+    Parameters
+    ----------
+    height, width : int
+        Image dimensions in pixels.
+    channels : int
+        Number of channels (typically 1 for grayscale, 3 for RGB, 4 for RGBA).
+    """
+
+    height: int
+    width: int
+    channels: int
+
+    def __post_init__(self) -> None:
+        dims = (
+            ("height", self.height),
+            ("width", self.width),
+            ("channels", self.channels),
+        )
+        for name, val in dims:
+            if val < 1:
+                raise ValueError(f"{name} must be >= 1, got {val}")
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return (self.height, self.width, self.channels)
+
+    @property
+    def dim(self) -> int:
+        return self.height * self.width * self.channels
+
+    def contains(self, x: Any) -> bool:
+        arr = np.asarray(x)
+        return bool(arr.shape == self.shape and arr.dtype == np.uint8)
+
+    def sample(self, rng: np.random.Generator | None = None) -> NDArray[np.uint8]:
+        if rng is None:
+            rng = np.random.default_rng()
+        return rng.integers(0, 256, size=self.shape, dtype=np.uint8)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Image:
+        return cls(
+            height=data["height"],
+            width=data["width"],
+            channels=data["channels"],
+        )
+
+
 class Dict:
     """Dictionary observation space containing named sub-spaces.
 
@@ -105,11 +261,11 @@ class Dict:
 
     Parameters
     ----------
-    spaces : dict[str, Box | Discrete | Dict]
+    spaces : dict[str, "Box | Discrete | MultiDiscrete | MultiBinary | Image | Dict"]
         Named sub-spaces.
     """
 
-    def __init__(self, spaces: dict[str, Box | Discrete | Dict]) -> None:
+    def __init__(self, spaces: dict[str, Any]) -> None:
         self.spaces = dict(spaces)
 
     def sample(self, rng: np.random.Generator | None = None) -> dict[str, Any]:
@@ -142,22 +298,36 @@ class Dict:
         return self.spaces == other.spaces
 
 
-def space_from_dict(data: dict[str, Any]) -> Box | Discrete | Dict:
+def space_from_dict(data: dict[str, Any]) -> Any:
     """Deserialize a space from a protocol dict.
 
     Handles both flat format ``{"low": ..., "high": ...}`` and
     Rust serde enum format ``{"Box": {"low": ..., "high": ...}}``.
+
+    Covers every Rust ``ObservationSpace`` and ``ActionSpace`` variant
+    after P1.5: ``Box``, ``Discrete``, ``MultiDiscrete``, ``MultiBinary``,
+    ``Image``, and ``Dict``.
     """
-    # Rust serde enum format: {"Box": {...}}, {"Discrete": {...}}, {"Dict": {...}}
+    # Rust serde enum format: {"Box": {...}}, {"Discrete": {...}}, etc.
     if "Box" in data:
         return Box.from_dict(data["Box"])
     if "Discrete" in data:
         return Discrete.from_dict(data["Discrete"])
+    if "MultiDiscrete" in data:
+        return MultiDiscrete.from_dict(data["MultiDiscrete"])
+    if "MultiBinary" in data:
+        return MultiBinary.from_dict(data["MultiBinary"])
+    if "Image" in data:
+        return Image.from_dict(data["Image"])
     if "Dict" in data:
         return Dict.from_dict(data["Dict"])
-    # Flat format
+    # Flat format (no enum wrapper).
     if "low" in data and "high" in data:
         return Box.from_dict(data)
+    if "nvec" in data:
+        return MultiDiscrete.from_dict(data)
+    if "height" in data and "width" in data and "channels" in data:
+        return Image.from_dict(data)
     if "n" in data:
         return Discrete.from_dict(data)
     if "spaces" in data:

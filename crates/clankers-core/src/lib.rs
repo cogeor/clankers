@@ -9,6 +9,7 @@ pub mod layout;
 pub mod manifest;
 pub mod panic_audit;
 pub mod physics;
+pub mod release;
 pub mod schema;
 pub mod seed;
 pub mod stability;

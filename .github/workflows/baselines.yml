@@ -1,48 +1,10 @@
-# Baseline recapture workflow
+# Baseline recapture workflow — manual recapture of benchmark
+# baselines on the CI runner class.
 #
-# WHAT: Builds clankers-app --release and runs every `bench` subcommand
-# whose output lives in notes/baselines/. CSVs are uploaded as one
-# artifact named `baselines-{run-id}-{run-attempt}`. Nothing is
-# auto-committed.
-#
-# WHY: The committed baselines under notes/baselines/ were captured on
-# PC1 (Windows desktop) and embed hostname=PC1 / commit=local in their
-# `notes` column. CI runs on Linux ubuntu-latest shared runners, which
-# diverge by orders of magnitude on every metric. Loop 02 of the
-# bench-gate-fix task replaced the failing absolute-throughput vec gate
-# with a hardware-invariant ratio gate (ci.yml), but the OTHER 5
-# baselines (cartpole, arm_pick, protocol, record, mpc) are still
-# PC1-shaped and would explode the moment they get wired into CI.
-# This workflow lets the maintainer regenerate them on the actual
-# CI runner class so a future "re-enable comparator for X" loop has
-# a usable starting point.
-#
-# WHEN to trigger:
-#   - After significant perf-relevant changes (parallel_runner.rs,
-#     dense joint runtime, recorder hot path, MPC solver).
-#   - One-off to seed post-loop-02 baselines (the immediate use case).
-#   - Whenever the maintainer wants a fresh sanity check against drift.
-#
-# HOW to use (maintainer runbook):
-#   1. GitHub UI -> Actions tab -> "Baselines (recapture)" -> Run workflow.
-#      Select the branch you want baselines for (almost always `main`).
-#   2. Wait ~25-40 min for the job to complete.
-#   3. Download the `baselines-{run-id}-{run-attempt}` artifact from
-#      the run summary page.
-#   4. Diff each downloaded CSV against notes/baselines/<same name>.csv.
-#      Order-of-magnitude differences are EXPECTED (PC1 desktop vs
-#      Linux shared runner). Sanity-check direction (faster/slower
-#      makes sense for the metric), not exact numbers.
-#   5. Copy the downloaded CSVs over notes/baselines/<same name>.csv
-#      and commit on a branch. Include the run URL in the commit
-#      message so future audits can trace where the numbers came from.
-#   6. The new `vec_throughput_baseline.csv` has no historical
-#      counterpart -- commit it as a NEW file (loop 02 added the
-#      vec_throughput_100us scenario; this is its first baseline).
-#
-# Trigger model: workflow_dispatch ONLY. No push, no pull_request, no
-# schedule. Recapture is a deliberate maintainer action; auto-trigger
-# would defeat the manual-review safety net.
+# Maintainer runbook (when to run, how to interpret the artifact, how
+# to commit refreshed numbers) lives in the project docs under
+# docs/BENCHMARK_BASELINES.md. Keep this YAML focused on non-obvious
+# command details and the steps themselves. P1.14.
 
 name: Baselines (recapture)
 

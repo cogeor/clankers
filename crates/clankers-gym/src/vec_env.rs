@@ -17,7 +17,7 @@ use thiserror::Error;
 
 /// Reasons [`GymVecEnv::new_auto`] can refuse to construct a runner.
 ///
-/// CODE_QUALITY_REVIEW Detailed Finding "Parallel Selection Is Easy To
+/// `CODE_QUALITY_REVIEW` Detailed Finding "Parallel Selection Is Easy To
 /// Misunderstand" / P1.7. Surfaces parallel-misconfiguration as an
 /// explicit error in both debug and release builds, rather than the
 /// pre-P1.7 behaviour where [`GymVecEnv::new`] silently picked the
@@ -157,7 +157,7 @@ impl GymVecEnv {
     /// Construct a vec env that **explicitly** uses the sequential
     /// runner regardless of `config.is_parallel()`.
     ///
-    /// CODE_QUALITY_REVIEW P1.7 / "Parallel Selection Is Easy To
+    /// `CODE_QUALITY_REVIEW` P1.7 / "Parallel Selection Is Easy To
     /// Misunderstand". New code should prefer this when sequential
     /// execution is intended — the name makes the choice explicit and
     /// the constructor accepts `!Send` env instances (e.g. ones
@@ -188,7 +188,7 @@ impl GymVecEnv {
     /// Construct a vec env that **explicitly** uses the parallel
     /// runner.
     ///
-    /// CODE_QUALITY_REVIEW P1.7. Equivalent to
+    /// `CODE_QUALITY_REVIEW` P1.7. Equivalent to
     /// [`Self::new_with_send_envs`] but with `config.is_parallel()`
     /// forced to `true` before runner selection — the caller named
     /// `new_parallel`, so parallel it is.
@@ -220,7 +220,7 @@ impl GymVecEnv {
     /// [`VecEnvBuildError`] on validation failure (rather than
     /// panicking).
     ///
-    /// CODE_QUALITY_REVIEW P1.7. The pre-P1.7 [`Self::new`] would
+    /// `CODE_QUALITY_REVIEW` P1.7. The pre-P1.7 [`Self::new`] would
     /// debug-assert on parallel-requested-but-sequential-picked, which
     /// release builds optimised out. `new_auto` surfaces invalid
     /// configurations (currently: env count mismatch) as

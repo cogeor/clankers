@@ -191,7 +191,7 @@ impl GymEnv {
 
     /// Collect body poses and contact events via the backend-neutral readback API.
     ///
-    /// CODE_QUALITY_REVIEW § P2.2 — this no longer reaches into a concrete
+    /// `CODE_QUALITY_REVIEW` § P2.2 — this no longer reaches into a concrete
     /// physics backend resource (`RapierContext`). Dispatch happens in
     /// [`clankers_physics::readback::collect_step_readback`], so adding a new
     /// backend is a single-site change.

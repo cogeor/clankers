@@ -116,8 +116,8 @@ pub enum RecorderMessage {
     /// Append a raw-payload MCAP message — same wire shape as
     /// [`RecorderMessage::Frame`] but tagged as a raw camera / image
     /// frame so the worker can attribute drops to a separate counter.
-    /// Added under CODE_QUALITY_REVIEW P1.10 to lift the camera write
-    /// off the sync `mcap::Writer` path.
+    /// Lifts the camera write off the sync `mcap::Writer` path so
+    /// large payloads (image frames) don't stall the simulation step.
     RawFrame {
         /// MCAP channel id.
         channel_id: u16,
@@ -171,19 +171,18 @@ impl DroppedFrames {
 
 /// Programmatic recorder health for long-running apps.
 ///
-/// CODE_QUALITY_REVIEW Detailed Findings "Worker Errors Are Only
-/// Logged" / P1.11. The async worker previously surfaced write / flush
-/// failures only through `eprintln!`, so long-running CLI and viz apps
-/// could not observe recorder health without scraping stderr. This
-/// resource exposes a relaxed-atomic error count plus the most recent
-/// error message so CLI exit / viz overlays / final recording stats
-/// can report concretely.
+/// The async worker previously surfaced write / flush failures only
+/// through `eprintln!`, so long-running CLI and viz apps could not
+/// observe recorder health without scraping stderr. This resource
+/// exposes a relaxed-atomic error count plus the most recent error
+/// message so CLI exit / viz overlays / final recording stats can
+/// report concretely.
 ///
 /// # Default
 ///
 /// `RecorderHealth::default()` returns a fresh handle with count = 0
-/// and last_error = None. The Bevy plugin clones it once into a world
-/// resource so producer and consumer see the same shared state.
+/// and `last_error = None`. The Bevy plugin clones it once into a
+/// world resource so producer and consumer see the same shared state.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct RecorderHealth {
     error_count: Arc<AtomicU64>,
@@ -346,7 +345,7 @@ impl AsyncRecorder {
             payload,
         }) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
                 self.dropped_raw.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -502,10 +501,13 @@ mod tests {
         rec.try_send_raw_frame(7, 100, vec![1, 2, 3]);
         rec.try_send_raw_frame(7, 200, vec![4, 5, 6]);
         rec.close();
-        let writes = writes.lock().unwrap();
-        assert_eq!(writes.len(), 2);
-        assert_eq!(writes[0], (7, 100, vec![1, 2, 3]));
-        assert_eq!(writes[1], (7, 200, vec![4, 5, 6]));
+        let captured = {
+            let guard = writes.lock().unwrap();
+            guard.clone()
+        };
+        assert_eq!(captured.len(), 2);
+        assert_eq!(captured[0], (7, 100, vec![1, 2, 3]));
+        assert_eq!(captured[1], (7, 200, vec![4, 5, 6]));
     }
 
     #[test]
@@ -520,7 +522,7 @@ mod tests {
                 _log_time_ns: u64,
                 _payload: &[u8],
             ) -> std::io::Result<()> {
-                Err(std::io::Error::new(std::io::ErrorKind::Other, "synthetic"))
+                Err(std::io::Error::other("synthetic"))
             }
             fn flush(&mut self) -> std::io::Result<()> {
                 Ok(())

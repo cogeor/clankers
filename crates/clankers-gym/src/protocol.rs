@@ -104,7 +104,7 @@ use thiserror::Error;
 
 /// Typed, internal view of the negotiated capability set.
 ///
-/// CODE_QUALITY_REVIEW Finding "Capability Negotiation Uses Raw Strings"
+/// `CODE_QUALITY_REVIEW` Finding "Capability Negotiation Uses Raw Strings"
 /// / P1.3. The wire format remains a `{ "binary_obs": true, ... }` JSON
 /// object so the protocol stays backward-compatible with existing
 /// clients (incl. Python). Internal server/session code reads typed
@@ -120,7 +120,7 @@ pub struct Capabilities {
     /// Client supports / server advertises batched observations as a
     /// `BinaryFrameHeader` + flat payload (W7 PR2).
     pub binary_batch: bool,
-    /// Client supports / server advertises VecEnv batched step / reset
+    /// Client supports / server advertises `VecEnv` batched step / reset
     /// requests.
     pub batch_step: bool,
     /// Any wire-level capability key not represented as a typed field.
@@ -134,7 +134,7 @@ impl Capabilities {
     /// Logical AND of two capability sets, used during handshake.
     ///
     /// Returns a [`Capabilities`] where each typed flag is `self && other`
-    /// and unknown keys present on both sides are ANDed; keys present on
+    /// and unknown keys present on both sides are `ANDed`; keys present on
     /// only one side are dropped (matches the legacy HashMap-based
     /// negotiation behaviour).
     #[must_use]
@@ -167,6 +167,10 @@ impl From<HashMap<String, bool>> for Capabilities {
     }
 }
 
+// The `unknown` field is typed `HashMap<String, bool>` with the
+// default hasher; this impl reuses it, so it can't be generic over
+// hashers without re-allocating.
+#[allow(clippy::implicit_hasher)]
 impl From<Capabilities> for HashMap<String, bool> {
     fn from(caps: Capabilities) -> Self {
         let mut map = caps.unknown;

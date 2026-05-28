@@ -1,6 +1,6 @@
 //! Generic binary tensor frame (P4.1).
 //!
-//! CODE_QUALITY_REVIEW § "Protocol Binary Tensor Path" / P4.1. The
+//! `CODE_QUALITY_REVIEW` § "Protocol Binary Tensor Path" / P4.1. The
 //! existing [`crate::binary_frame`] surface specialises on two
 //! batch-observation shapes (`BatchF32`, `BatchRawU8Image`). Each new
 //! numeric payload (action batches, body-pose readback, contact
@@ -59,10 +59,11 @@ use thiserror::Error;
 /// Current tensor-frame format version. Bumped if header layout changes.
 pub const TENSOR_FRAME_VERSION: u32 = 1;
 
-/// Maximum tensor rank the header can carry. Eight dimensions is more
-/// than enough for any robotics tensor we ship; NumPy / PyTorch
-/// default-max is 64 but that would balloon header size for no
-/// real-world benefit.
+/// Maximum tensor rank the header can carry.
+///
+/// Eight dimensions is more than enough for any robotics tensor we
+/// ship; `NumPy` / `PyTorch` default-max is 64 but that would balloon
+/// header size for no real-world benefit.
 pub const MAX_NDIM: usize = 8;
 
 /// Size of [`TensorFrameHeader`] in bytes. Pinned at the const-eval
@@ -133,7 +134,7 @@ impl TensorDtype {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TensorLayout {
-    /// C-order / row-major. NumPy default.
+    /// C-order / row-major. `NumPy` default.
     RowMajor = 0,
     /// Fortran-order / column-major.
     ColMajor = 1,
@@ -405,7 +406,7 @@ pub fn decode_tensor(buf: &[u8]) -> Result<(TensorFrameHeader, &[u8]), TensorFra
 /// Encode a flat `[num_envs * obs_dim]` `f32` batch as a tensor frame
 /// of shape `(num_envs, obs_dim)`.
 ///
-/// CODE_QUALITY_REVIEW § Phase 4.4 — replacement encoder for the legacy
+/// `CODE_QUALITY_REVIEW` § Phase 4.4 — replacement encoder for the legacy
 /// `binary_frame::encode_batch_f32`. Produces a single contiguous
 /// buffer with the 48-byte [`TensorFrameHeader`] in front; the existing
 /// `write_binary_frame` transport delivers it unchanged.
@@ -424,7 +425,7 @@ pub fn encode_batch_f32_as_tensor(
     obs_dim: u32,
     data: &[f32],
 ) -> Result<Vec<u8>, TensorFrameError> {
-    let expected = (num_envs as u64) * (obs_dim as u64);
+    let expected = u64::from(num_envs) * u64::from(obs_dim);
     if data.len() as u64 != expected {
         return Err(TensorFrameError::PayloadLenMismatch {
             declared: 0,
@@ -432,11 +433,16 @@ pub fn encode_batch_f32_as_tensor(
         });
     }
     let payload_bytes: &[u8] = bytemuck::cast_slice(data);
+    let payload_len =
+        u32::try_from(payload_bytes.len()).map_err(|_| TensorFrameError::PayloadLenMismatch {
+            declared: 0,
+            expected_for_shape: payload_bytes.len() as u64,
+        })?;
     let header = TensorFrameHeader::new(
         TensorDtype::F32,
         &[num_envs, obs_dim],
         TensorLayout::RowMajor,
-        payload_bytes.len() as u32,
+        payload_len,
     )?;
     encode_tensor(&header, payload_bytes)
 }
@@ -445,8 +451,8 @@ pub fn encode_batch_f32_as_tensor(
 /// as a tensor frame of shape `(num_envs, height, width, channels)`.
 ///
 /// HWC layout — the Bevy / cosmos pipeline already produces tiles in
-/// height-major order. The shape order matches NumPy / TensorFlow
-/// `NHWC`; PyTorch consumers reorder with `transpose(0, 3, 1, 2)`.
+/// height-major order. The shape order matches `NumPy` / TensorFlow
+/// `NHWC`; `PyTorch` consumers reorder with `transpose(0, 3, 1, 2)`.
 ///
 /// # Errors
 ///
@@ -459,18 +465,23 @@ pub fn encode_batch_raw_u8_as_tensor(
     channels: u32,
     data: &[u8],
 ) -> Result<Vec<u8>, TensorFrameError> {
-    let expected = (num_envs as u64) * (width as u64) * (height as u64) * (channels as u64);
+    let expected = u64::from(num_envs) * u64::from(width) * u64::from(height) * u64::from(channels);
     if data.len() as u64 != expected {
         return Err(TensorFrameError::PayloadLenMismatch {
             declared: 0,
             expected_for_shape: expected,
         });
     }
+    let payload_len =
+        u32::try_from(data.len()).map_err(|_| TensorFrameError::PayloadLenMismatch {
+            declared: 0,
+            expected_for_shape: data.len() as u64,
+        })?;
     let header = TensorFrameHeader::new(
         TensorDtype::U8,
         &[num_envs, height, width, channels],
         TensorLayout::RowMajor,
-        data.len() as u32,
+        payload_len,
     )?;
     encode_tensor(&header, data)
 }
@@ -480,6 +491,11 @@ pub fn encode_batch_raw_u8_as_tensor(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 mod tests {
     use super::*;
 

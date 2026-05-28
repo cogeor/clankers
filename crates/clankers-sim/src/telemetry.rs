@@ -1,6 +1,6 @@
 //! Per-step simulation phase timings (G10).
 //!
-//! CODE_QUALITY_REVIEW Gap Analysis 10 / "Observability and
+//! `CODE_QUALITY_REVIEW` Gap Analysis 10 / "Observability and
 //! Debuggability Are Underdeveloped". Performance regressions today
 //! require custom instrumentation; users can't tell whether a slow
 //! step is physics, sensors, protocol, recording, or policy without
@@ -49,7 +49,7 @@ pub enum SimPhase {
 impl SimPhase {
     /// Position of this phase in [`TelemetryFrame::phase_us`]. Kept
     /// in sync with [`Self::PHASES`] so iteration order matches.
-    const fn idx(self) -> usize {
+    pub const fn idx(self) -> usize {
         match self {
             Self::ActionApply => 0,
             Self::Physics => 1,
@@ -61,7 +61,7 @@ impl SimPhase {
     }
 
     /// All phases, in canonical step order.
-    pub const PHASES: [SimPhase; 6] = [
+    pub const PHASES: [Self; 6] = [
         Self::ActionApply,
         Self::Physics,
         Self::Sensor,
@@ -79,7 +79,7 @@ impl SimPhase {
 ///
 /// `phase_us` is indexed by [`SimPhase::idx`]; zero means "no time
 /// attributed to this phase this step" (e.g. policy idle, render off).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TelemetryFrame {
     /// Per-phase elapsed microseconds. Indices come from
     /// [`SimPhase::idx`]; do not read by position without going
@@ -95,7 +95,7 @@ pub struct TelemetryFrame {
 impl TelemetryFrame {
     /// Read the microsecond count attributed to `phase` this step.
     #[must_use]
-    pub fn phase(&self, phase: SimPhase) -> u64 {
+    pub const fn phase(&self, phase: SimPhase) -> u64 {
         self.phase_us[phase.idx()]
     }
 
@@ -158,13 +158,13 @@ impl SimDiagnostics {
     /// Attribute `us` microseconds of work to `phase` for the current
     /// step. Cheap (one array slot add); safe to call from any
     /// number of systems in any order within one step.
-    pub fn record_phase(&mut self, phase: SimPhase, us: u64) {
+    pub const fn record_phase(&mut self, phase: SimPhase, us: u64) {
         self.current.phase_us[phase.idx()] = self.current.phase_us[phase.idx()].saturating_add(us);
     }
 
     /// Attribute total-step microseconds (typically wall-clock from a
     /// schedule timer). Overwrites; the orchestrator owns this slot.
-    pub fn record_total(&mut self, us: u64) {
+    pub const fn record_total(&mut self, us: u64) {
         self.current.total_us = us;
     }
 
@@ -182,7 +182,7 @@ impl SimDiagnostics {
 
     /// Most recent finalised frame.
     #[must_use]
-    pub fn last(&self) -> TelemetryFrame {
+    pub const fn last(&self) -> TelemetryFrame {
         self.last
     }
 

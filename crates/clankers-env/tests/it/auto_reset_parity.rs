@@ -1,6 +1,6 @@
 //! Paired sequential vs parallel auto-reset parity tests (P1.8).
 //!
-//! CODE_QUALITY_REVIEW Detailed Findings "Auto-Reset Semantics Need
+//! `CODE_QUALITY_REVIEW` Detailed Findings "Auto-Reset Semantics Need
 //! Clear Boundary Tests" called out that sequential and parallel
 //! runners share `finalize_step` but auto-reset handling lives in
 //! runner-specific paths, so behaviour could drift around episode
@@ -37,7 +37,7 @@ use clankers_env::vec_runner::{VecEnvInstance, VecEnvRunner, VecRunnerLike};
 /// Env that terminates after `terminate_at` steps of its own.
 ///
 /// Observation layout (3 f32 slots minimum):
-///   [step_count, episode_index, last_seed_lo_as_f32]
+///   [`step_count`, `episode_index`, `last_seed_lo_as_f32`]
 ///
 /// `episode_index` increments every reset; lets the parity tests
 /// distinguish "auto-reset happened" from "step never advanced".
@@ -51,7 +51,7 @@ struct CountdownEnv {
 }
 
 impl CountdownEnv {
-    fn new(obs_dim: usize, terminate_at: u64) -> Self {
+    const fn new(obs_dim: usize, terminate_at: u64) -> Self {
         Self {
             obs_dim,
             terminate_at,

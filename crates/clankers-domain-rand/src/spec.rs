@@ -22,7 +22,7 @@
 //! [`SpecRange`] (here) is a small `low, high` struct for *declaring*
 //! a closed interval — it's the wire format. The sibling
 //! [`RandomizationRange`](crate::ranges::RandomizationRange) is the
-//! richer runtime *sampler* enum (Uniform / Gaussian / LogUniform /
+//! richer runtime *sampler* enum (Uniform / Gaussian / `LogUniform` /
 //! Scaling). The two are deliberately separate: the spec stays trivial
 //! to serialise and reason about; the sampler is free to grow new
 //! distributions without churning the on-disk format.

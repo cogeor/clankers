@@ -40,7 +40,7 @@
 //!   and human-readable pretty-printers.
 //! - [`stats`] — percentile/stddev/aggregation helpers + `build_notes`.
 //! - [`scenario`] — legacy single-scenario benchmark body (V1 schema).
-//! - [`vec`] — `bench vec` body, `ConstBenchEnv`, `run_vec_cell`, and
+//! - [`mod@vec`] — `bench vec` body, `ConstBenchEnv`, `run_vec_cell`, and
 //!   the public [`bench_vec_cell`] entry point used by the Criterion
 //!   target `benches/vec.rs`.
 //! - [`protocol`] — `bench protocol` body.

@@ -48,13 +48,12 @@ mod build_error {
     /// Failure mode for the fallible `try_new` constructors on
     /// layout-bound sensors (`JointStateSensor::try_new`, etc).
     ///
-    /// Added under CODE_QUALITY_REVIEW Finding #4 / P0.4. The panicking
-    /// `new(...)` constructors snapshot `layout.bound_entities()` at
-    /// construction, which silently shrinks the observation dimension
-    /// when the layout is unbound or only partially bound. `try_new`
-    /// rejects those layouts before the snapshot is taken so the
-    /// failure surfaces at sensor build time, not as a malformed
-    /// observation downstream.
+    /// The panicking `new(...)` constructors snapshot
+    /// `layout.bound_entities()` at construction, which silently
+    /// shrinks the observation dimension when the layout is unbound or
+    /// only partially bound. `try_new` rejects those layouts before
+    /// the snapshot is taken so the failure surfaces at sensor build
+    /// time, not as a malformed observation downstream.
     #[derive(Debug, Clone, PartialEq, Eq, Error)]
     pub enum SensorBuildError {
         /// The supplied `JointLayout` has at least one slot whose

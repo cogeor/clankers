@@ -6,6 +6,7 @@
 // all setup to the chosen backend.
 
 pub mod backend;
+pub mod buffers;
 pub mod components;
 pub mod neutral;
 pub mod plugin;
@@ -19,6 +20,7 @@ pub mod systems;
 pub mod prelude {
     pub use crate::{
         backend::PhysicsBackend,
+        buffers::{BodyStateBuffer, JointCommandBuffer, JointStateBuffer},
         components::{GroundPlane, PhysicsBody, PhysicsJoint},
         neutral::{BodyHandle, BodyPose, ContactEvent, JointHandle},
         plugin::ClankersPhysicsPlugin,

@@ -10,6 +10,7 @@ pub mod seed;
 pub mod time;
 pub mod traits;
 pub mod types;
+pub mod validators;
 pub mod view;
 
 use bevy::prelude::*;

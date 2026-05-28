@@ -808,9 +808,18 @@ pub mod camera {
                 continue;
             };
 
-            // Write raw pixel bytes directly.
+            // P1.10: route camera frames through the async queue when
+            // one is installed; fall through to a sync mcap write
+            // otherwise. Drops are attributed to the raw-frame counter
+            // (dropped_raw_frames) so operators can tell which channel
+            // kind is bottlenecking.
             let ts = sim_time.nanos();
             let payload = buf.data();
+
+            if let Some(ref async_rec) = recorder.async_writer {
+                async_rec.try_send_raw_frame(channel_id, ts, payload.to_vec());
+                continue;
+            }
 
             let seq = recorder.sequence;
             recorder.sequence = recorder.sequence.wrapping_add(1);

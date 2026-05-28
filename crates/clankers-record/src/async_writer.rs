@@ -100,7 +100,9 @@ pub trait AsyncSink {
 #[derive(Debug)]
 pub enum RecorderMessage {
     /// Append a single MCAP message on `channel_id` at `log_time_ns`
-    /// with the given owned `payload`.
+    /// with the given owned `payload`. JSON / per-system frames use
+    /// this variant — see [`RecorderMessage::RawFrame`] for raw camera
+    /// bytes which carry their own drop counter.
     Frame {
         /// MCAP channel id (matches the value returned by
         /// `mcap::Writer::add_channel`).
@@ -108,6 +110,19 @@ pub enum RecorderMessage {
         /// MCAP log timestamp in nanoseconds (sim time).
         log_time_ns: u64,
         /// Owned message payload bytes.
+        payload: Vec<u8>,
+    },
+    /// Append a raw-payload MCAP message — same wire shape as
+    /// [`RecorderMessage::Frame`] but tagged as a raw camera / image
+    /// frame so the worker can attribute drops to a separate counter.
+    /// Added under CODE_QUALITY_REVIEW P1.10 to lift the camera write
+    /// off the sync `mcap::Writer` path.
+    RawFrame {
+        /// MCAP channel id.
+        channel_id: u16,
+        /// MCAP log timestamp in nanoseconds (sim time).
+        log_time_ns: u64,
+        /// Owned raw-pixel payload (typically `H * W * C` `u8`).
         payload: Vec<u8>,
     },
     /// Best-effort `flush` on the sink. Not used by the production
@@ -162,6 +177,12 @@ impl DroppedFrames {
 pub struct AsyncRecorder {
     tx: Sender<RecorderMessage>,
     dropped: Arc<AtomicU64>,
+    /// Per-kind drop counter for [`RecorderMessage::RawFrame`]. Counts
+    /// raw frames discarded because the bounded queue was full when
+    /// [`Self::try_send_raw_frame`] was called. Distinct from
+    /// [`Self::dropped`] (which counts JSON frames) so operators can
+    /// tell which channel kind is bottlenecking. P1.10.
+    dropped_raw: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -179,6 +200,7 @@ impl AsyncRecorder {
     {
         let (tx, rx) = bounded::<RecorderMessage>(capacity);
         let dropped = dropped.unwrap_or_else(|| Arc::new(AtomicU64::new(0)));
+        let dropped_raw = Arc::new(AtomicU64::new(0));
         let mut sink = sink;
         let worker = thread::Builder::new()
             .name("clankers-record-async".into())
@@ -186,6 +208,11 @@ impl AsyncRecorder {
                 while let Ok(msg) = rx.recv() {
                     match msg {
                         RecorderMessage::Frame {
+                            channel_id,
+                            log_time_ns,
+                            payload,
+                        }
+                        | RecorderMessage::RawFrame {
                             channel_id,
                             log_time_ns,
                             payload,
@@ -212,8 +239,41 @@ impl AsyncRecorder {
         Self {
             tx,
             dropped,
+            dropped_raw,
             worker: Some(worker),
         }
+    }
+
+    /// Attempt to enqueue a raw-frame (camera / image) payload.
+    ///
+    /// P1.10. Mirrors [`Self::try_send_frame`] but increments the
+    /// dedicated [`Self::dropped_raw_frames`] counter on full / closed
+    /// queue so operators can attribute losses to a specific channel
+    /// kind. On a healthy queue the message rides the same MCAP write
+    /// path as `Frame`.
+    pub fn try_send_raw_frame(&self, channel_id: u16, log_time_ns: u64, payload: Vec<u8>) {
+        match self.tx.try_send(RecorderMessage::RawFrame {
+            channel_id,
+            log_time_ns,
+            payload,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.dropped_raw.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Current count of dropped raw frames (relaxed load).
+    #[must_use]
+    pub fn dropped_raw_frames(&self) -> u64 {
+        self.dropped_raw.load(Ordering::Relaxed)
+    }
+
+    /// Cloneable handle to the raw-frame drop counter.
+    #[must_use]
+    pub fn dropped_raw_frames_handle(&self) -> Arc<AtomicU64> {
+        self.dropped_raw.clone()
     }
 
     /// Attempt to enqueue a single frame.
@@ -340,5 +400,63 @@ mod tests {
         for (i, w) in writes.iter().enumerate() {
             assert_eq!(w.1, i as u64, "log_time_ns mismatch");
         }
+    }
+
+    #[test]
+    fn try_send_raw_frame_routes_through_worker() {
+        // P1.10: RawFrame variant reaches the sink via the same write
+        // path as Frame.
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let sink = VecSink {
+            writes: writes.clone(),
+        };
+        let rec = AsyncRecorder::new(16, sink, None);
+        rec.try_send_raw_frame(7, 100, vec![1, 2, 3]);
+        rec.try_send_raw_frame(7, 200, vec![4, 5, 6]);
+        rec.close();
+        let writes = writes.lock().unwrap();
+        assert_eq!(writes.len(), 2);
+        assert_eq!(writes[0], (7, 100, vec![1, 2, 3]));
+        assert_eq!(writes[1], (7, 200, vec![4, 5, 6]));
+    }
+
+    #[test]
+    fn raw_frame_drops_counted_on_separate_counter() {
+        // P1.10: a full queue increments dropped_raw_frames, not the
+        // JSON dropped counter — so operators can attribute the loss
+        // to camera-channel pressure specifically.
+        struct BlockingSink;
+        impl AsyncSink for BlockingSink {
+            fn write_message(
+                &mut self,
+                _channel_id: u16,
+                _log_time_ns: u64,
+                _payload: &[u8],
+            ) -> std::io::Result<()> {
+                // Park the worker so the queue can saturate.
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let rec = AsyncRecorder::new(2, BlockingSink, None);
+        // Fire 32 frames into a 2-slot queue with a 200 ms-per-frame
+        // sink. Most must drop.
+        for i in 0..32_u64 {
+            rec.try_send_raw_frame(0, i, vec![0]);
+        }
+        // Sleep so the queue saturates definitively.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            rec.dropped_raw_frames() > 0,
+            "expected at least one dropped raw frame"
+        );
+        assert_eq!(
+            rec.dropped_frames(),
+            0,
+            "JSON-frame counter must NOT increment for raw drops"
+        );
     }
 }

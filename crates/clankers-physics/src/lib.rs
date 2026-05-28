@@ -11,6 +11,7 @@ pub mod components;
 pub mod neutral;
 pub mod plugin;
 pub mod rapier;
+pub mod readback;
 pub mod systems;
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,7 @@ pub mod prelude {
         components::{GroundPlane, PhysicsBody, PhysicsJoint},
         neutral::{BodyHandle, BodyPose, ContactEvent, JointHandle},
         plugin::ClankersPhysicsPlugin,
+        readback::{PhysicsReadback, StepReadback, collect_step_readback},
     };
 }
 

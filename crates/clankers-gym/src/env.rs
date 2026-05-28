@@ -7,8 +7,8 @@ use bevy::prelude::*;
 
 use clankers_core::traits::ActionApplicator;
 use clankers_core::types::{
-    Action, ActionSpace, ContactEvent, Observation, ObservationSpace, ResetInfo, ResetResult,
-    StepInfo, StepResult,
+    Action, ActionSpace, Observation, ObservationSpace, ResetInfo, ResetResult, StepInfo,
+    StepResult,
 };
 use clankers_env::buffer::ObservationBuffer;
 use clankers_env::episode::Episode;
@@ -189,72 +189,19 @@ impl GymEnv {
         &self.app
     }
 
-    /// Collect body poses and contact events from Rapier physics (if present).
+    /// Collect body poses and contact events via the backend-neutral readback API.
+    ///
+    /// CODE_QUALITY_REVIEW § P2.2 — this no longer reaches into a concrete
+    /// physics backend resource (`RapierContext`). Dispatch happens in
+    /// [`clankers_physics::readback::collect_step_readback`], so adding a new
+    /// backend is a single-site change.
     fn collect_step_info(world: &World) -> StepInfo {
-        use clankers_physics::rapier::RapierContext;
-        use std::collections::HashMap;
-
-        let mut info = StepInfo::default();
-
-        let Some(ctx) = world.get_resource::<RapierContext>() else {
-            return info;
-        };
-
-        // Body poses: read all named bodies from body_handles
-        let mut body_poses = HashMap::new();
-        for (name, &handle) in &ctx.body_handles {
-            if let Some(body) = ctx.rigid_body_set.get(handle) {
-                let t = body.translation();
-                let r = body.rotation();
-                body_poses.insert(name.clone(), [t.x, t.y, t.z, r.x, r.y, r.z, r.w]);
-            }
+        let readback = clankers_physics::readback::collect_step_readback(world);
+        StepInfo {
+            body_poses: readback.body_poses,
+            contact_events: readback.contact_events,
+            ..StepInfo::default()
         }
-        info.body_poses = body_poses;
-
-        // Contact events: iterate active contact pairs
-        let mut contacts = Vec::new();
-        // Build reverse map: collider handle -> body name
-        let mut collider_to_name: HashMap<rapier3d::prelude::ColliderHandle, String> =
-            HashMap::new();
-        for (name, &body_handle) in &ctx.body_handles {
-            if let Some(body) = ctx.rigid_body_set.get(body_handle) {
-                for &collider_handle in body.colliders() {
-                    collider_to_name.insert(collider_handle, name.clone());
-                }
-            }
-        }
-
-        let dt = ctx.integration_parameters.dt;
-        for contact_pair in ctx.narrow_phase.contact_pairs() {
-            if !contact_pair.has_any_active_contact() {
-                continue;
-            }
-            let name_a = collider_to_name
-                .get(&contact_pair.collider1)
-                .cloned()
-                .unwrap_or_default();
-            let name_b = collider_to_name
-                .get(&contact_pair.collider2)
-                .cloned()
-                .unwrap_or_default();
-            // total_impulse() returns N·s; divide by dt to get force in N
-            let impulse = contact_pair.total_impulse();
-            let force_magnitude = if dt > 0.0 {
-                impulse.length() / dt
-            } else {
-                impulse.length()
-            };
-            if !name_a.is_empty() || !name_b.is_empty() {
-                contacts.push(ContactEvent {
-                    body_a: name_a,
-                    body_b: name_b,
-                    force_magnitude,
-                });
-            }
-        }
-        info.contact_events = contacts;
-
-        info
     }
 
     fn current_observation(&self) -> Observation {

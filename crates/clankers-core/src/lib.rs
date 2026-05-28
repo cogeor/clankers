@@ -1,6 +1,7 @@
 // clankers-core: Types, traits, config, time, errors for Clankers robotics simulation.
 
 pub mod baselines;
+pub mod code_quality_audit;
 pub mod config;
 pub mod domain_rand_spec;
 pub mod env_spec;

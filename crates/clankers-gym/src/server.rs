@@ -51,6 +51,15 @@ pub struct ServerConfig {
     /// Server-side capabilities. Typed at this layer (P1.3); the wire
     /// format remains a JSON object so clients aren't affected.
     pub capabilities: Capabilities,
+    /// Per-message read timeout. `None` blocks indefinitely (legacy
+    /// behaviour). The server applies this to the client socket
+    /// immediately after `accept()` so a stalled client cannot keep
+    /// the server-side handler thread parked forever. P1.4.
+    pub read_timeout: Option<std::time::Duration>,
+    /// Per-message write timeout. `None` blocks indefinitely.
+    /// Mirrors `read_timeout`; protects against a half-dead client
+    /// whose receive buffer fills and never drains. P1.4.
+    pub write_timeout: Option<std::time::Duration>,
 }
 
 impl Default for ServerConfig {
@@ -66,6 +75,11 @@ impl Default for ServerConfig {
                 batch_step: false,
                 unknown: HashMap::new(),
             },
+            // Default: no timeout, matching the pre-P1.4 behaviour so
+            // existing CLI invocations and tests aren't affected. CLI
+            // wrappers should set both explicitly (typical: 30 s).
+            read_timeout: None,
+            write_timeout: None,
         }
     }
 }
@@ -124,6 +138,7 @@ impl GymServer {
     /// Returns a [`ProtocolError`] if communication or protocol validation fails.
     pub fn serve_one(&self, env: &mut GymEnv) -> Result<(), ProtocolError> {
         let (stream, _addr) = self.listener.accept()?;
+        apply_timeouts(&stream, &self.config)?;
         handle_connection(stream, env, &self.config)
     }
 }
@@ -179,6 +194,7 @@ impl VecGymServer {
     /// Returns a [`ProtocolError`] if communication or protocol validation fails.
     pub fn serve_one(&self, vec_env: &mut GymVecEnv) -> Result<(), ProtocolError> {
         let (stream, _addr) = self.listener.accept()?;
+        apply_timeouts(&stream, &self.config)?;
         handle_vec_connection(stream, vec_env, &self.config)
     }
 }
@@ -186,6 +202,21 @@ impl VecGymServer {
 // ---------------------------------------------------------------------------
 // Connection handlers
 // ---------------------------------------------------------------------------
+
+/// Apply the configured read/write timeouts to an accepted client
+/// socket. Called once per accepted connection by both
+/// [`GymServer::serve_one`] and [`VecGymServer::serve_one`] so a
+/// stalled or half-dead client cannot park the server thread
+/// indefinitely. P1.4.
+fn apply_timeouts(stream: &TcpStream, config: &ServerConfig) -> Result<(), ProtocolError> {
+    stream
+        .set_read_timeout(config.read_timeout)
+        .map_err(ProtocolError::Io)?;
+    stream
+        .set_write_timeout(config.write_timeout)
+        .map_err(ProtocolError::Io)?;
+    Ok(())
+}
 
 fn handle_connection(
     stream: TcpStream,
@@ -717,6 +748,42 @@ mod tests {
     }
 
     #[test]
+    fn server_applies_configured_read_timeout() {
+        // P1.4: a client that connects and never writes must not pin
+        // the server thread forever. With a short configured read
+        // timeout, serve_one returns once the read times out — the
+        // exact ProtocolError variant is implementation-detail; the
+        // contract under test is "the thread terminates".
+        let config = ServerConfig {
+            read_timeout: Some(std::time::Duration::from_millis(50)),
+            write_timeout: Some(std::time::Duration::from_millis(50)),
+            ..Default::default()
+        };
+        let server = GymServer::bind_with_config("127.0.0.1:0", config).unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_env();
+            server.serve_one(&mut env)
+        });
+
+        // Connect but never send any data.
+        let stream = TcpStream::connect(addr).unwrap();
+        // Give the server time to accept and start reading.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Without the configured timeout, the server's read_message
+        // would block indefinitely and this join would hang.
+        let result = handle.join().expect("server thread panicked");
+        drop(stream);
+        // Either Io error or unexpected disconnect — we just need
+        // the thread to terminate within the test runner's timeout.
+        assert!(
+            result.is_err(),
+            "expected an Err from a timed-out read, got Ok"
+        );
+    }
+
+    #[test]
     fn server_handles_client_disconnect() {
         let server = GymServer::bind("127.0.0.1:0").unwrap();
         let addr = server.local_addr().unwrap();
@@ -746,6 +813,7 @@ mod tests {
             env_name: "test_env".into(),
             env_version: "1.0.0".into(),
             capabilities: server_caps,
+            ..Default::default()
         };
 
         let server = GymServer::bind_with_config("127.0.0.1:0", config).unwrap();

@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 from clankers.vec_env import ClankerVecEnv
 
@@ -116,6 +117,27 @@ class TestClankerVecEnv:
         sent = env._client.send.call_args[0][0]
         assert sent["actions"][0] == {"Discrete": 0}
         assert sent["actions"][1] == {"Discrete": 3}
+
+    def test_reset_rejects_mismatched_seeds_short(self):
+        """P0.2: short seeds vector raises ValueError client-side."""
+        env = ClankerVecEnv.__new__(ClankerVecEnv)
+        env._client = MagicMock()
+        env.num_envs = 4
+
+        with pytest.raises(ValueError, match=r"seeds length 1 != env_ids length 3"):
+            env.reset(env_ids=[0, 1, 2], seeds=[42])
+        # No request leaves the client when validation fails.
+        env._client.send.assert_not_called()
+
+    def test_reset_rejects_mismatched_seeds_long(self):
+        """P0.2: long seeds vector also raises."""
+        env = ClankerVecEnv.__new__(ClankerVecEnv)
+        env._client = MagicMock()
+        env.num_envs = 2
+
+        with pytest.raises(ValueError, match=r"seeds length 4 != env_ids length 2"):
+            env.reset(env_ids=[0, 1], seeds=[1, 2, 3, 4])
+        env._client.send.assert_not_called()
 
     def test_close(self):
         env = ClankerVecEnv.__new__(ClankerVecEnv)

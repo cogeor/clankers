@@ -438,6 +438,18 @@ fn dispatch_vec(
             batch_step_response(result, session, vec_env.observation_space())
         }
         Request::BatchReset { env_ids, seeds } => {
+            if let Some(seeds) = seeds
+                && seeds.len() != env_ids.len()
+            {
+                return (
+                    Response::error(format!(
+                        "batch_reset seeds length {} != env_ids length {}",
+                        seeds.len(),
+                        env_ids.len()
+                    )),
+                    None,
+                );
+            }
             let result = vec_env.reset_envs(env_ids, seeds.as_deref());
             batch_reset_response(result, session, vec_env.observation_space())
         }
@@ -1005,6 +1017,109 @@ mod tests {
         }
 
         // Close
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_batch_reset_rejects_mismatched_seeds_short() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(3, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+        send_recv(&mut stream, &init_with_batch());
+
+        // 3 env_ids but only 1 seed -> Response::Error.
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1, 2],
+                seeds: Some(vec![Some(42)]),
+            },
+        );
+        if let Response::Error { message } = &resp {
+            assert!(
+                message.contains('1'),
+                "expected seeds length 1 in message, got {message:?}"
+            );
+            assert!(
+                message.contains('3'),
+                "expected env_ids length 3 in message, got {message:?}"
+            );
+        } else {
+            panic!("expected Response::Error, got {resp:?}");
+        }
+
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_batch_reset_rejects_mismatched_seeds_long() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(2, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+        send_recv(&mut stream, &init_with_batch());
+
+        // 2 env_ids but 4 seeds -> Response::Error.
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1],
+                seeds: Some(vec![Some(1), Some(2), Some(3), Some(4)]),
+            },
+        );
+        if let Response::Error { message } = &resp {
+            assert!(message.contains('4'));
+            assert!(message.contains('2'));
+        } else {
+            panic!("expected Response::Error, got {resp:?}");
+        }
+
+        send_recv(&mut stream, &Request::Close);
+        drop(stream);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn vec_server_batch_reset_equal_seeds_succeeds() {
+        let server = VecGymServer::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let mut env = build_test_vec_env(2, 2);
+            server.serve_one(&mut env).unwrap();
+        });
+
+        let mut stream = TcpStream::connect(addr).unwrap();
+        send_recv(&mut stream, &init_with_batch());
+
+        let resp = send_recv(
+            &mut stream,
+            &Request::BatchReset {
+                env_ids: vec![0, 1],
+                seeds: Some(vec![Some(7), Some(8)]),
+            },
+        );
+        if let Response::BatchReset { observations, .. } = &resp {
+            assert_eq!(observations.len(), 2);
+        } else {
+            panic!("expected BatchReset, got {resp:?}");
+        }
+
         send_recv(&mut stream, &Request::Close);
         drop(stream);
         handle.join().unwrap();

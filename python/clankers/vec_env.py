@@ -73,6 +73,11 @@ class ClankerVecEnv:
         if env_ids is None:
             env_ids = list(range(self.num_envs))
 
+        if seeds is not None and len(seeds) != len(env_ids):
+            raise ValueError(
+                f"batch_reset seeds length {len(seeds)} != env_ids length {len(env_ids)}"
+            )
+
         req: dict[str, Any] = {
             "type": "batch_reset",
             "env_ids": env_ids,

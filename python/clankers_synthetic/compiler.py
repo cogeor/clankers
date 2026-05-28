@@ -111,6 +111,64 @@ class SkillCompiler:
         """
         return self._adapter.to_env_action(np.asarray(joint_targets, dtype=np.float32))
 
+    def _step_and_record(
+        self,
+        env: StepEnv,
+        current_obs: np.ndarray,
+        joint_targets: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any], TraceStep]:
+        """Adapter-dispatched env step + TraceStep construction.
+
+        CODE_QUALITY_REVIEW finding "Compiler Has Repeated Step/Trace
+        Logic" / P1.12. Centralises the
+        `_to_env_action -> env.step -> TraceStep(...) -> append`
+        sequence that previously appeared verbatim in four skill paths
+        (``_exec_move_linear``, ``_exec_set_gripper``, ``_exec_wait``,
+        ``_interpolate_to_target``). The P0.1 action-semantics bug
+        existed partly because each path owned its own step logic — a
+        single helper makes the contract enforceable.
+
+        Args:
+            env: Active environment.
+            current_obs: Observation *before* this step (recorded as
+                ``TraceStep.obs``).
+            joint_targets: Absolute joint-position targets; routed
+                through the negotiated :class:`ActionAdapter` before
+                being emitted to ``env.step``.
+            all_steps: Plan-level trace accumulator; the new step is
+                appended to it as a side-effect (the same pattern the
+                callers used).
+
+        Returns:
+            ``(next_obs_arr, reward, terminated, truncated, info, trace_step)``.
+            Callers typically also append ``trace_step`` to their own
+            per-skill ``new_steps`` list — the helper appends to
+            ``all_steps`` only.
+        """
+        action = self._to_env_action(joint_targets)
+        next_obs, reward, terminated, truncated, info = env.step(action)
+        next_obs_arr = (
+            np.array(next_obs, dtype=np.float32)
+            if not isinstance(next_obs, np.ndarray)
+            else next_obs
+        )
+
+        trace_step = TraceStep(
+            obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
+            action=action.tolist() if hasattr(action, "tolist") else list(action),
+            next_obs=next_obs_arr.tolist()
+            if hasattr(next_obs_arr, "tolist")
+            else list(next_obs_arr),
+            reward=float(reward),
+            terminated=terminated,
+            truncated=truncated,
+            action_semantics=self._action_semantics,  # type: ignore[arg-type]
+            info=info,
+        )
+        all_steps.append(trace_step)
+        return next_obs_arr, float(reward), terminated, truncated, info, trace_step
+
     def execute(self, plan: CanonicalPlan, env: StepEnv) -> ExecutionTrace:
         """Execute a plan through the environment.
 
@@ -274,28 +332,10 @@ class SkillCompiler:
             else:
                 target_joints = current_joints
 
-            action = self._to_env_action(target_joints)
-            next_obs, reward, terminated, truncated, info = env.step(action)
-            next_obs_arr = (
-                np.array(next_obs, dtype=np.float32)
-                if not isinstance(next_obs, np.ndarray)
-                else next_obs
-            )
-
-            trace_step = TraceStep(
-                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
-                action=action.tolist() if hasattr(action, "tolist") else list(action),
-                next_obs=next_obs_arr.tolist()
-                if hasattr(next_obs_arr, "tolist")
-                else list(next_obs_arr),
-                reward=float(reward),
-                terminated=terminated,
-                truncated=truncated,
-                action_semantics=self._action_semantics,  # type: ignore[arg-type]
-                info=info,
+            next_obs_arr, _, terminated, truncated, info, trace_step = self._step_and_record(
+                env, current_obs, target_joints, all_steps
             )
             new_steps.append(trace_step)
-            all_steps.append(trace_step)
             current_obs = next_obs_arr
             current_joints = self._extract_joint_positions(current_obs, info)
 
@@ -433,29 +473,10 @@ class SkillCompiler:
         for _ in range(max(1, wait_steps)):
             if terminated or truncated:
                 break
-            action = self._to_env_action(current_joints)
-
-            next_obs, reward, terminated, truncated, info = env.step(action)
-            next_obs_arr = (
-                np.array(next_obs, dtype=np.float32)
-                if not isinstance(next_obs, np.ndarray)
-                else next_obs
-            )
-
-            trace_step = TraceStep(
-                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
-                action=action.tolist() if hasattr(action, "tolist") else list(action),
-                next_obs=next_obs_arr.tolist()
-                if hasattr(next_obs_arr, "tolist")
-                else list(next_obs_arr),
-                reward=float(reward),
-                terminated=terminated,
-                truncated=truncated,
-                action_semantics=self._action_semantics,  # type: ignore[arg-type]
-                info=info,
+            next_obs_arr, _, terminated, truncated, info, trace_step = self._step_and_record(
+                env, current_obs, current_joints, all_steps
             )
             new_steps.append(trace_step)
-            all_steps.append(trace_step)
             current_obs = next_obs_arr
 
         # Extract final joint positions for handoff to next skill
@@ -483,29 +504,10 @@ class SkillCompiler:
         for _ in range(n_steps):
             if terminated or truncated:
                 break
-            action = self._to_env_action(current_joints)
-
-            next_obs, reward, terminated, truncated, info = env.step(action)
-            next_obs_arr = (
-                np.array(next_obs, dtype=np.float32)
-                if not isinstance(next_obs, np.ndarray)
-                else next_obs
-            )
-
-            trace_step = TraceStep(
-                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
-                action=action.tolist() if hasattr(action, "tolist") else list(action),
-                next_obs=next_obs_arr.tolist()
-                if hasattr(next_obs_arr, "tolist")
-                else list(next_obs_arr),
-                reward=float(reward),
-                terminated=terminated,
-                truncated=truncated,
-                action_semantics=self._action_semantics,  # type: ignore[arg-type]
-                info=info,
+            next_obs_arr, _, terminated, truncated, info, trace_step = self._step_and_record(
+                env, current_obs, current_joints, all_steps
             )
             new_steps.append(trace_step)
-            all_steps.append(trace_step)
             current_obs = next_obs_arr
 
         return new_steps, current_obs, current_joints, terminated, truncated, info
@@ -538,29 +540,10 @@ class SkillCompiler:
                 break
             frac = (step_i + 1) / n_steps
             waypoint = current_joints + delta * frac
-            action = self._to_env_action(waypoint)
-
-            next_obs, reward, terminated, truncated, info = env.step(action)
-            next_obs_arr = (
-                np.array(next_obs, dtype=np.float32)
-                if not isinstance(next_obs, np.ndarray)
-                else next_obs
-            )
-
-            trace_step = TraceStep(
-                obs=current_obs.tolist() if hasattr(current_obs, "tolist") else list(current_obs),
-                action=action.tolist() if hasattr(action, "tolist") else list(action),
-                next_obs=next_obs_arr.tolist()
-                if hasattr(next_obs_arr, "tolist")
-                else list(next_obs_arr),
-                reward=float(reward),
-                terminated=terminated,
-                truncated=truncated,
-                action_semantics=self._action_semantics,  # type: ignore[arg-type]
-                info=info,
+            next_obs_arr, _, terminated, truncated, info, trace_step = self._step_and_record(
+                env, current_obs, waypoint, all_steps
             )
             new_steps.append(trace_step)
-            all_steps.append(trace_step)
             current_obs = next_obs_arr
 
             # Check guard

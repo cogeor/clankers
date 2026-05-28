@@ -171,7 +171,7 @@ jobs:
       - run: pip install -r requirements-ci.txt
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy --config-file pyproject.toml clankers/
+      - run: mypy --config-file pyproject.toml clankers/ clankers_synthetic/
       - name: Run unit tests
         # tests/slow/ houses tests needing heavy optional deps (torch, onnx,
         # mcap). They run in nightly.yml with those deps installed. The

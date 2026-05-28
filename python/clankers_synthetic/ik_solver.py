@@ -60,7 +60,8 @@ def _rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
             [-axis[1], axis[0], 0.0],
         ]
     )
-    return np.eye(3) + np.sin(angle) * K + (1.0 - np.cos(angle)) * (K @ K)
+    R: np.ndarray = np.eye(3) + np.sin(angle) * K + (1.0 - np.cos(angle)) * (K @ K)
+    return R
 
 
 def _orientation_error(R_target: np.ndarray, R_current: np.ndarray) -> np.ndarray:
@@ -316,8 +317,8 @@ def forward_kinematics(chain: KinematicChain, joint_angles: np.ndarray) -> np.nd
         T = T @ T_origin @ T_joint
 
     # Append end-effector offset
-    T = T @ chain.ee_offset
-    return T
+    T_final: np.ndarray = T @ chain.ee_offset
+    return T_final
 
 
 # ---------------------------------------------------------------------------

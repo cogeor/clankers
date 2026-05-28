@@ -189,7 +189,7 @@ def episode_to_mcap(
     print(f"Wrote {len(steps)} frames to {output_path}")
 
 
-def main():
+def main() -> None:
     """CLI entry point."""
     if len(sys.argv) < 3:
         print("Usage: python -m clankers_synthetic.mcap_writer <episode.json> <output.mcap>")

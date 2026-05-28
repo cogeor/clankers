@@ -26,11 +26,12 @@ import json
 import logging
 import os
 import time
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Batch arm pick-and-place dataset generation")
     parser.add_argument("--host", default="127.0.0.1", help="Gym server host")
     parser.add_argument("--port", type=int, default=9880, help="Gym server port")
@@ -133,8 +134,10 @@ def main():
     raw_dir = os.path.join(args.output, "raw_traces")
     os.makedirs(raw_dir, exist_ok=True)
 
-    results = []  # (trace, success, cube_z, length)
-    passing_traces = []  # (trace, report) for DatasetPackager
+    # Each result is a dict with keys: episode (int), success (bool),
+    # cube_z (float), length (int), and optionally error (str).
+    results: list[dict[str, Any]] = []
+    passing_traces: list[tuple[Any, ValidationReport]] = []  # (trace, report) for DatasetPackager
 
     success_threshold = 0.525  # cube z must be >= this
 

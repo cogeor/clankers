@@ -22,7 +22,15 @@ import argparse
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from clankers_synthetic.clankers_bridge import ClankersBridgeEnv
+    from clankers_synthetic.ik_solver import DlsSolver
+    from clankers_synthetic.packager import DatasetManifest
+    from clankers_synthetic.specs import SceneSpec, TaskSpec
 
 
 def _project_root() -> Path:
@@ -37,7 +45,7 @@ def _project_root() -> Path:
 def load_scene_and_task(
     scene_path: str | None = None,
     task_path: str | None = None,
-):
+) -> tuple[SceneSpec, TaskSpec]:
     """Load SceneSpec and TaskSpec from JSON files."""
     from clankers_synthetic.specs import SceneSpec, TaskSpec
 
@@ -57,14 +65,14 @@ def load_scene_and_task(
     return scene, task
 
 
-def make_env_factory(host: str, port: int, scene):
+def make_env_factory(host: str, port: int, scene: SceneSpec) -> Callable[[], ClankersBridgeEnv]:
     """Create an env factory that returns ClankersBridgeEnv instances."""
     from clankers_synthetic.clankers_bridge import ClankersBridgeEnv
 
     n_arm = sum(1 for jt in scene.robot.joint_types.values() if jt == "revolute")
     n_gripper = sum(1 for jt in scene.robot.joint_types.values() if jt == "prismatic")
 
-    def factory():
+    def factory() -> ClankersBridgeEnv:
         env = ClankersBridgeEnv(
             host=host,
             port=port,
@@ -76,7 +84,7 @@ def make_env_factory(host: str, port: int, scene):
     return factory
 
 
-def build_ik_solver(scene):
+def build_ik_solver(scene: SceneSpec) -> DlsSolver | None:
     """Build a Python IK solver from the scene spec."""
     from clankers_synthetic.ik_solver import DlsSolver, KinematicChain
 
@@ -104,7 +112,13 @@ def build_ik_solver(scene):
     return solver
 
 
-def run_dry_run(scene, task, env_factory, ik_solver, output_dir: str):
+def run_dry_run(
+    scene: SceneSpec,
+    task: TaskSpec,
+    env_factory: Callable[[], ClankersBridgeEnv],
+    ik_solver: DlsSolver | None,
+    output_dir: str,
+) -> None:
     """Run a simple hardcoded plan without LLM calls."""
     from clankers_synthetic.compiler import SkillCompiler
     from clankers_synthetic.specs import CanonicalPlan, ResolvedSkill
@@ -216,14 +230,14 @@ def run_dry_run(scene, task, env_factory, ik_solver, output_dir: str):
 
 
 def run_full_pipeline(
-    scene,
-    task,
-    env_factory,
-    ik_solver,
+    scene: SceneSpec,
+    task: TaskSpec,
+    env_factory: Callable[[], ClankersBridgeEnv],
+    ik_solver: DlsSolver | None,
     output_dir: str,
     n_plans: int,
     model: str,
-):
+) -> DatasetManifest:
     """Run the full LLM-driven pipeline."""
     from clankers_synthetic.pipeline import generate_dataset
 
@@ -248,7 +262,7 @@ def run_full_pipeline(
     return manifest
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Arm pick-and-place synthetic data generation")
     parser.add_argument("--host", default="127.0.0.1", help="Gym server host")
     parser.add_argument("--port", type=int, default=9880, help="Gym server port")

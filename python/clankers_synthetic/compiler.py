@@ -18,6 +18,10 @@ from clankers_synthetic.specs import (
     TraceStep,
 )
 
+# Return type for ``_exec_*`` / ``_interpolate_to_target`` helpers:
+# (new_steps, current_obs, current_joints, terminated, truncated, info).
+SkillExecResult = tuple[list[TraceStep], np.ndarray, np.ndarray, bool, bool, dict[str, Any]]
+
 
 class StepEnv(Protocol):
     """Minimal env interface needed by the compiler."""
@@ -157,7 +161,7 @@ class SkillCompiler:
         current_obs: np.ndarray,
         current_joints: np.ndarray,
         all_steps: list[TraceStep],
-    ) -> tuple[list[TraceStep], np.ndarray, np.ndarray, bool, bool, dict]:
+    ) -> SkillExecResult:
         """Execute a single skill.
 
         Returns:
@@ -185,7 +189,14 @@ class SkillCompiler:
                 all_steps,
             )
 
-    def _exec_move_to(self, skill, env, obs, joints, all_steps):
+    def _exec_move_to(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute move_to: IK solve target, interpolate, step."""
         target_pos = skill.target_world_position
         if target_pos is None:
@@ -220,7 +231,14 @@ class SkillCompiler:
             all_steps,
         )
 
-    def _exec_move_linear(self, skill, env, obs, joints, all_steps):
+    def _exec_move_linear(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute move_linear: step-wise Cartesian straight line."""
         direction = np.array(skill.params.get("direction", [0, 0, 0]))
         distance = skill.params.get("distance", 0.0)
@@ -287,7 +305,14 @@ class SkillCompiler:
 
         return new_steps, current_obs, current_joints, terminated, truncated, info
 
-    def _exec_move_relative(self, skill, env, obs, joints, all_steps):
+    def _exec_move_relative(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute move_relative: move EE by delta in the current EE frame.
 
         Requires an FK source: either ``env.forward_kinematics`` or the
@@ -359,7 +384,14 @@ class SkillCompiler:
                         return np.array(ee_pose[:3], dtype=float)
         return None
 
-    def _exec_move_joints(self, skill, env, obs, joints, all_steps):
+    def _exec_move_joints(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute move_joints: direct joint-space interpolation to targets."""
         targets = skill.params.get("targets", {})
         speed_frac = skill.params.get("speed_fraction", 0.5)
@@ -375,7 +407,14 @@ class SkillCompiler:
             target_joints, speed_frac, skill.guard, env, obs, joints, all_steps
         )
 
-    def _exec_set_gripper(self, skill, env, obs, joints, all_steps):
+    def _exec_set_gripper(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute set_gripper: set gripper width and wait for settle."""
         wait_steps = skill.params.get("wait_settle_steps", 5)
 
@@ -423,7 +462,14 @@ class SkillCompiler:
         current_joints = self._extract_joint_positions(current_obs, info)
         return new_steps, current_obs, current_joints, terminated, truncated, info
 
-    def _exec_wait(self, skill, env, obs, joints, all_steps):
+    def _exec_wait(
+        self,
+        skill: ResolvedSkill,
+        env: StepEnv,
+        obs: np.ndarray,
+        joints: np.ndarray,
+        all_steps: list[TraceStep],
+    ) -> SkillExecResult:
         """Execute wait: hold current positions for N steps."""
         n_steps = skill.params.get("steps", 1)
 
@@ -473,7 +519,7 @@ class SkillCompiler:
         obs: np.ndarray,
         current_joints: np.ndarray,
         all_steps: list[TraceStep],
-    ):
+    ) -> SkillExecResult:
         """Interpolate from current joints to target and step env."""
         delta = target_joints - current_joints
         max_delta = np.max(np.abs(delta))

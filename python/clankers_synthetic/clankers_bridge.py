@@ -13,6 +13,11 @@ import numpy as np
 from clankers.env import ClankerEnv
 from numpy.typing import NDArray
 
+# Observation may be either a vector of float32 features OR a uint8 image
+# tensor (e.g. CHW image obs). Callers should treat the array as opaque
+# until the env's observation space is inspected.
+BridgeObs = NDArray[np.float32] | NDArray[np.uint8]
+
 
 class ClankersBridgeEnv:
     """Adapter that wraps :class:`ClankerEnv` to satisfy the ``StepEnv`` protocol.
@@ -59,12 +64,15 @@ class ClankersBridgeEnv:
         """Set gripper target width (clamped to valid range)."""
         self._gripper_width = float(np.clip(width, self._gripper_close, self._gripper_open))
 
-    def reset(self, seed: int | None = None) -> tuple[NDArray[np.float32], dict[str, Any]]:
+    def reset(self, seed: int | None = None) -> tuple[BridgeObs, dict[str, Any]]:
         """Reset the environment.
 
         Returns
         -------
         observation : np.ndarray
+            Either ``NDArray[np.float32]`` (feature vector obs) or
+            ``NDArray[np.uint8]`` (image obs), depending on the env's
+            negotiated observation space.
         info : dict
         """
         self._env.connect(seed=seed)
@@ -74,7 +82,7 @@ class ClankersBridgeEnv:
 
     def step(
         self, action: NDArray[np.float32]
-    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]:
+    ) -> tuple[BridgeObs, float, bool, bool, dict[str, Any]]:
         """Take one step.
 
         The compiler sends ``n_arm_joints``-dim actions. This adapter appends
@@ -84,6 +92,9 @@ class ClankersBridgeEnv:
         Returns
         -------
         observation : np.ndarray
+            Either ``NDArray[np.float32]`` (feature vector obs) or
+            ``NDArray[np.uint8]`` (image obs), depending on the env's
+            negotiated observation space.
         reward : float
             Always 0.0 (synthetic pipeline does not use reward).
         terminated : bool

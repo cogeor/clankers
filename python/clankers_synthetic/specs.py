@@ -59,7 +59,7 @@ class ObjectSpec(BaseModel):
     shape: str
     shape_params: dict = Field(default_factory=dict)
     position: list[float]
-    orientation: list[float] = Field(default_factory=lambda: [0, 0, 0, 1])
+    orientation: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0])
     mass: float = 0.1
     friction: float = 0.8
     restitution: float = 0.1

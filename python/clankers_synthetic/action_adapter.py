@@ -77,11 +77,13 @@ class NormalizedPositionAdapter(ActionAdapter):
     def to_env_action(self, joint_targets: np.ndarray) -> np.ndarray:
         targets = np.asarray(joint_targets, dtype=float)
         normalised = (targets - self._centers) / self._half_ranges
-        return np.clip(normalised, -1.0, 1.0).astype(np.float32)
+        out: np.ndarray = np.clip(normalised, -1.0, 1.0).astype(np.float32)
+        return out
 
     def from_env_action(self, action: np.ndarray) -> np.ndarray:
         act = np.asarray(action, dtype=float)
-        return (self._centers + act * self._half_ranges).astype(np.float32)
+        out: np.ndarray = (self._centers + act * self._half_ranges).astype(np.float32)
+        return out
 
 
 class AbsoluteJointPositionAdapter(ActionAdapter):
@@ -90,10 +92,12 @@ class AbsoluteJointPositionAdapter(ActionAdapter):
     semantics = "AbsoluteJointPosition"
 
     def to_env_action(self, joint_targets: np.ndarray) -> np.ndarray:
-        return np.asarray(joint_targets, dtype=np.float32).copy()
+        out: np.ndarray = np.asarray(joint_targets, dtype=np.float32).copy()
+        return out
 
     def from_env_action(self, action: np.ndarray) -> np.ndarray:
-        return np.asarray(action, dtype=np.float32).copy()
+        out: np.ndarray = np.asarray(action, dtype=np.float32).copy()
+        return out
 
 
 class JointVelocityAdapter(ActionAdapter):
@@ -119,7 +123,8 @@ class JointVelocityAdapter(ActionAdapter):
             return np.zeros_like(targets, dtype=np.float32)
         velocity = (targets - self._last_positions) / self._dt
         self._last_positions = targets.copy()
-        return velocity.astype(np.float32)
+        out: np.ndarray = velocity.astype(np.float32)
+        return out
 
     def from_env_action(self, action: np.ndarray) -> np.ndarray:
         """Integrate the velocity by one ``control_dt`` step.
@@ -156,7 +161,8 @@ class TorqueAdapter(ActionAdapter):
         )
 
     def from_env_action(self, action: np.ndarray) -> np.ndarray:
-        return np.asarray(action, dtype=np.float32).copy()
+        out: np.ndarray = np.asarray(action, dtype=np.float32).copy()
+        return out
 
 
 _KNOWN_SEMANTICS: tuple[str, ...] = (

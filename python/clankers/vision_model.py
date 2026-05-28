@@ -97,4 +97,5 @@ class VisionPolicyNet(nn.Module):
         img_features = self.cnn(image)
         pos_features = self.pos_encoder(positions)
         fused = torch.cat([img_features, pos_features], dim=1)
-        return self.fusion(fused)
+        out: torch.Tensor = self.fusion(fused)
+        return out

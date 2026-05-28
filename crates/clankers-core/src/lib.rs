@@ -2,6 +2,7 @@
 
 pub mod baselines;
 pub mod config;
+pub mod domain_rand_spec;
 pub mod env_spec;
 pub mod error;
 pub mod layout;

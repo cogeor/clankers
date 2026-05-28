@@ -303,6 +303,102 @@ pub enum TensorFrameError {
 }
 
 // ---------------------------------------------------------------------------
+// Encode / decode (P4.2)
+// ---------------------------------------------------------------------------
+
+/// Serialise `(header, payload)` into a single contiguous `Vec<u8>`.
+///
+/// Wire layout: 48-byte `TensorFrameHeader` (native LE on the wire — both
+/// peers are little-endian) followed by `payload`. The header's
+/// `payload_len` field must agree with `payload.len()` (otherwise this is
+/// a `PayloadLenMismatch` — encoders should always construct the header
+/// via [`TensorFrameHeader::new`] which validates the invariant).
+///
+/// # Errors
+///
+/// [`TensorFrameError::PayloadLenMismatch`] when the header's declared
+/// `payload_len` does not match `payload.len()`.
+pub fn encode_tensor(
+    header: &TensorFrameHeader,
+    payload: &[u8],
+) -> Result<Vec<u8>, TensorFrameError> {
+    if header.payload_len as usize != payload.len() {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: header.payload_len,
+            expected_for_shape: payload.len() as u64,
+        });
+    }
+    let mut out = Vec::with_capacity(TENSOR_HEADER_SIZE + payload.len());
+    out.extend_from_slice(bytemuck::bytes_of(header));
+    out.extend_from_slice(payload);
+    Ok(out)
+}
+
+/// Decode a wire-format tensor frame into a `(header, payload)` pair.
+///
+/// Validates the version byte, the dtype/layout discriminants, the
+/// payload length declared in the header against `buf.len() -
+/// TENSOR_HEADER_SIZE`, and the `shape × dtype.size_bytes()`
+/// consistency. The returned `payload` slice borrows from `buf`.
+///
+/// # Errors
+///
+/// - [`TensorFrameError::PayloadLenMismatch`] when `buf` is shorter than
+///   the header or the header's declared payload size does not match the
+///   trailing byte count.
+/// - [`TensorFrameError::UnsupportedVersion`] when `header.version`
+///   isn't [`TENSOR_FRAME_VERSION`].
+/// - [`TensorFrameError::UnknownDtype`] / [`TensorFrameError::UnknownLayout`]
+///   for unrecognised discriminants.
+/// - [`TensorFrameError::TooManyDims`] when `header.ndim > MAX_NDIM`.
+pub fn decode_tensor(buf: &[u8]) -> Result<(TensorFrameHeader, &[u8]), TensorFrameError> {
+    if buf.len() < TENSOR_HEADER_SIZE {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: 0,
+            expected_for_shape: buf.len() as u64,
+        });
+    }
+    let (head_bytes, payload) = buf.split_at(TENSOR_HEADER_SIZE);
+    let header: TensorFrameHeader = *bytemuck::from_bytes(head_bytes);
+
+    if header.version != TENSOR_FRAME_VERSION {
+        return Err(TensorFrameError::UnsupportedVersion {
+            got: header.version,
+        });
+    }
+    let dtype = TensorDtype::from_u8(header.dtype)
+        .ok_or(TensorFrameError::UnknownDtype { got: header.dtype })?;
+    let _layout = TensorLayout::from_u8(header.layout)
+        .ok_or(TensorFrameError::UnknownLayout { got: header.layout })?;
+    if usize::from(header.ndim) > MAX_NDIM {
+        return Err(TensorFrameError::TooManyDims {
+            got: usize::from(header.ndim),
+            max: MAX_NDIM,
+        });
+    }
+    if header.payload_len as usize != payload.len() {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: header.payload_len,
+            expected_for_shape: payload.len() as u64,
+        });
+    }
+    // Cross-check the payload size against shape × dtype.
+    let n_elements: u64 = header
+        .active_shape()
+        .iter()
+        .map(|d| u64::from(*d))
+        .product();
+    let expected = n_elements * dtype.size_bytes() as u64;
+    if u64::from(header.payload_len) != expected {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: header.payload_len,
+            expected_for_shape: expected,
+        });
+    }
+    Ok((header, payload))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -381,6 +477,109 @@ mod tests {
         assert_eq!(header.payload_len, 128);
         assert_eq!(header.typed_dtype(), Some(TensorDtype::F32));
         assert_eq!(header.typed_layout(), Some(TensorLayout::RowMajor));
+    }
+
+    // -------- encode / decode (P4.2) --------
+
+    #[test]
+    fn encode_then_decode_roundtrips_f32_tensor() {
+        // (2, 3) f32 → 24 bytes.
+        let elements: [f32; 6] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let payload = bytemuck::cast_slice::<f32, u8>(&elements);
+        let header =
+            TensorFrameHeader::new(TensorDtype::F32, &[2, 3], TensorLayout::RowMajor, 24).unwrap();
+        let buf = encode_tensor(&header, payload).unwrap();
+        assert_eq!(buf.len(), TENSOR_HEADER_SIZE + 24);
+
+        let (back_header, back_payload) = decode_tensor(&buf).unwrap();
+        assert_eq!(back_header, header);
+        let back: &[f32] = bytemuck::cast_slice(back_payload);
+        assert_eq!(back, &elements);
+    }
+
+    #[test]
+    fn encode_rejects_payload_size_mismatch() {
+        // Header claims 24 bytes; payload is 8.
+        let header =
+            TensorFrameHeader::new(TensorDtype::F32, &[2, 3], TensorLayout::RowMajor, 24).unwrap();
+        let payload = [0u8; 8];
+        let err = encode_tensor(&header, &payload).unwrap_err();
+        assert_eq!(
+            err,
+            TensorFrameError::PayloadLenMismatch {
+                declared: 24,
+                expected_for_shape: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn decode_rejects_truncated_buffer() {
+        let buf = vec![0u8; TENSOR_HEADER_SIZE - 1];
+        let err = decode_tensor(&buf).unwrap_err();
+        assert!(matches!(err, TensorFrameError::PayloadLenMismatch { .. }));
+    }
+
+    #[test]
+    fn decode_rejects_unknown_version() {
+        let mut header =
+            TensorFrameHeader::new(TensorDtype::F32, &[2, 3], TensorLayout::RowMajor, 24).unwrap();
+        header.version = 99;
+        let payload = vec![0u8; 24];
+        let mut buf = Vec::new();
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(&payload);
+        let err = decode_tensor(&buf).unwrap_err();
+        assert_eq!(err, TensorFrameError::UnsupportedVersion { got: 99 });
+    }
+
+    #[test]
+    fn decode_rejects_unknown_dtype() {
+        let mut header =
+            TensorFrameHeader::new(TensorDtype::F32, &[2, 3], TensorLayout::RowMajor, 24).unwrap();
+        header.dtype = 250;
+        let payload = vec![0u8; 24];
+        let mut buf = Vec::new();
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(&payload);
+        let err = decode_tensor(&buf).unwrap_err();
+        assert_eq!(err, TensorFrameError::UnknownDtype { got: 250 });
+    }
+
+    #[test]
+    fn decode_rejects_payload_length_disagreement() {
+        let header =
+            TensorFrameHeader::new(TensorDtype::F32, &[2, 3], TensorLayout::RowMajor, 24).unwrap();
+        // Buffer carries only 16 trailing bytes, header says 24.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(&[0u8; 16]);
+        let err = decode_tensor(&buf).unwrap_err();
+        assert_eq!(
+            err,
+            TensorFrameError::PayloadLenMismatch {
+                declared: 24,
+                expected_for_shape: 16,
+            }
+        );
+    }
+
+    #[test]
+    fn encode_decode_u8_image_roundtrips() {
+        // 32×32×3 uint8 image → 3072 bytes.
+        let n = 32 * 32 * 3;
+        let payload: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
+        let header = TensorFrameHeader::new(
+            TensorDtype::U8,
+            &[32, 32, 3],
+            TensorLayout::RowMajor,
+            n as u32,
+        )
+        .unwrap();
+        let buf = encode_tensor(&header, &payload).unwrap();
+        let (back_h, back_p) = decode_tensor(&buf).unwrap();
+        assert_eq!(back_h.active_shape(), &[32, 32, 3]);
+        assert_eq!(back_p, payload.as_slice());
     }
 
     #[test]

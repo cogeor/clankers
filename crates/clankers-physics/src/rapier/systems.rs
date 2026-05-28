@@ -208,12 +208,30 @@ pub fn validate_motor_coverage(
 /// Clamps the change in motor target position between consecutive control
 /// steps: `target = clamp(target, prev - delta_max, prev + delta_max)`.
 /// Applied at the actuator output, NOT inside the MPC QP.
+///
+/// # Storage
+///
+/// - `prev_targets`: `HashMap<Entity, f32>` — used by the legacy
+///   `rapier_step_system_hashmap` path (no `JointRuntimes` resource).
+/// - `slot_prev`: layout-slot-indexed `Vec<f32>` — used by the dense
+///   `rapier_step_system_dense` hot path. Sized lazily on first use to
+///   match `runtimes.joints.len()`. **P2.4** / CODE_QUALITY_REVIEW
+///   § Phase 2.4: replaces the per-entity HashMap probe inside the
+///   per-joint loop with an O(1) array read.
 #[derive(Resource)]
 pub struct MotorRateLimits {
     /// Maximum position change per control step (radians for revolute).
     pub delta_max: f32,
-    /// Previous target positions, keyed by entity.
+    /// Previous target positions, keyed by entity. Used by the
+    /// HashMap-based fallback path only.
     pub prev_targets: HashMap<Entity, f32>,
+    /// Previous target positions, indexed by layout slot. Used by the
+    /// dense (`JointRuntimes`-driven) hot path. Sized lazily.
+    pub slot_prev: Vec<f32>,
+    /// Per-slot occupancy flag tracking whether `slot_prev[slot]` has
+    /// been seeded yet. Avoids treating a freshly-zero entry as a real
+    /// prior target (which would clamp the first step to 0).
+    pub slot_seen: Vec<bool>,
 }
 
 impl MotorRateLimits {
@@ -222,6 +240,18 @@ impl MotorRateLimits {
         Self {
             delta_max,
             prev_targets: HashMap::new(),
+            slot_prev: Vec::new(),
+            slot_seen: Vec::new(),
+        }
+    }
+
+    /// Ensure the slot-indexed previous-target buffer matches `n` joints.
+    /// Newly added slots are flagged as not-yet-seen so the next step
+    /// uses the live target as the prior.
+    pub fn ensure_slot_capacity(&mut self, n: usize) {
+        if self.slot_prev.len() != n {
+            self.slot_prev.resize(n, 0.0);
+            self.slot_seen.resize(n, false);
         }
     }
 }
@@ -231,10 +261,29 @@ impl MotorRateLimits {
 /// When this resource is present, motor target positions are linearly
 /// interpolated across physics substeps instead of being set once (ZOH).
 /// This provides effective 1000Hz PD control while the MPC runs at 50Hz.
+///
+/// # Storage
+///
+/// As with [`MotorRateLimits`], the dense path reads `slot_prev` /
+/// `slot_seen` directly; the HashMap remains for the fallback.
 #[derive(Resource, Default)]
 pub struct InnerPdState {
-    /// Previous control step's target positions per entity.
+    /// Previous control step's target positions per entity (HashMap fallback).
     prev_targets: HashMap<Entity, f32>,
+    /// Layout-slot-indexed previous-target cache for the dense path.
+    pub slot_prev: Vec<f32>,
+    /// Per-slot occupancy flag (see [`MotorRateLimits::slot_seen`]).
+    pub slot_seen: Vec<bool>,
+}
+
+impl InnerPdState {
+    /// Ensure the slot-indexed previous-target buffer matches `n` joints.
+    pub fn ensure_slot_capacity(&mut self, n: usize) {
+        if self.slot_prev.len() != n {
+            self.slot_prev.resize(n, 0.0);
+            self.slot_seen.resize(n, false);
+        }
+    }
 }
 
 /// Apply joint torques, step physics, read back joint state.
@@ -330,8 +379,19 @@ fn rapier_step_system_dense(
     }
     let mut override_entries: Vec<OverrideEntry> = Vec::new();
 
+    // P2.4: lazily size slot caches to match the runtime's joint count
+    // so the per-joint loop reads `slot_prev[slot]` instead of probing
+    // `prev_targets.get(&entity)`.
+    let n_joints = runtimes.joints.len();
+    if let Some(ref mut limits) = rate_limits {
+        limits.ensure_slot_capacity(n_joints);
+    }
+    if let Some(ref mut pd) = inner_pd {
+        pd.ensure_slot_capacity(n_joints);
+    }
+
     // 1. Apply torques via slot-indexed JointRuntime traversal.
-    for jr in &runtimes.joints {
+    for (slot, jr) in runtimes.joints.iter().enumerate() {
         // Per-joint Bevy-side data: torque only (JointState is read in
         // the readback pass below). Skip silently if the query slot
         // is absent — this can happen during teardown.
@@ -359,17 +419,18 @@ fn rapier_step_system_dense(
         let motor = motor_live.or(motor_snapshot);
 
         if let Some(mo) = motor {
-            // Apply rate limiting if configured
+            // Apply rate limiting if configured (P2.4: slot-indexed Vec read).
             let target_pos = if let Some(ref mut limits) = rate_limits {
-                let prev = limits
-                    .prev_targets
-                    .get(&jr.entity)
-                    .copied()
-                    .unwrap_or(mo.target_pos);
+                let prev = if limits.slot_seen[slot] {
+                    limits.slot_prev[slot]
+                } else {
+                    mo.target_pos
+                };
                 let clamped = mo
                     .target_pos
                     .clamp(prev - limits.delta_max, prev + limits.delta_max);
-                limits.prev_targets.insert(jr.entity, clamped);
+                limits.slot_prev[slot] = clamped;
+                limits.slot_seen[slot] = true;
                 clamped
             } else {
                 mo.target_pos
@@ -377,12 +438,13 @@ fn rapier_step_system_dense(
 
             if use_inner_pd {
                 let pd = inner_pd.as_mut().unwrap();
-                let prev_pos = pd
-                    .prev_targets
-                    .get(&jr.entity)
-                    .copied()
-                    .unwrap_or(target_pos);
-                pd.prev_targets.insert(jr.entity, target_pos);
+                let prev_pos = if pd.slot_seen[slot] {
+                    pd.slot_prev[slot]
+                } else {
+                    target_pos
+                };
+                pd.slot_prev[slot] = target_pos;
+                pd.slot_seen[slot] = true;
                 override_entries.push(OverrideEntry {
                     joint_handle: jr.handle,
                     axis,

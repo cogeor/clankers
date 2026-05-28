@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "task": "clankers/cartpole_v1",
+  "description": "Cartpole upright-balance baseline; PPO-128k trained policy.",
+  "metrics": {
+    "mean_reward": {
+      "target": 480.0,
+      "tolerance_abs": 50.0,
+      "tolerance_pct": null,
+      "direction": "higher_is_better"
+    },
+    "mean_episode_length": {
+      "target": 480.0,
+      "tolerance_abs": 50.0,
+      "tolerance_pct": null,
+      "direction": "higher_is_better"
+    }
+  },
+  "recapture": {
+    "trigger": "workflow_dispatch:baseline",
+    "frequency": "manual",
+    "last_recaptured_at": null
+  }
+}

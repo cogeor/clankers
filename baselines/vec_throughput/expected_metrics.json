@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "task": "clankers/vec_throughput",
+  "description": "Vec env throughput baseline. Steps/sec ratio gate; absolute numbers vary by host.",
+  "metrics": {
+    "vec_ratio": {
+      "target": 2.0,
+      "tolerance_abs": null,
+      "tolerance_pct": 50.0,
+      "direction": "higher_is_better"
+    }
+  },
+  "recapture": {
+    "trigger": "workflow_dispatch:baseline",
+    "frequency": "manual",
+    "last_recaptured_at": null
+  }
+}

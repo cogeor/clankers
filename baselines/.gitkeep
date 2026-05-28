@@ -1,0 +1,11 @@
+# Baselines registry (G4).
+#
+# Each subdirectory is one baseline configuration:
+#   baselines/<task_id>/
+#     config.toml          - the SceneBuilder / training inputs
+#     expected_metrics.json - target metrics + tolerance
+#     manifest.json        - RunManifest captured when the baseline was last recaptured
+#
+# CI compares fresh runs against these; the `clankers compare` CLI surface
+# (G3) renders deltas. Baselines are recaptured manually via the
+# workflow_dispatch baseline job; see `.github/workflows/ci.yml`.

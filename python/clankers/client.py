@@ -25,7 +25,18 @@ import numpy as np
 
 from clankers._errors import ProtocolError  # re-export for back-compat
 
-PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.2.0"
+"""Wire protocol version advertised by this client.
+
+Bumped from "1.0.0" to "1.2.0" under CODE_QUALITY_REVIEW Finding
+"Python Client Protocol Version Is Behind" (P1.6) to align with the
+Rust server. The Python client opts into ``binary_obs`` already; full
+``binary_batch`` decoding remains future work (Phase 4 — generic
+tensor-frame path), but advertising 1.2.0 here lets the server's
+version-negotiation surface accurate negotiated-capability state to
+training-time code that inspects ``negotiated_capabilities``.
+"""
+
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024  # 16 MiB
 
 __all__ = ["GymClient", "ProtocolError", "PROTOCOL_VERSION", "MAX_MESSAGE_SIZE"]

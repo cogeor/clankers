@@ -13,6 +13,7 @@ pub mod plugin;
 pub mod rapier;
 pub mod readback;
 pub mod scene_objects;
+pub mod step;
 pub mod systems;
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,7 @@ pub mod prelude {
         neutral::{BodyHandle, BodyPose, ContactEvent, JointHandle},
         plugin::ClankersPhysicsPlugin,
         readback::{PhysicsReadback, StepReadback, collect_step_readback},
+        step::{StepError, step_with_buffers},
     };
 }
 

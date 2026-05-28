@@ -6,6 +6,7 @@ pub mod env_spec;
 pub mod error;
 pub mod layout;
 pub mod manifest;
+pub mod panic_audit;
 pub mod physics;
 pub mod schema;
 pub mod seed;

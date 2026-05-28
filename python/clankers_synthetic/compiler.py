@@ -97,6 +97,16 @@ class SkillCompiler:
         """
         return self._adapter.to_env_action(joint_targets)
 
+    def _to_env_action(self, joint_targets: np.ndarray) -> np.ndarray:
+        """Adapter-dispatched env action for a joint-target vector.
+
+        Every skill execution path MUST go through this helper so
+        :attr:`TraceStep.action_semantics` is honoured at emission. The
+        adapter may transform shape, range, or units; the raw target
+        vector is preserved only for interpolation state.
+        """
+        return self._adapter.to_env_action(np.asarray(joint_targets, dtype=np.float32))
+
     def execute(self, plan: CanonicalPlan, env: StepEnv) -> ExecutionTrace:
         """Execute a plan through the environment.
 
@@ -246,7 +256,7 @@ class SkillCompiler:
             else:
                 target_joints = current_joints
 
-            action = np.asarray(target_joints, dtype=np.float32)
+            action = self._to_env_action(target_joints)
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
                 np.array(next_obs, dtype=np.float32)
@@ -384,7 +394,7 @@ class SkillCompiler:
         for _ in range(max(1, wait_steps)):
             if terminated or truncated:
                 break
-            action = np.asarray(current_joints, dtype=np.float32)
+            action = self._to_env_action(current_joints)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
@@ -427,7 +437,7 @@ class SkillCompiler:
         for _ in range(n_steps):
             if terminated or truncated:
                 break
-            action = np.asarray(current_joints, dtype=np.float32)
+            action = self._to_env_action(current_joints)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (
@@ -482,7 +492,7 @@ class SkillCompiler:
                 break
             frac = (step_i + 1) / n_steps
             waypoint = current_joints + delta * frac
-            action = np.asarray(waypoint, dtype=np.float32)
+            action = self._to_env_action(waypoint)
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             next_obs_arr = (

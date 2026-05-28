@@ -9,6 +9,30 @@ use clankers_core::types::{
 };
 use clankers_env::vec_env::VecEnvConfig;
 use clankers_env::vec_runner::{VecEnvInstance, VecEnvRunner, VecRunnerLike, runner_for};
+use thiserror::Error;
+
+// ---------------------------------------------------------------------------
+// VecEnvBuildError
+// ---------------------------------------------------------------------------
+
+/// Reasons [`GymVecEnv::new_auto`] can refuse to construct a runner.
+///
+/// CODE_QUALITY_REVIEW Detailed Finding "Parallel Selection Is Easy To
+/// Misunderstand" / P1.7. Surfaces parallel-misconfiguration as an
+/// explicit error in both debug and release builds, rather than the
+/// pre-P1.7 behaviour where [`GymVecEnv::new`] silently picked the
+/// sequential runner when `config.is_parallel()` was true.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum VecEnvBuildError {
+    /// `envs.len() != config.num_envs()`.
+    #[error("vec env build: expected {expected} envs, got {found}")]
+    EnvCountMismatch {
+        /// `config.num_envs()`.
+        expected: usize,
+        /// `envs.len()`.
+        found: usize,
+    },
+}
 
 // Re-export so downstream callers can name the parallel runner without
 // reaching into `clankers-env` directly.
@@ -128,6 +152,103 @@ impl GymVecEnv {
             obs_space,
             act_space,
         }
+    }
+
+    /// Construct a vec env that **explicitly** uses the sequential
+    /// runner regardless of `config.is_parallel()`.
+    ///
+    /// CODE_QUALITY_REVIEW P1.7 / "Parallel Selection Is Easy To
+    /// Misunderstand". New code should prefer this when sequential
+    /// execution is intended — the name makes the choice explicit and
+    /// the constructor accepts `!Send` env instances (e.g. ones
+    /// wrapping a Bevy `App`).
+    ///
+    /// Behaviourally equivalent to [`Self::new`], but does NOT
+    /// debug-assert on `config.is_parallel()` — if the caller named
+    /// `new_sequential`, they meant sequential.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `envs.len() != config.num_envs()`.
+    #[must_use]
+    pub fn new_sequential(
+        envs: Vec<Box<dyn VecEnvInstance>>,
+        config: VecEnvConfig,
+        obs_space: ObservationSpace,
+        act_space: ActionSpace,
+    ) -> Self {
+        let runner: Box<dyn VecRunnerLike> = Box::new(VecEnvRunner::new(envs, config));
+        Self {
+            runner,
+            obs_space,
+            act_space,
+        }
+    }
+
+    /// Construct a vec env that **explicitly** uses the parallel
+    /// runner.
+    ///
+    /// CODE_QUALITY_REVIEW P1.7. Equivalent to
+    /// [`Self::new_with_send_envs`] but with `config.is_parallel()`
+    /// forced to `true` before runner selection — the caller named
+    /// `new_parallel`, so parallel it is.
+    ///
+    /// Requires `Box<dyn VecEnvInstance + Send>` env instances; the
+    /// `Send` bound is the type-system reason `GymEnv` (which wraps a
+    /// `!Send` Bevy `App`) cannot use this path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `envs.len() != config.num_envs()`.
+    #[must_use]
+    pub fn new_parallel(
+        envs: Vec<Box<dyn VecEnvInstance + Send>>,
+        config: VecEnvConfig,
+        obs_space: ObservationSpace,
+        act_space: ActionSpace,
+    ) -> Self {
+        let config = config.with_parallel(true);
+        let runner = runner_for(envs, config);
+        Self {
+            runner,
+            obs_space,
+            act_space,
+        }
+    }
+
+    /// Pick the runner from `config.is_parallel()` and return a typed
+    /// [`VecEnvBuildError`] on validation failure (rather than
+    /// panicking).
+    ///
+    /// CODE_QUALITY_REVIEW P1.7. The pre-P1.7 [`Self::new`] would
+    /// debug-assert on parallel-requested-but-sequential-picked, which
+    /// release builds optimised out. `new_auto` surfaces invalid
+    /// configurations (currently: env count mismatch) as
+    /// [`VecEnvBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VecEnvBuildError::EnvCountMismatch`] when
+    /// `envs.len() != config.num_envs()`.
+    pub fn new_auto(
+        envs: Vec<Box<dyn VecEnvInstance + Send>>,
+        config: VecEnvConfig,
+        obs_space: ObservationSpace,
+        act_space: ActionSpace,
+    ) -> Result<Self, VecEnvBuildError> {
+        let expected = config.num_envs() as usize;
+        if envs.len() != expected {
+            return Err(VecEnvBuildError::EnvCountMismatch {
+                expected,
+                found: envs.len(),
+            });
+        }
+        let runner = runner_for(envs, config);
+        Ok(Self {
+            runner,
+            obs_space,
+            act_space,
+        })
     }
 
     /// Number of environments.
@@ -435,6 +556,110 @@ mod tests {
     fn num_envs_matches() {
         let env = make_vec_env(5, 2);
         assert_eq!(env.num_envs(), 5);
+    }
+
+    // ------------------------------------------------------------------
+    // P1.7 — explicit constructors
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn new_sequential_does_not_panic_on_parallel_config() {
+        // Pre-P1.7 `new(...)` debug-asserted when config.is_parallel()
+        // was true (silently picked sequential in release). The new
+        // explicit `new_sequential` documents the intent and accepts
+        // any config without debug-asserting.
+        let envs: Vec<Box<dyn VecEnvInstance>> = (0..2)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance>)
+            .collect();
+        let env = GymVecEnv::new_sequential(
+            envs,
+            VecEnvConfig::new(2).with_parallel(true),
+            ObservationSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+            ActionSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+        );
+        assert_eq!(env.num_envs(), 2);
+    }
+
+    #[test]
+    fn new_parallel_forces_parallel_runner() {
+        // P1.7: new_parallel forces config.is_parallel() = true
+        // regardless of the caller's value, so a user saying
+        // `new_parallel(config)` gets the parallel runner.
+        let envs: Vec<Box<dyn VecEnvInstance + Send>> = (0..2)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance + Send>)
+            .collect();
+        let env = GymVecEnv::new_parallel(
+            envs,
+            VecEnvConfig::new(2), // parallel=false; new_parallel overrides
+            ObservationSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+            ActionSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+        );
+        assert_eq!(env.num_envs(), 2);
+    }
+
+    #[test]
+    fn new_auto_rejects_env_count_mismatch() {
+        // P1.7: env count mismatch returns typed error, not panic.
+        let envs: Vec<Box<dyn VecEnvInstance + Send>> = (0..3)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance + Send>)
+            .collect();
+        let result = GymVecEnv::new_auto(
+            envs,
+            VecEnvConfig::new(2), // expected 2, got 3
+            ObservationSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+            ActionSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+        );
+        match result {
+            Ok(_) => panic!("env count mismatch must surface as VecEnvBuildError"),
+            Err(err) => assert_eq!(
+                err,
+                VecEnvBuildError::EnvCountMismatch {
+                    expected: 2,
+                    found: 3,
+                }
+            ),
+        }
+    }
+
+    #[test]
+    fn new_auto_succeeds_when_counts_match() {
+        let envs: Vec<Box<dyn VecEnvInstance + Send>> = (0..3)
+            .map(|_| Box::new(ConstEnv::new(2)) as Box<dyn VecEnvInstance + Send>)
+            .collect();
+        let result = GymVecEnv::new_auto(
+            envs,
+            VecEnvConfig::new(3),
+            ObservationSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+            ActionSpace::Box {
+                low: vec![-1.0; 2],
+                high: vec![1.0; 2],
+            },
+        );
+        match result {
+            Ok(env) => assert_eq!(env.num_envs(), 3),
+            Err(e) => panic!("counts match -> expected Ok, got {e:?}"),
+        }
     }
 
     // ------------------------------------------------------------------

@@ -21,10 +21,13 @@ use crate::protocol::{MAX_MESSAGE_SIZE, ProtocolError};
 
 /// Read a length-prefixed JSON message from a stream.
 ///
-/// Returns `Ok(None)` if the stream reaches EOF before any bytes are read
-/// (clean disconnect). Returns an error if the length prefix or payload
-/// cannot be read, the payload exceeds [`MAX_MESSAGE_SIZE`], or the JSON
-/// is invalid.
+/// Returns `Ok(None)` if the stream reaches EOF before any bytes are
+/// read (clean disconnect). Returns an error if the length prefix or
+/// payload cannot be read, a configured read timeout fires (Linux
+/// reports this as `WouldBlock`, Windows as `TimedOut` — both
+/// propagate as [`ProtocolError::Io`] so callers can distinguish
+/// timeout from clean close), the payload exceeds [`MAX_MESSAGE_SIZE`],
+/// or the JSON is invalid.
 pub fn read_message<T: DeserializeOwned>(
     reader: &mut impl Read,
 ) -> Result<Option<T>, ProtocolError> {
@@ -32,7 +35,6 @@ pub fn read_message<T: DeserializeOwned>(
     match reader.read_exact(&mut len_buf) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(None),
         Err(e) => return Err(ProtocolError::Io(e)),
     }
 

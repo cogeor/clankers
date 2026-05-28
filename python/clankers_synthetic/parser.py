@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 
 from clankers_synthetic.specs import (
@@ -35,6 +38,38 @@ REQUIRED_PARAMS: dict[str, set[str]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# SkillValidator registry
+# ---------------------------------------------------------------------------
+#
+# CODE_QUALITY_REVIEW Python Synthetic Pipeline finding / P1.13. The
+# pre-P1.13 `PlanParser.parse` held a single long if/elif chain
+# branching on `skill.name` for skill-specific validation. Adding a new
+# skill required editing the branch *and* the test matrix in the same
+# place.
+#
+# Each validator returns ``SkillValidatorResult``:
+#
+# - errors: per-skill error strings (added to PlanRejection.reasons).
+# - error_codes: per-skill error codes (added to PlanRejection.error_codes).
+# - resolved_params: the canonicalised ``params`` dict for ResolvedSkill;
+#   ``None`` indicates the skill itself failed validation (skip).
+# - target_world_position / target_orientation: only ``move_to`` populates
+#   these today; future skills can extend without changing the registry
+#   shape.
+
+
+@dataclass
+class SkillValidatorResult:
+    """Outcome of running a SkillValidator on one raw skill dict."""
+
+    errors: list[str]
+    error_codes: list[str]
+    resolved_params: dict[str, Any] | None = None
+    target_world_position: list[float] | None = None
+    target_orientation: list[float] | None = None
+
+
 class PlanParser:
     """Validate and canonicalize LLM-proposed skill plans.
 
@@ -53,6 +88,20 @@ class PlanParser:
 
     def __init__(self, max_gripper_width: float = 0.08) -> None:
         self.max_gripper_width = max_gripper_width
+        # Per-skill validator registry; populated at construction so
+        # adding a new skill is a single registry entry plus a
+        # _validate_<skill> method, rather than a new branch in parse().
+        self._validators: dict[
+            str,
+            Any,  # bound method (params, scene, object_names, idx) -> SkillValidatorResult
+        ] = {
+            "move_to": self._validate_move_to,
+            "move_linear": self._validate_move_linear,
+            "move_relative": self._validate_move_relative,
+            "set_gripper": self._validate_set_gripper,
+            "wait": self._validate_wait,
+            "move_joints": self._validate_move_joints,
+        }
 
     def parse(self, raw: dict, scene: SceneSpec) -> CanonicalPlan | PlanRejection:
         """Parse and validate a raw LLM plan dict against the scene.
@@ -107,96 +156,21 @@ class PlanParser:
                 error_codes.append("MISSING_PARAMS")
                 continue
 
-            # Resolve skill-specific validation
+            # Per-skill validation via the registry (P1.13).
             target_pos = None
             target_orient = None
             guard = None
-            resolved_params: dict = {}
-
-            if name == "move_to":
-                target_pos, orient, errs = self._resolve_move_to(params, scene, object_names, i)
-                errors.extend(errs)
-                if errs:
-                    error_codes.extend(["INVALID_TARGET"] * len(errs))
-                    continue
-                target_orient = orient
-                resolved_params = {
-                    k: v for k, v in params.items() if k not in ("target", "orientation")
-                }
-
-            elif name == "move_linear":
-                direction = params.get("direction")
-                distance = params.get("distance")
-                if not isinstance(direction, list) or len(direction) != 3:
-                    errors.append(f"Skill {i}: direction must be [x,y,z]")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                if not isinstance(distance, (int, float)) or distance <= 0:
-                    errors.append(f"Skill {i}: distance must be positive number")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                # Normalize direction vector
-                d = np.array(direction, dtype=float)
-                norm = np.linalg.norm(d)
-                if norm < 1e-8:
-                    errors.append(f"Skill {i}: direction vector is zero")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                resolved_params = {
-                    "direction": (d / norm).tolist(),
-                    "distance": float(distance),
-                }
-                # Copy optional params
-                for k in ("speed_fraction", "tolerance"):
-                    if k in params:
-                        resolved_params[k] = params[k]
-
-            elif name == "move_relative":
-                delta = params.get("delta")
-                frame = params.get("frame")
-                if not isinstance(delta, list) or len(delta) != 3:
-                    errors.append(f"Skill {i}: delta must be [dx,dy,dz]")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                if frame not in ("world", "ee") and frame not in object_names:
-                    errors.append(f"Skill {i}: unknown frame '{frame}'")
-                    error_codes.append("UNKNOWN_FRAME")
-                    continue
-                resolved_params = {"frame": frame, "delta": delta}
-
-            elif name == "set_gripper":
-                width = params.get("width")
-                if not isinstance(width, (int, float)):
-                    errors.append(f"Skill {i}: width must be a number")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                if width < 0 or width > self.max_gripper_width:
-                    errors.append(
-                        f"Skill {i}: gripper width {width} out of "
-                        f"range [0, {self.max_gripper_width}]"
-                    )
-                    error_codes.append("OUT_OF_RANGE")
-                    continue
-                resolved_params = {"width": float(width)}
-                for k in ("force", "wait_settle_steps"):
-                    if k in params:
-                        resolved_params[k] = params[k]
-
-            elif name == "wait":
-                steps = params.get("steps")
-                if not isinstance(steps, int) or steps <= 0:
-                    errors.append(f"Skill {i}: steps must be positive integer")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                resolved_params = {"steps": steps}
-
-            elif name == "move_joints":
-                targets = params.get("targets")
-                if not isinstance(targets, dict):
-                    errors.append(f"Skill {i}: targets must be dict")
-                    error_codes.append("INVALID_PARAMS")
-                    continue
-                resolved_params = {"targets": targets}
+            result = self._validators[name](params, scene, object_names, i)
+            if result.errors:
+                errors.extend(result.errors)
+                error_codes.extend(result.error_codes)
+                continue
+            assert result.resolved_params is not None, (
+                f"validator for {name!r} returned no errors and no resolved_params"
+            )
+            target_pos = result.target_world_position
+            target_orient = result.target_orientation
+            resolved_params: dict = result.resolved_params
 
             # Validate speed_fraction if present
             sf = resolved_params.get("speed_fraction", params.get("speed_fraction"))
@@ -249,6 +223,154 @@ class PlanParser:
                 "rationale": raw.get("rationale", ""),
             },
         )
+
+    # ------------------------------------------------------------------
+    # SkillValidator methods (P1.13)
+    # ------------------------------------------------------------------
+
+    def _validate_move_to(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        target_pos, orient, errs = self._resolve_move_to(params, scene, object_names, skill_idx)
+        if errs:
+            return SkillValidatorResult(
+                errors=errs,
+                error_codes=["INVALID_TARGET"] * len(errs),
+            )
+        resolved = {k: v for k, v in params.items() if k not in ("target", "orientation")}
+        return SkillValidatorResult(
+            errors=[],
+            error_codes=[],
+            resolved_params=resolved,
+            target_world_position=target_pos,
+            target_orientation=orient,
+        )
+
+    def _validate_move_linear(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        del scene, object_names
+        direction = params.get("direction")
+        distance = params.get("distance")
+        if not isinstance(direction, list) or len(direction) != 3:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: direction must be [x,y,z]"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        if not isinstance(distance, (int, float)) or distance <= 0:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: distance must be positive number"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        d = np.array(direction, dtype=float)
+        norm = np.linalg.norm(d)
+        if norm < 1e-8:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: direction vector is zero"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        resolved: dict[str, Any] = {
+            "direction": (d / norm).tolist(),
+            "distance": float(distance),
+        }
+        for k in ("speed_fraction", "tolerance"):
+            if k in params:
+                resolved[k] = params[k]
+        return SkillValidatorResult(errors=[], error_codes=[], resolved_params=resolved)
+
+    def _validate_move_relative(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        del scene
+        delta = params.get("delta")
+        frame = params.get("frame")
+        if not isinstance(delta, list) or len(delta) != 3:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: delta must be [dx,dy,dz]"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        if frame not in ("world", "ee") and frame not in object_names:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: unknown frame '{frame}'"],
+                error_codes=["UNKNOWN_FRAME"],
+            )
+        return SkillValidatorResult(
+            errors=[],
+            error_codes=[],
+            resolved_params={"frame": frame, "delta": delta},
+        )
+
+    def _validate_set_gripper(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        del scene, object_names
+        width = params.get("width")
+        if not isinstance(width, (int, float)):
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: width must be a number"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        if width < 0 or width > self.max_gripper_width:
+            return SkillValidatorResult(
+                errors=[
+                    f"Skill {skill_idx}: gripper width {width} out of "
+                    f"range [0, {self.max_gripper_width}]"
+                ],
+                error_codes=["OUT_OF_RANGE"],
+            )
+        resolved: dict[str, Any] = {"width": float(width)}
+        for k in ("force", "wait_settle_steps"):
+            if k in params:
+                resolved[k] = params[k]
+        return SkillValidatorResult(errors=[], error_codes=[], resolved_params=resolved)
+
+    def _validate_wait(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        del scene, object_names
+        steps = params.get("steps")
+        if not isinstance(steps, int) or steps <= 0:
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: steps must be positive integer"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        return SkillValidatorResult(errors=[], error_codes=[], resolved_params={"steps": steps})
+
+    def _validate_move_joints(
+        self,
+        params: dict,
+        scene: SceneSpec,
+        object_names: set[str],
+        skill_idx: int,
+    ) -> SkillValidatorResult:
+        del scene, object_names
+        targets = params.get("targets")
+        if not isinstance(targets, dict):
+            return SkillValidatorResult(
+                errors=[f"Skill {skill_idx}: targets must be dict"],
+                error_codes=["INVALID_PARAMS"],
+            )
+        return SkillValidatorResult(errors=[], error_codes=[], resolved_params={"targets": targets})
 
     def _resolve_move_to(
         self,

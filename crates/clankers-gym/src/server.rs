@@ -16,7 +16,8 @@ use crate::encoding::{self, EncodedObservation};
 use crate::env::GymEnv;
 use crate::framing::{read_message, write_binary_frame, write_message};
 use crate::protocol::{
-    EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response, negotiate_version,
+    Capabilities, EnvInfo, PROTOCOL_VERSION, ProtocolError, ProtocolState, Request, Response,
+    negotiate_version,
 };
 use crate::state_machine::ProtocolStateMachine;
 use crate::vec_env::GymVecEnv;
@@ -47,22 +48,24 @@ pub struct ServerConfig {
     pub env_name: String,
     /// Environment version reported during handshake.
     pub env_version: String,
-    /// Server-side capabilities.
-    pub capabilities: HashMap<String, bool>,
+    /// Server-side capabilities. Typed at this layer (P1.3); the wire
+    /// format remains a JSON object so clients aren't affected.
+    pub capabilities: Capabilities,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        let mut capabilities = HashMap::new();
-        capabilities.insert("binary_obs".into(), true);
-        // W7 PR2: advertise the new batched-binary capability. Clients
-        // opt in via Init.capabilities; legacy clients that don't send
-        // the key keep getting JSON-encoded batch responses.
-        capabilities.insert("binary_batch".into(), true);
         Self {
             env_name: "clankers".into(),
             env_version: "0.1.0".into(),
-            capabilities,
+            // Server advertises binary_obs and binary_batch by default.
+            // VecGymServer::bind_with_config additionally flips batch_step.
+            capabilities: Capabilities {
+                binary_obs: true,
+                binary_batch: true,
+                batch_step: false,
+                unknown: HashMap::new(),
+            },
         }
     }
 }
@@ -159,7 +162,7 @@ impl VecGymServer {
     ///
     /// Returns an IO error if the address cannot be bound.
     pub fn bind_with_config(addr: &str, mut config: ServerConfig) -> std::io::Result<Self> {
-        config.capabilities.insert("batch_step".into(), true);
+        config.capabilities.batch_step = true;
         let listener = TcpListener::bind(addr)?;
         Ok(Self { listener, config })
     }
@@ -245,17 +248,11 @@ fn dispatch(
             };
 
             // Negotiate capabilities (logical AND)
-            let negotiated: HashMap<String, bool> = capabilities
-                .iter()
-                .map(|(k, v)| {
-                    let server_has = config.capabilities.get(k).copied().unwrap_or(false);
-                    (k.clone(), *v && server_has)
-                })
-                .collect();
+            let negotiated = capabilities.negotiate_with(&config.capabilities);
 
             // Update session state from negotiated capabilities
-            session.binary_obs = negotiated.get("binary_obs").copied().unwrap_or(false);
-            session.binary_batch = negotiated.get("binary_batch").copied().unwrap_or(false);
+            session.binary_obs = negotiated.binary_obs;
+            session.binary_batch = negotiated.binary_batch;
 
             (
                 Response::InitResponse {
@@ -396,17 +393,11 @@ fn dispatch_vec(
                 Err(e) => return (e.into_response(), None),
             };
 
-            let negotiated: HashMap<String, bool> = capabilities
-                .iter()
-                .map(|(k, v)| {
-                    let server_has = config.capabilities.get(k).copied().unwrap_or(false);
-                    (k.clone(), *v && server_has)
-                })
-                .collect();
+            let negotiated = capabilities.negotiate_with(&config.capabilities);
 
             // Update session from negotiated capabilities (mirrors single-env path).
-            session.binary_obs = negotiated.get("binary_obs").copied().unwrap_or(false);
-            session.binary_batch = negotiated.get("binary_batch").copied().unwrap_or(false);
+            session.binary_obs = negotiated.binary_obs;
+            session.binary_batch = negotiated.binary_batch;
 
             (
                 Response::InitResponse {
@@ -598,7 +589,7 @@ mod tests {
             protocol_version: "1.0.0".into(),
             client_name: "test".into(),
             client_version: "0.1.0".into(),
-            capabilities: HashMap::new(),
+            capabilities: Capabilities::default(),
             seed: None,
         }
     }
@@ -744,8 +735,12 @@ mod tests {
     #[test]
     fn server_capability_negotiation() {
         let mut server_caps = HashMap::new();
-        server_caps.insert("batch_step".into(), true);
         server_caps.insert("shared_memory".into(), false);
+        let server_caps = Capabilities {
+            batch_step: true,
+            unknown: server_caps,
+            ..Default::default()
+        };
 
         let config = ServerConfig {
             env_name: "test_env".into(),
@@ -763,9 +758,13 @@ mod tests {
 
         let mut stream = TcpStream::connect(addr).unwrap();
 
-        let mut client_caps = HashMap::new();
-        client_caps.insert("batch_step".into(), true);
-        client_caps.insert("shared_memory".into(), true);
+        let mut client_unknown = HashMap::new();
+        client_unknown.insert("shared_memory".into(), true);
+        let client_caps = Capabilities {
+            batch_step: true,
+            unknown: client_unknown,
+            ..Default::default()
+        };
 
         let resp = send_recv(
             &mut stream,
@@ -786,9 +785,10 @@ mod tests {
         {
             assert_eq!(env_name, "test_env");
             // batch_step: both true → true
-            assert_eq!(capabilities.get("batch_step"), Some(&true));
-            // shared_memory: server false → false
-            assert_eq!(capabilities.get("shared_memory"), Some(&false));
+            assert!(capabilities.batch_step);
+            // shared_memory: server false AND client true → false (unknown
+            // keys negotiate by logical AND when present on both sides).
+            assert_eq!(capabilities.unknown.get("shared_memory"), Some(&false));
         } else {
             panic!("expected InitResponse");
         }
@@ -862,13 +862,14 @@ mod tests {
     }
 
     fn init_with_batch() -> Request {
-        let mut caps = HashMap::new();
-        caps.insert("batch_step".into(), true);
         Request::Init {
             protocol_version: "1.0.0".into(),
             client_name: "test".into(),
             client_version: "0.1.0".into(),
-            capabilities: caps,
+            capabilities: Capabilities {
+                batch_step: true,
+                ..Default::default()
+            },
             seed: None,
         }
     }
@@ -894,7 +895,7 @@ mod tests {
         } = &resp
         {
             assert_eq!(env_info.n_agents, 3);
-            assert_eq!(capabilities.get("batch_step"), Some(&true));
+            assert!(capabilities.batch_step);
         } else {
             panic!("expected InitResponse");
         }
@@ -1140,7 +1141,7 @@ mod tests {
         // Client requests batch_step capability
         let resp = send_recv(&mut stream, &init_with_batch());
         if let Response::InitResponse { capabilities, .. } = &resp {
-            assert_eq!(capabilities.get("batch_step"), Some(&true));
+            assert!(capabilities.batch_step);
         } else {
             panic!("expected InitResponse");
         }

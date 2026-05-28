@@ -184,14 +184,13 @@ const fn request_type_name(request: &Request) -> &'static str {
 mod tests {
     use super::*;
     use clankers_core::types::Action;
-    use std::collections::HashMap;
 
     fn init_request() -> Request {
         Request::Init {
             protocol_version: "1.0.0".into(),
             client_name: "test".into(),
             client_version: "0.1.0".into(),
-            capabilities: HashMap::new(),
+            capabilities: crate::protocol::Capabilities::default(),
             seed: None,
         }
     }
@@ -243,7 +242,7 @@ mod tests {
                 },
                 action_space: clankers_core::types::ActionSpace::Discrete { n: 2 },
             },
-            capabilities: HashMap::new(),
+            capabilities: crate::protocol::Capabilities::default(),
             seed_accepted: false,
         });
         assert_eq!(sm.state(), ProtocolState::Ready);
@@ -529,7 +528,7 @@ mod tests {
                 },
                 action_space: clankers_core::types::ActionSpace::Discrete { n: 2 },
             },
-            capabilities: HashMap::new(),
+            capabilities: crate::protocol::Capabilities::default(),
             seed_accepted: false,
         }
     }

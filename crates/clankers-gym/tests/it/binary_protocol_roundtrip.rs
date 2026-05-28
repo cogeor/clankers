@@ -19,7 +19,6 @@
 //!   client opting into `binary_batch` receives the JSON envelope plus
 //!   the binary frame.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -36,7 +35,7 @@ use clankers_gym::binary_frame::{
 };
 use clankers_gym::encoding::{EncodedObservation, ImageLayout};
 use clankers_gym::framing;
-use clankers_gym::protocol::{Request, Response};
+use clankers_gym::protocol::{Capabilities, Request, Response};
 use clankers_gym::{GymVecEnv, VecGymServer};
 
 // ---------------------------------------------------------------------------
@@ -214,7 +213,7 @@ fn legacy_client_v110_negotiates_without_binary_batch() {
         protocol_version: "1.1.0".into(),
         client_name: "legacy_test".into(),
         client_version: "0.1.0".into(),
-        capabilities: HashMap::new(),
+        capabilities: Capabilities::default(),
         seed: None,
     };
     framing::write_message(&mut stream, &init).unwrap();
@@ -232,7 +231,7 @@ fn legacy_client_v110_negotiates_without_binary_batch() {
             // capabilities.get("binary_batch") == None for legacy
             // clients (the empty map produces no entries).
             assert!(
-                !capabilities.get("binary_batch").copied().unwrap_or(false),
+                !capabilities.binary_batch,
                 "binary_batch must NOT be active for legacy client"
             );
         }
@@ -305,13 +304,14 @@ fn client_v120_with_binary_batch_receives_binary_frame() {
     let mut stream = TcpStream::connect(addr).unwrap();
 
     // 1.2.0 client opting into binary_batch.
-    let mut caps = HashMap::new();
-    caps.insert("binary_batch".into(), true);
     let init = Request::Init {
         protocol_version: "1.2.0".into(),
         client_name: "binary_batch_test".into(),
         client_version: "0.1.0".into(),
-        capabilities: caps,
+        capabilities: Capabilities {
+            binary_batch: true,
+            ..Default::default()
+        },
         seed: None,
     };
     framing::write_message(&mut stream, &init).unwrap();
@@ -323,9 +323,8 @@ fn client_v120_with_binary_batch_receives_binary_frame() {
             ..
         } => {
             assert_eq!(protocol_version, "1.2.0");
-            assert_eq!(
-                capabilities.get("binary_batch"),
-                Some(&true),
+            assert!(
+                capabilities.binary_batch,
                 "binary_batch should be negotiated true (client and server both true)"
             );
         }

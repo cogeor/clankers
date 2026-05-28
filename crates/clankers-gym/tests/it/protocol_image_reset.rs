@@ -8,7 +8,6 @@
 //! were returning flat-float JSON on reset, breaking the Gymnasium
 //! space contract on the first observation.
 
-use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::Arc;
 
@@ -21,7 +20,7 @@ use clankers_core::types::{Action, ActionSpace, Observation, ObservationSpace};
 use clankers_env::prelude::*;
 use clankers_gym::encoding::{EncodedObservation, ImageLayout};
 use clankers_gym::framing;
-use clankers_gym::protocol::{Request, Response};
+use clankers_gym::protocol::{Capabilities, Request, Response};
 use clankers_gym::{GymEnv, GymServer};
 
 // ---------------------------------------------------------------------------
@@ -141,13 +140,14 @@ fn build_image_env() -> GymEnv {
 }
 
 fn init_request_with_binary_obs() -> Request {
-    let mut caps = HashMap::new();
-    caps.insert("binary_obs".into(), true);
     Request::Init {
         protocol_version: "1.1.0".into(),
         client_name: "image_reset_test".into(),
         client_version: "0.1.0".into(),
-        capabilities: caps,
+        capabilities: Capabilities {
+            binary_obs: true,
+            ..Default::default()
+        },
         seed: None,
     }
 }
@@ -179,7 +179,7 @@ fn protocol_image_reset_returns_raw_u8() {
         } => {
             // Server advertises binary_obs by default; with the client
             // also requesting it, the negotiated value is true.
-            assert_eq!(capabilities.get("binary_obs"), Some(&true));
+            assert!(capabilities.binary_obs);
             assert_eq!(protocol_version, "1.1.0");
         }
         other => panic!("expected InitResponse, got {other:?}"),
@@ -264,7 +264,7 @@ fn protocol_image_reset_falls_back_to_flat_without_binary_obs() {
         protocol_version: "1.1.0".into(),
         client_name: "image_reset_test".into(),
         client_version: "0.1.0".into(),
-        capabilities: HashMap::new(),
+        capabilities: Capabilities::default(),
         seed: None,
     };
     framing::write_message(&mut stream, &req).unwrap();

@@ -8,7 +8,6 @@
 //! round-trip works end-to-end against the `cartpole` scenario built
 //! through the public `ScenarioBuilder` API.
 
-use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::thread;
@@ -20,7 +19,7 @@ use clankers_core::traits::ActionApplicator;
 use clankers_core::types::{Action, ActionSpace, ObservationSpace};
 use clankers_gym::env::GymEnv;
 use clankers_gym::framing;
-use clankers_gym::protocol::{Request, Response};
+use clankers_gym::protocol::{Capabilities, Request, Response};
 use clankers_gym::server::GymServer;
 use clankers_sim::scenarios::cartpole::CartpoleScenario;
 use clankers_sim::{ClankersSimPlugin, ScenarioBuilder, ScenarioConfig};
@@ -113,8 +112,10 @@ fn serve_binary_protocol_round_trips_observation() {
     //    `obs_encoding` field) — the binary path only fires for
     //    `ObservationSpace::Image`. We assert the negotiation succeeds
     //    and the flat observation round-trips correctly.
-    let mut caps = HashMap::new();
-    caps.insert("binary_obs".to_string(), true);
+    let caps = Capabilities {
+        binary_obs: true,
+        ..Default::default()
+    };
     let init = Request::Init {
         protocol_version: "1.0.0".into(),
         client_name: "test".into(),
@@ -133,9 +134,8 @@ fn serve_binary_protocol_round_trips_observation() {
             env_info,
             ..
         } => {
-            assert_eq!(
-                capabilities.get("binary_obs"),
-                Some(&true),
+            assert!(
+                capabilities.binary_obs,
                 "binary_obs must be negotiated to true"
             );
             assert!(*seed_accepted, "seed must be acknowledged");

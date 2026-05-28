@@ -98,6 +98,99 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+// ---------------------------------------------------------------------------
+// Capabilities
+// ---------------------------------------------------------------------------
+
+/// Typed, internal view of the negotiated capability set.
+///
+/// CODE_QUALITY_REVIEW Finding "Capability Negotiation Uses Raw Strings"
+/// / P1.3. The wire format remains a `{ "binary_obs": true, ... }` JSON
+/// object so the protocol stays backward-compatible with existing
+/// clients (incl. Python). Internal server/session code reads typed
+/// fields (`caps.binary_obs`) instead of `caps.get("binary_obs")`.
+///
+/// Unknown capability keys round-trip unchanged via the [`Self::unknown`]
+/// catchall so forward-compatible negotiation still works.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Capabilities {
+    /// Client supports / server advertises image observations as a
+    /// length-prefixed binary frame after the JSON reply.
+    pub binary_obs: bool,
+    /// Client supports / server advertises batched observations as a
+    /// `BinaryFrameHeader` + flat payload (W7 PR2).
+    pub binary_batch: bool,
+    /// Client supports / server advertises VecEnv batched step / reset
+    /// requests.
+    pub batch_step: bool,
+    /// Any wire-level capability key not represented as a typed field.
+    /// Preserves forward compatibility with newer / older peers — the
+    /// `negotiate_with` server logic treats unknown keys as best-effort
+    /// AND of two booleans.
+    pub unknown: HashMap<String, bool>,
+}
+
+impl Capabilities {
+    /// Logical AND of two capability sets, used during handshake.
+    ///
+    /// Returns a [`Capabilities`] where each typed flag is `self && other`
+    /// and unknown keys present on both sides are ANDed; keys present on
+    /// only one side are dropped (matches the legacy HashMap-based
+    /// negotiation behaviour).
+    #[must_use]
+    pub fn negotiate_with(&self, other: &Self) -> Self {
+        let unknown: HashMap<String, bool> = self
+            .unknown
+            .iter()
+            .filter_map(|(k, v)| other.unknown.get(k).map(|ov| (k.clone(), *v && *ov)))
+            .collect();
+        Self {
+            binary_obs: self.binary_obs && other.binary_obs,
+            binary_batch: self.binary_batch && other.binary_batch,
+            batch_step: self.batch_step && other.batch_step,
+            unknown,
+        }
+    }
+}
+
+impl From<HashMap<String, bool>> for Capabilities {
+    fn from(mut map: HashMap<String, bool>) -> Self {
+        let binary_obs = map.remove("binary_obs").unwrap_or(false);
+        let binary_batch = map.remove("binary_batch").unwrap_or(false);
+        let batch_step = map.remove("batch_step").unwrap_or(false);
+        Self {
+            binary_obs,
+            binary_batch,
+            batch_step,
+            unknown: map,
+        }
+    }
+}
+
+impl From<Capabilities> for HashMap<String, bool> {
+    fn from(caps: Capabilities) -> Self {
+        let mut map = caps.unknown;
+        map.insert("binary_obs".into(), caps.binary_obs);
+        map.insert("binary_batch".into(), caps.binary_batch);
+        map.insert("batch_step".into(), caps.batch_step);
+        map
+    }
+}
+
+impl Serialize for Capabilities {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let map: HashMap<String, bool> = self.clone().into();
+        map.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Capabilities {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map: HashMap<String, bool> = HashMap::deserialize(deserializer)?;
+        Ok(map.into())
+    }
+}
+
 use clankers_core::types::{
     Action, ActionSpace, BatchResetResult, BatchStepResult, Observation, ObservationSpace,
     ResetInfo, ResetResult, StepInfo, StepResult,
@@ -131,9 +224,11 @@ pub enum Request {
         client_name: String,
         /// Client version string.
         client_version: String,
-        /// Capability flags the client supports.
+        /// Capability flags the client supports. Wire-compatible with
+        /// the legacy `{ "key": bool, ... }` JSON object — see
+        /// [`Capabilities`] for the typed view.
         #[serde(default)]
-        capabilities: HashMap<String, bool>,
+        capabilities: Capabilities,
         /// Optional seed for deterministic operation.
         #[serde(default)]
         seed: Option<u64>,
@@ -224,7 +319,7 @@ pub enum Response {
         /// Environment metadata (spaces, agent count).
         env_info: EnvInfo,
         /// Negotiated capability flags (logical AND of client and server).
-        capabilities: HashMap<String, bool>,
+        capabilities: Capabilities,
         /// Whether the requested seed was accepted.
         seed_accepted: bool,
     },
@@ -902,8 +997,10 @@ mod tests {
 
     #[test]
     fn request_init_roundtrip() {
-        let mut caps = HashMap::new();
-        caps.insert("batch_step".into(), true);
+        let caps = Capabilities {
+            batch_step: true,
+            ..Default::default()
+        };
         let req = Request::Init {
             protocol_version: "1.0.0".into(),
             client_name: "test".into(),
@@ -922,7 +1019,7 @@ mod tests {
         {
             assert_eq!(protocol_version, "1.0.0");
             assert_eq!(seed, Some(42));
-            assert_eq!(capabilities.get("batch_step"), Some(&true));
+            assert!(capabilities.batch_step);
         } else {
             panic!("expected Init");
         }
@@ -936,7 +1033,7 @@ mod tests {
             capabilities, seed, ..
         } = req
         {
-            assert!(capabilities.is_empty());
+            assert_eq!(capabilities, Capabilities::default());
             assert_eq!(seed, None);
         } else {
             panic!("expected Init");
@@ -958,7 +1055,7 @@ mod tests {
             env_name: "TestEnv".into(),
             env_version: "0.1.0".into(),
             env_info,
-            capabilities: HashMap::new(),
+            capabilities: Capabilities::default(),
             seed_accepted: true,
         };
         let json = serde_json::to_string(&resp).unwrap();

@@ -16,11 +16,12 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use clankers_core::config::{ObjectConfig, Shape, SimConfig};
+use clankers_core::config::{ObjectConfig, SimConfig};
 use clankers_core::layout::JointLayout;
 use clankers_core::types::{LayoutCompileError, MissingJoints, RobotGroup};
 use clankers_env::episode::EpisodeConfig;
 use clankers_physics::ClankersPhysicsPlugin;
+use clankers_physics::neutral::BodyHandle;
 use clankers_physics::rapier::bridge::register_robot;
 use clankers_physics::rapier::runtime::{JointRuntime, JointRuntimes};
 use clankers_physics::rapier::systems::{
@@ -29,7 +30,6 @@ use clankers_physics::rapier::systems::{
 use clankers_physics::rapier::{RapierBackend, RapierBackendFixed, RapierContext};
 use clankers_urdf::spawner::SpawnedRobot;
 use clankers_urdf::types::RobotModel;
-use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBodyHandle};
 
 use crate::ClankersSimPlugin;
 
@@ -43,9 +43,13 @@ pub struct SpawnedScene {
     pub app: App,
     /// Spawned robots, keyed by the robot model name.
     pub robots: HashMap<String, SpawnedRobot>,
-    /// Physics rigid-body handles for objects added via [`SceneBuilder::with_object`],
-    /// keyed by object name. Empty when physics is not enabled.
-    pub object_bodies: HashMap<String, RigidBodyHandle>,
+    /// Engine-neutral body handles for objects added via
+    /// [`SceneBuilder::with_object`], keyed by object name. Empty when
+    /// physics is not enabled. Resolve back to a concrete backend
+    /// handle via `RapierContext::resolve_object_body` if needed
+    /// inside `clankers-physics`; downstream consumers should treat
+    /// the value as opaque.
+    pub object_bodies: HashMap<String, BodyHandle>,
 }
 
 // ---------------------------------------------------------------------------
@@ -548,31 +552,11 @@ impl SceneBuilder {
                 register_robot(&mut ctx, model, spawned, world, physics_config.fixed_base);
             }
 
-            // Create rigid bodies and colliders for scene objects.
+            // Create rigid bodies and colliders for scene objects via the
+            // engine-neutral spawner. P2.3: no rapier handles in public API.
             for obj in &self.objects {
-                let body_builder = if obj.is_static {
-                    RigidBodyBuilder::fixed()
-                } else {
-                    RigidBodyBuilder::dynamic().can_sleep(false)
-                };
-                let body = ctx.rigid_body_set.insert(
-                    body_builder
-                        .translation(Vec3::new(obj.position[0], obj.position[1], obj.position[2]))
-                        .build(),
-                );
-
-                let collider = shape_to_collider(&obj.shape)
-                    .density(obj.mass)
-                    .friction(obj.friction)
-                    .restitution(obj.restitution)
-                    .sensor(obj.is_sensor)
-                    .build();
-                ctx.collider_set
-                    .insert_with_parent(collider, body, &mut ctx.rigid_body_set);
-
-                // Track named handle for callers.
-                ctx.body_handles.insert(obj.name.clone(), body);
-                object_bodies.insert(obj.name.clone(), body);
+                let handle = ctx.add_scene_object(obj);
+                object_bodies.insert(obj.name.clone(), handle);
             }
 
             // Re-snapshot so reset covers robots AND objects.
@@ -585,36 +569,6 @@ impl SceneBuilder {
             app,
             robots,
             object_bodies,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Shape -> Rapier collider
-// ---------------------------------------------------------------------------
-
-/// Convert a [`Shape`] config into a Rapier [`ColliderBuilder`].
-fn shape_to_collider(shape: &Shape) -> ColliderBuilder {
-    match shape {
-        Shape::Sphere(radius) => ColliderBuilder::ball(*radius),
-        Shape::Box(half_extents) => {
-            ColliderBuilder::cuboid(half_extents[0], half_extents[1], half_extents[2])
-        }
-        Shape::Cylinder {
-            radius,
-            half_height,
-        } => ColliderBuilder::cylinder(*half_height, *radius),
-        Shape::Capsule {
-            radius,
-            half_height,
-        } => ColliderBuilder::capsule_y(*half_height, *radius),
-        // Mesh shapes are not yet supported; fall back to a small sphere
-        // so the build does not panic.
-        Shape::ConvexMesh(_) | Shape::TriMesh(_) => {
-            warn!(
-                "mesh shapes are not yet supported in with_object(); falling back to unit sphere collider"
-            );
-            ColliderBuilder::ball(0.01)
         }
     }
 }

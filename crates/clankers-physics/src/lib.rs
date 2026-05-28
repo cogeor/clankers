@@ -12,6 +12,7 @@ pub mod neutral;
 pub mod plugin;
 pub mod rapier;
 pub mod readback;
+pub mod scene_objects;
 pub mod systems;
 
 // ---------------------------------------------------------------------------

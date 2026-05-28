@@ -71,6 +71,13 @@ pub struct RapierContext {
     /// Initial body rotations, stored alongside translations.
     pub initial_body_rotations: HashMap<RigidBodyHandle, Quat>,
 
+    /// Side-table mapping neutral [`crate::neutral::BodyHandle`] indices to
+    /// the underlying rapier handle for objects spawned via
+    /// [`Self::add_scene_object`](crate::scene_objects). Allows
+    /// `clankers-sim` to expose `BodyHandle` in public APIs while
+    /// keeping rapier types contained inside this crate (P2.3).
+    pub object_handle_table: Vec<RigidBodyHandle>,
+
     // -- Floating origin for f32 precision --
     /// Accumulated world origin offset in f64 for precision over long distances.
     ///
@@ -107,6 +114,7 @@ impl RapierContext {
             body_to_entity: HashMap::new(),
             initial_body_positions: HashMap::new(),
             initial_body_rotations: HashMap::new(),
+            object_handle_table: Vec::new(),
             world_origin: [0.0; 3],
         }
     }

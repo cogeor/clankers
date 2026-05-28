@@ -15,6 +15,7 @@ pub mod test_layers;
 pub mod time;
 pub mod traits;
 pub mod types;
+pub mod unified_config;
 pub mod user_journeys;
 pub mod validators;
 pub mod view;

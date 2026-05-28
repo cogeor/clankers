@@ -142,6 +142,60 @@ def test_encode_promotes_non_native_dtype():
     np.testing.assert_array_equal(decoded, arr.astype(np.float32))
 
 
+def test_decode_batch_f32_tensor_roundtrips():
+    # Pair with the Rust encode_batch_f32_as_tensor helper. Encode here
+    # via the generic path to verify shape/dtype expectations.
+    num_envs = 4
+    obs_dim = 3
+    arr = (np.arange(num_envs * obs_dim, dtype=np.float32) * 0.5).reshape(num_envs, obs_dim)
+    buf = encode_tensor(arr)
+    n, d, out = __import__(
+        "clankers.tensor_frame", fromlist=["decode_batch_f32_tensor"]
+    ).decode_batch_f32_tensor(buf)
+    assert n == num_envs
+    assert d == obs_dim
+    np.testing.assert_array_equal(out, arr)
+
+
+def test_decode_batch_f32_rejects_wrong_dtype():
+    from clankers.tensor_frame import decode_batch_f32_tensor
+
+    arr = np.arange(6, dtype=np.uint8).reshape(2, 3)
+    buf = encode_tensor(arr)
+    with pytest.raises(PayloadLenMismatch):
+        decode_batch_f32_tensor(buf)
+
+
+def test_decode_batch_raw_u8_tensor_roundtrips():
+    from clankers.tensor_frame import decode_batch_raw_u8_tensor
+
+    num_envs = 2
+    height = 3
+    width = 4
+    channels = 3
+    arr = (
+        (np.arange(num_envs * height * width * channels, dtype=np.int64) % 251)
+        .astype(np.uint8)
+        .reshape(num_envs, height, width, channels)
+    )
+    buf = encode_tensor(arr)
+    n, w, h, c, out = decode_batch_raw_u8_tensor(buf)
+    assert n == num_envs
+    assert w == width
+    assert h == height
+    assert c == channels
+    np.testing.assert_array_equal(out, arr)
+
+
+def test_decode_batch_raw_u8_rejects_wrong_rank():
+    from clankers.tensor_frame import decode_batch_raw_u8_tensor
+
+    arr = np.zeros((4, 3), dtype=np.uint8)
+    buf = encode_tensor(arr)
+    with pytest.raises(PayloadLenMismatch):
+        decode_batch_raw_u8_tensor(buf)
+
+
 def test_error_subclasses_are_tensor_frame_errors():
     assert issubclass(UnsupportedVersion, TensorFrameError)
     assert issubclass(UnknownDtype, TensorFrameError)

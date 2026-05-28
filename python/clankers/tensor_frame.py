@@ -280,6 +280,52 @@ def encode_tensor(
     return header_bytes + payload
 
 
+def decode_batch_f32_tensor(buf: bytes | memoryview) -> tuple[int, int, NDArray]:
+    """Decode a ``(num_envs, obs_dim)`` F32 batch produced by Rust's
+    ``encode_batch_f32_as_tensor`` (P4.4 migration helper).
+
+    Returns ``(num_envs, obs_dim, data)`` where ``data`` is a
+    ``num_envs * obs_dim`` float32 ndarray.
+
+    Raises
+    ------
+    PayloadLenMismatch
+        Header doesn't describe a rank-2 F32 tensor.
+    """
+    header, array = decode_tensor(buf)
+    if header.dtype != TensorDtype.F32 or header.ndim != 2:
+        raise PayloadLenMismatch(
+            f"expected (num_envs, obs_dim) F32 tensor; got dtype={header.dtype.name} "
+            f"ndim={header.ndim} shape={header.active_shape}"
+        )
+    num_envs, obs_dim = header.active_shape
+    return num_envs, obs_dim, array
+
+
+def decode_batch_raw_u8_tensor(
+    buf: bytes | memoryview,
+) -> tuple[int, int, int, int, NDArray]:
+    """Decode a ``(num_envs, height, width, channels)`` U8 image batch
+    produced by Rust's ``encode_batch_raw_u8_as_tensor`` (P4.4).
+
+    Returns ``(num_envs, width, height, channels, data)`` where ``data``
+    is a ``num_envs * height * width * channels`` uint8 ndarray (NHWC).
+
+    Raises
+    ------
+    PayloadLenMismatch
+        Header doesn't describe a rank-4 U8 tensor.
+    """
+    header, array = decode_tensor(buf)
+    if header.dtype != TensorDtype.U8 or header.ndim != 4:
+        raise PayloadLenMismatch(
+            f"expected (num_envs, H, W, C) U8 tensor; got dtype={header.dtype.name} "
+            f"ndim={header.ndim} shape={header.active_shape}"
+        )
+    num_envs, height, width, channels = header.active_shape
+    return num_envs, width, height, channels, array
+
+
 def _numpy_to_tensor_dtype(np_dtype: np.dtype) -> TensorDtype:
     for td, exp in _DTYPE_NUMPY.items():
         if np_dtype == exp:
@@ -317,4 +363,6 @@ __all__ = [
     "decode_header",
     "decode_tensor",
     "encode_tensor",
+    "decode_batch_f32_tensor",
+    "decode_batch_raw_u8_tensor",
 ]

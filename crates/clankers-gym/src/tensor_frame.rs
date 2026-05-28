@@ -399,6 +399,83 @@ pub fn decode_tensor(buf: &[u8]) -> Result<(TensorFrameHeader, &[u8]), TensorFra
 }
 
 // ---------------------------------------------------------------------------
+// Batch / image encoders on top of the shared header (P4.4)
+// ---------------------------------------------------------------------------
+
+/// Encode a flat `[num_envs * obs_dim]` `f32` batch as a tensor frame
+/// of shape `(num_envs, obs_dim)`.
+///
+/// CODE_QUALITY_REVIEW § Phase 4.4 — replacement encoder for the legacy
+/// `binary_frame::encode_batch_f32`. Produces a single contiguous
+/// buffer with the 48-byte [`TensorFrameHeader`] in front; the existing
+/// `write_binary_frame` transport delivers it unchanged.
+///
+/// The legacy path stays in `binary_frame.rs` for backward
+/// compatibility with peers that don't speak the tensor format; the
+/// `Capabilities::TENSOR_BATCH` flag (added in a follow-up commit)
+/// will let producers / consumers negotiate.
+///
+/// # Errors
+///
+/// Propagates [`TensorFrameError::PayloadLenMismatch`] when the input
+/// `data` length is not `num_envs * obs_dim`.
+pub fn encode_batch_f32_as_tensor(
+    num_envs: u32,
+    obs_dim: u32,
+    data: &[f32],
+) -> Result<Vec<u8>, TensorFrameError> {
+    let expected = (num_envs as u64) * (obs_dim as u64);
+    if data.len() as u64 != expected {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: 0,
+            expected_for_shape: expected * 4,
+        });
+    }
+    let payload_bytes: &[u8] = bytemuck::cast_slice(data);
+    let header = TensorFrameHeader::new(
+        TensorDtype::F32,
+        &[num_envs, obs_dim],
+        TensorLayout::RowMajor,
+        payload_bytes.len() as u32,
+    )?;
+    encode_tensor(&header, payload_bytes)
+}
+
+/// Encode a flat `[num_envs * width * height * channels]` `u8` batch
+/// as a tensor frame of shape `(num_envs, height, width, channels)`.
+///
+/// HWC layout — the Bevy / cosmos pipeline already produces tiles in
+/// height-major order. The shape order matches NumPy / TensorFlow
+/// `NHWC`; PyTorch consumers reorder with `transpose(0, 3, 1, 2)`.
+///
+/// # Errors
+///
+/// Propagates [`TensorFrameError::PayloadLenMismatch`] when the input
+/// `data` length is not `num_envs * width * height * channels`.
+pub fn encode_batch_raw_u8_as_tensor(
+    num_envs: u32,
+    width: u32,
+    height: u32,
+    channels: u32,
+    data: &[u8],
+) -> Result<Vec<u8>, TensorFrameError> {
+    let expected = (num_envs as u64) * (width as u64) * (height as u64) * (channels as u64);
+    if data.len() as u64 != expected {
+        return Err(TensorFrameError::PayloadLenMismatch {
+            declared: 0,
+            expected_for_shape: expected,
+        });
+    }
+    let header = TensorFrameHeader::new(
+        TensorDtype::U8,
+        &[num_envs, height, width, channels],
+        TensorLayout::RowMajor,
+        data.len() as u32,
+    )?;
+    encode_tensor(&header, data)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -580,6 +657,49 @@ mod tests {
         let (back_h, back_p) = decode_tensor(&buf).unwrap();
         assert_eq!(back_h.active_shape(), &[32, 32, 3]);
         assert_eq!(back_p, payload.as_slice());
+    }
+
+    // -------- P4.4: batch / image migration --------
+
+    #[test]
+    fn encode_batch_f32_as_tensor_roundtrips_via_decoder() {
+        let num_envs = 4u32;
+        let obs_dim = 3u32;
+        let data: Vec<f32> = (0..(num_envs * obs_dim)).map(|i| i as f32 * 0.5).collect();
+        let buf = encode_batch_f32_as_tensor(num_envs, obs_dim, &data).unwrap();
+        let (header, payload) = decode_tensor(&buf).unwrap();
+        assert_eq!(header.active_shape(), &[num_envs, obs_dim]);
+        assert_eq!(header.typed_dtype(), Some(TensorDtype::F32));
+        let back: &[f32] = bytemuck::cast_slice(payload);
+        assert_eq!(back, data.as_slice());
+    }
+
+    #[test]
+    fn encode_batch_f32_rejects_length_mismatch() {
+        let err = encode_batch_f32_as_tensor(2, 3, &[1.0; 5]).unwrap_err();
+        assert!(matches!(err, TensorFrameError::PayloadLenMismatch { .. }));
+    }
+
+    #[test]
+    fn encode_batch_raw_u8_as_tensor_roundtrips_via_decoder() {
+        let num_envs = 2u32;
+        let width = 4u32;
+        let height = 3u32;
+        let channels = 3u32;
+        let n = (num_envs * width * height * channels) as usize;
+        let data: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
+        let buf = encode_batch_raw_u8_as_tensor(num_envs, width, height, channels, &data).unwrap();
+        let (header, payload) = decode_tensor(&buf).unwrap();
+        // NHWC ordering: shape is (num_envs, height, width, channels).
+        assert_eq!(header.active_shape(), &[num_envs, height, width, channels]);
+        assert_eq!(header.typed_dtype(), Some(TensorDtype::U8));
+        assert_eq!(payload, data.as_slice());
+    }
+
+    #[test]
+    fn encode_batch_raw_u8_rejects_length_mismatch() {
+        let err = encode_batch_raw_u8_as_tensor(2, 4, 3, 3, &[0u8; 10]).unwrap_err();
+        assert!(matches!(err, TensorFrameError::PayloadLenMismatch { .. }));
     }
 
     #[test]

@@ -24,6 +24,7 @@ clankers-urdf.workspace = true
 bevy = { workspace = true, features = ["bevy_log"] }
 thiserror.workspace = true
 rapier3d.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 # Cycle-allowed via dev-deps: integration tests in `tests/dense_runtime.rs`
@@ -31,6 +32,7 @@ rapier3d.workspace = true
 # compile path. Cargo permits this because dev-deps build a separate
 # graph from the main crate compilation.
 clankers-sim.workspace = true
+serde_json.workspace = true
 
 [[test]]
 name = "it"

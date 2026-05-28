@@ -7,6 +7,7 @@
 
 pub mod backend;
 pub mod components;
+pub mod neutral;
 pub mod plugin;
 pub mod rapier;
 pub mod systems;
@@ -19,6 +20,7 @@ pub mod prelude {
     pub use crate::{
         backend::PhysicsBackend,
         components::{GroundPlane, PhysicsBody, PhysicsJoint},
+        neutral::{BodyHandle, BodyPose, ContactEvent, JointHandle},
         plugin::ClankersPhysicsPlugin,
     };
 }

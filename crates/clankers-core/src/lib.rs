@@ -4,6 +4,7 @@ pub mod config;
 pub mod env_spec;
 pub mod error;
 pub mod layout;
+pub mod manifest;
 pub mod physics;
 pub mod schema;
 pub mod seed;

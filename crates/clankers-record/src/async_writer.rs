@@ -47,6 +47,7 @@
 //! [`AsyncRecorder::close`] explicitly with their own timeout.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 
@@ -165,6 +166,57 @@ impl DroppedFrames {
 }
 
 // ---------------------------------------------------------------------------
+// RecorderHealth
+// ---------------------------------------------------------------------------
+
+/// Programmatic recorder health for long-running apps.
+///
+/// CODE_QUALITY_REVIEW Detailed Findings "Worker Errors Are Only
+/// Logged" / P1.11. The async worker previously surfaced write / flush
+/// failures only through `eprintln!`, so long-running CLI and viz apps
+/// could not observe recorder health without scraping stderr. This
+/// resource exposes a relaxed-atomic error count plus the most recent
+/// error message so CLI exit / viz overlays / final recording stats
+/// can report concretely.
+///
+/// # Default
+///
+/// `RecorderHealth::default()` returns a fresh handle with count = 0
+/// and last_error = None. The Bevy plugin clones it once into a world
+/// resource so producer and consumer see the same shared state.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct RecorderHealth {
+    error_count: Arc<AtomicU64>,
+    last_error: Arc<Mutex<Option<String>>>,
+}
+
+impl RecorderHealth {
+    /// Current cumulative error count (relaxed load).
+    #[must_use]
+    pub fn error_count(&self) -> u64 {
+        self.error_count.load(Ordering::Relaxed)
+    }
+
+    /// Most recent error message, if any. Cloned out so callers don't
+    /// hold the mutex.
+    #[must_use]
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Record an error: increment the count and update the last-error
+    /// slot. Best-effort — a poisoned mutex is silently bypassed so a
+    /// downstream panic during error formatting can't cascade into the
+    /// recorder hot path.
+    pub fn record_error(&self, msg: impl Into<String>) {
+        self.error_count.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut slot) = self.last_error.lock() {
+            *slot = Some(msg.into());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AsyncRecorder
 // ---------------------------------------------------------------------------
 
@@ -183,6 +235,10 @@ pub struct AsyncRecorder {
     /// [`Self::dropped`] (which counts JSON frames) so operators can
     /// tell which channel kind is bottlenecking. P1.10.
     dropped_raw: Arc<AtomicU64>,
+    /// Shared health handle. Cloned into the worker so write/flush
+    /// failures bump `RecorderHealth.error_count` and update
+    /// `last_error`. P1.11.
+    health: RecorderHealth,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -198,9 +254,26 @@ impl AsyncRecorder {
     where
         S: AsyncSink + Send + 'static,
     {
+        Self::new_with_health(capacity, sink, dropped, RecorderHealth::default())
+    }
+
+    /// Like [`Self::new`] but with a caller-supplied [`RecorderHealth`]
+    /// handle. The Bevy plugin uses this so the recorder, the Bevy
+    /// world resource, and any CLI / viz consumer share the same
+    /// error counter and last-error slot. P1.11.
+    pub fn new_with_health<S>(
+        capacity: usize,
+        sink: S,
+        dropped: Option<Arc<AtomicU64>>,
+        health: RecorderHealth,
+    ) -> Self
+    where
+        S: AsyncSink + Send + 'static,
+    {
         let (tx, rx) = bounded::<RecorderMessage>(capacity);
         let dropped = dropped.unwrap_or_else(|| Arc::new(AtomicU64::new(0)));
         let dropped_raw = Arc::new(AtomicU64::new(0));
+        let worker_health = health.clone();
         let mut sink = sink;
         let worker = thread::Builder::new()
             .name("clankers-record-async".into())
@@ -218,15 +291,22 @@ impl AsyncRecorder {
                             payload,
                         } => {
                             if let Err(e) = sink.write_message(channel_id, log_time_ns, &payload) {
-                                // We deliberately log via eprintln rather
-                                // than bevy::log because the worker thread
-                                // outlives the Bevy app's logger setup.
-                                eprintln!("clankers-record async worker: write failed: {e}");
+                                let msg =
+                                    format!("clankers-record async worker: write failed: {e}");
+                                // eprintln for ops visibility — keep
+                                // pre-P1.11 stderr behaviour intact —
+                                // and also record into health so
+                                // programmatic consumers see the loss.
+                                eprintln!("{msg}");
+                                worker_health.record_error(msg);
                             }
                         }
                         RecorderMessage::Flush => {
                             if let Err(e) = sink.flush() {
-                                eprintln!("clankers-record async worker: flush failed: {e}");
+                                let msg =
+                                    format!("clankers-record async worker: flush failed: {e}");
+                                eprintln!("{msg}");
+                                worker_health.record_error(msg);
                             }
                         }
                         RecorderMessage::Close => break,
@@ -240,8 +320,16 @@ impl AsyncRecorder {
             tx,
             dropped,
             dropped_raw,
+            health,
             worker: Some(worker),
         }
+    }
+
+    /// Shared health handle. Insert as a Bevy resource alongside
+    /// [`DroppedFrames`] to expose recorder health to systems.
+    #[must_use]
+    pub fn health(&self) -> RecorderHealth {
+        self.health.clone()
     }
 
     /// Attempt to enqueue a raw-frame (camera / image) payload.
@@ -418,6 +506,42 @@ mod tests {
         assert_eq!(writes.len(), 2);
         assert_eq!(writes[0], (7, 100, vec![1, 2, 3]));
         assert_eq!(writes[1], (7, 200, vec![4, 5, 6]));
+    }
+
+    #[test]
+    fn health_surfaces_worker_write_errors() {
+        // P1.11: a sink that returns Err must increment health.error_count
+        // and update health.last_error, regardless of stderr output.
+        struct FailingSink;
+        impl AsyncSink for FailingSink {
+            fn write_message(
+                &mut self,
+                _channel_id: u16,
+                _log_time_ns: u64,
+                _payload: &[u8],
+            ) -> std::io::Result<()> {
+                Err(std::io::Error::new(std::io::ErrorKind::Other, "synthetic"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let health = RecorderHealth::default();
+        assert_eq!(health.error_count(), 0);
+        assert!(health.last_error().is_none());
+
+        let rec = AsyncRecorder::new_with_health(16, FailingSink, None, health.clone());
+        for i in 0..4_u64 {
+            rec.try_send_frame(0, i, vec![0]);
+        }
+        rec.close();
+
+        assert_eq!(health.error_count(), 4, "expected 4 write errors");
+        let last = health.last_error().expect("last_error must be populated");
+        assert!(
+            last.contains("synthetic"),
+            "expected sink error message in health.last_error, got {last:?}"
+        );
     }
 
     #[test]

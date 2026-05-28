@@ -29,8 +29,33 @@ use std::hash::{Hash, Hasher};
 
 use bevy::ecs::entity::Entity;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::schema::SchemaMismatch;
+
+// ---------------------------------------------------------------------------
+// LayoutBindError
+// ---------------------------------------------------------------------------
+
+/// Failure mode for [`JointLayout::try_bind_entities`].
+///
+/// Distinct from [`SchemaMismatch`] because binding is a local
+/// (in-process, post-spawn) operation, not a cross-process schema
+/// handshake. A bind failure means caller code passed the wrong-shaped
+/// entity slice — it must be surfaced loudly in both debug and release
+/// builds, not silently partial-bind by `zip`.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum LayoutBindError {
+    /// Caller passed a slice whose length does not match the layout's
+    /// joint count.
+    #[error("layout bind: expected {expected} entities, got {found}")]
+    EntityCountMismatch {
+        /// Joint count in the layout (`JointLayout::len()`).
+        expected: usize,
+        /// Length of the entity slice the caller supplied.
+        found: usize,
+    },
+}
 
 // ---------------------------------------------------------------------------
 // JointKind
@@ -212,24 +237,47 @@ impl JointLayout {
     /// Bind a Bevy entity to each joint slot, in layout order.
     ///
     /// Writes `entities[i]` into the `entity` field of joint slot `i`
-    /// for every slot. Callers are responsible for ensuring that the
-    /// `entities` slice is in the same order as [`Self::joints`].
+    /// for every slot. Returns [`LayoutBindError::EntityCountMismatch`]
+    /// if the slice length does not match [`Self::len`]; no slots are
+    /// mutated on error.
+    ///
+    /// Callers are responsible for ensuring that the `entities` slice
+    /// is in the same order as [`Self::joints`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LayoutBindError::EntityCountMismatch`] when
+    /// `entities.len() != self.len()`.
+    pub fn try_bind_entities(&mut self, entities: &[Entity]) -> Result<(), LayoutBindError> {
+        if entities.len() != self.joints.len() {
+            return Err(LayoutBindError::EntityCountMismatch {
+                expected: self.joints.len(),
+                found: entities.len(),
+            });
+        }
+        for (slot, &entity) in self.joints.iter_mut().zip(entities.iter()) {
+            slot.entity = Some(entity);
+        }
+        Ok(())
+    }
+
+    /// Bind a Bevy entity to each joint slot, in layout order.
+    ///
+    /// Convenience wrapper around [`Self::try_bind_entities`]. Prefer
+    /// the fallible variant in new code so wrong-length binds surface
+    /// as [`LayoutBindError`] instead of a panic.
     ///
     /// # Panics
     ///
-    /// Debug builds panic if `entities.len() != self.len()`. Release
-    /// builds bind as many slots as are provided and ignore the
-    /// remainder (caller error).
+    /// Panics in **both debug and release** builds if
+    /// `entities.len() != self.len()`. Previously this was a debug-only
+    /// `debug_assert_eq!`, which let release builds silently bind only
+    /// the first `min(entities.len(), self.len())` slots and leave the
+    /// remainder unbound — corrupting downstream sensor / action /
+    /// recorder dimensions. See CODE_QUALITY_REVIEW Finding #4.
     pub fn bind_entities(&mut self, entities: &[Entity]) {
-        debug_assert_eq!(
-            entities.len(),
-            self.joints.len(),
-            "bind_entities: expected {} entities, got {}",
-            self.joints.len(),
-            entities.len()
-        );
-        for (slot, &entity) in self.joints.iter_mut().zip(entities.iter()) {
-            slot.entity = Some(entity);
+        if let Err(e) = self.try_bind_entities(entities) {
+            panic!("{e}");
         }
     }
 
@@ -479,14 +527,53 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "bind_entities: expected 3 entities, got 2")]
-    fn joint_layout_bind_entities_wrong_count_panics_in_debug() {
+    #[should_panic(expected = "layout bind: expected 3 entities, got 2")]
+    fn joint_layout_bind_entities_wrong_count_panics_in_release_too() {
+        // P0.4: release builds must also panic on mismatched lengths.
+        // Previously this was debug_assert_eq!; release would silently
+        // partial-bind, leading to shrunken sensor/action dims.
         let mut layout = JointLayout::new(vec![
             spec("a", JointKind::Revolute),
             spec("b", JointKind::Revolute),
             spec("c", JointKind::Revolute),
         ]);
         layout.bind_entities(&[Entity::from_bits(1), Entity::from_bits(2)]);
+    }
+
+    #[test]
+    fn joint_layout_try_bind_entities_returns_error_on_mismatch() {
+        // P0.4: fallible bind surfaces the mismatch as a typed error
+        // and does NOT mutate the layout on failure.
+        let mut layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Revolute),
+            spec("c", JointKind::Revolute),
+        ]);
+        let err = layout
+            .try_bind_entities(&[Entity::from_bits(1), Entity::from_bits(2)])
+            .unwrap_err();
+        assert_eq!(
+            err,
+            LayoutBindError::EntityCountMismatch {
+                expected: 3,
+                found: 2,
+            }
+        );
+        // No slot was bound — atomic failure.
+        assert_eq!(layout.bound_entities().count(), 0);
+    }
+
+    #[test]
+    fn joint_layout_try_bind_entities_round_trips() {
+        let mut layout = JointLayout::new(vec![
+            spec("a", JointKind::Revolute),
+            spec("b", JointKind::Revolute),
+        ]);
+        layout
+            .try_bind_entities(&[Entity::from_bits(7), Entity::from_bits(8)])
+            .unwrap();
+        let bound: Vec<Entity> = layout.bound_entities().collect();
+        assert_eq!(bound, vec![Entity::from_bits(7), Entity::from_bits(8)]);
     }
 
     #[test]

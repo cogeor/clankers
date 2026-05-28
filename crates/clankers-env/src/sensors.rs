@@ -36,6 +36,58 @@ use rand_chacha::ChaCha8Rng;
 use bevy::prelude::*;
 
 // ---------------------------------------------------------------------------
+// SensorBuildError
+// ---------------------------------------------------------------------------
+
+// Wrapped in an inline module so `bevy::prelude::*` (imported above and
+// shadowing `error` with a logging macro) does not collide with
+// thiserror's `#[error(...)]` derive helper attribute.
+mod build_error {
+    use thiserror::Error;
+
+    /// Failure mode for the fallible `try_new` constructors on
+    /// layout-bound sensors (`JointStateSensor::try_new`, etc).
+    ///
+    /// Added under CODE_QUALITY_REVIEW Finding #4 / P0.4. The panicking
+    /// `new(...)` constructors snapshot `layout.bound_entities()` at
+    /// construction, which silently shrinks the observation dimension
+    /// when the layout is unbound or only partially bound. `try_new`
+    /// rejects those layouts before the snapshot is taken so the
+    /// failure surfaces at sensor build time, not as a malformed
+    /// observation downstream.
+    #[derive(Debug, Clone, PartialEq, Eq, Error)]
+    pub enum SensorBuildError {
+        /// The supplied `JointLayout` has at least one slot whose
+        /// `entity` is `None`. The sensor refuses to materialise
+        /// because its observation dimension would be inconsistent
+        /// with the layout's declared slot count.
+        #[error(
+            "sensor build: layout has {layout_len} slots but only {bound} are \
+             bound; sensor requires every slot to be bound before construction"
+        )]
+        LayoutNotFullyBound {
+            /// `layout.len()` — total number of joint slots.
+            layout_len: usize,
+            /// Count of slots whose `entity` is currently `Some(_)`.
+            bound: usize,
+        },
+    }
+}
+
+pub use build_error::SensorBuildError;
+
+fn entities_or_err(layout: &JointLayout) -> Result<Vec<Entity>, SensorBuildError> {
+    let entities: Vec<Entity> = layout.bound_entities().collect();
+    if entities.len() != layout.len() {
+        return Err(SensorBuildError::LayoutNotFullyBound {
+            layout_len: layout.len(),
+            bound: entities.len(),
+        });
+    }
+    Ok(entities)
+}
+
+// ---------------------------------------------------------------------------
 // JointStateSensor
 // ---------------------------------------------------------------------------
 
@@ -67,15 +119,35 @@ pub struct JointStateSensor {
 impl JointStateSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order, on every `read()`.
+    ///
+    /// Prefer [`Self::try_new`] in new code so unbound or partially
+    /// bound layouts surface as [`SensorBuildError`] rather than a
+    /// silent dimension shrink.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(layout).expect("JointStateSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. Returns [`SensorBuildError::LayoutNotFullyBound`]
+    /// when `layout.bound_entities().count() != layout.len()` — i.e. any
+    /// joint slot still has `entity == None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot in the layout is unbound.
+    pub fn try_new(layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len() * 2;
-        Self {
+        Ok(Self {
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -133,15 +205,29 @@ pub struct JointCommandSensor {
 impl JointCommandSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order, on every `read()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(layout).expect("JointCommandSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. See [`SensorBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot is unbound.
+    pub fn try_new(layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len();
-        Self {
+        Ok(Self {
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -197,15 +283,29 @@ pub struct JointTorqueSensor {
 impl JointTorqueSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order, on every `read()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(layout).expect("JointTorqueSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. See [`SensorBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot is unbound.
+    pub fn try_new(layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len();
-        Self {
+        Ok(Self {
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -264,16 +364,30 @@ impl RobotJointStateSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order. Pins the `RobotId` so [`Sensor::read`] can
     /// debug-assert every layout entity belongs to the expected robot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(robot_id, layout).expect("RobotJointStateSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. See [`SensorBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot is unbound.
+    pub fn try_new(robot_id: RobotId, layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len() * 2;
-        Self {
+        Ok(Self {
             robot_id,
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -336,16 +450,31 @@ pub struct RobotJointCommandSensor {
 impl RobotJointCommandSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(robot_id, layout)
+            .expect("RobotJointCommandSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. See [`SensorBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot is unbound.
+    pub fn try_new(robot_id: RobotId, layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len();
-        Self {
+        Ok(Self {
             robot_id,
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -406,16 +535,31 @@ pub struct RobotJointTorqueSensor {
 impl RobotJointTorqueSensor {
     /// Build a sensor that walks the supplied layout's bound entities,
     /// in layout order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is not fully bound; see [`Self::try_new`].
     #[must_use]
     pub fn new(robot_id: RobotId, layout: Arc<JointLayout>) -> Self {
-        let entities: Vec<Entity> = layout.bound_entities().collect();
+        Self::try_new(robot_id, layout)
+            .expect("RobotJointTorqueSensor::new: layout not fully bound")
+    }
+
+    /// Fallible constructor. See [`SensorBuildError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SensorBuildError::LayoutNotFullyBound`] if any joint
+    /// slot is unbound.
+    pub fn try_new(robot_id: RobotId, layout: Arc<JointLayout>) -> Result<Self, SensorBuildError> {
+        let entities = entities_or_err(&layout)?;
         let dim = entities.len();
-        Self {
+        Ok(Self {
             robot_id,
             layout,
             entities,
             dim,
-        }
+        })
     }
 
     /// Borrow the layout this sensor was built from.
@@ -1132,6 +1276,33 @@ mod tests {
         let layout = synthetic_layout(&[e]);
         let sensor = JointStateSensor::new(layout);
         assert_eq!(sensor.name(), "JointStateSensor");
+    }
+
+    #[test]
+    fn joint_state_sensor_try_new_rejects_unbound_layout() {
+        // P0.4: layout with unbound slots must surface as
+        // SensorBuildError::LayoutNotFullyBound, not silently shrink dim.
+        let mut builder = JointLayoutBuilder::default();
+        for i in 0..3 {
+            builder = builder.push(JointSpec {
+                name: format!("j{i}"),
+                entity: None, // <- unbound
+                joint_type: JointKind::Revolute,
+                limits: JointSpecLimits::default(),
+                axis: [0.0, 0.0, 1.0],
+            });
+        }
+        let layout = Arc::new(builder.build());
+        match JointStateSensor::try_new(layout) {
+            Ok(_) => panic!("expected SensorBuildError::LayoutNotFullyBound"),
+            Err(e) => assert_eq!(
+                e,
+                SensorBuildError::LayoutNotFullyBound {
+                    layout_len: 3,
+                    bound: 0,
+                }
+            ),
+        }
     }
 
     #[test]

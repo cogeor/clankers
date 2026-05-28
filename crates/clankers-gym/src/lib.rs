@@ -23,6 +23,7 @@ pub mod framing;
 pub mod protocol;
 pub mod server;
 pub mod state_machine;
+pub mod tensor_frame;
 pub mod vec_env;
 
 // ---------------------------------------------------------------------------

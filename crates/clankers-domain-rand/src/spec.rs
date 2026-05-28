@@ -1,39 +1,52 @@
-//! Domain-randomisation specification (G11).
+//! Declarative domain-randomisation specification.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 11: Domain Randomisation Lacks A First-
-//! Class Contract". The `clankers-domain-rand` crate ships range types
-//! today, but each task wires randomisers ad-hoc; there's no
-//! declaration tied to [`crate::env_spec::EnvSpec`] that says "this
+//! Each task wires randomisers ad-hoc; there's no declaration tied to
+//! an [`EnvSpec`](clankers_core::env_spec::EnvSpec) that says "this
 //! task randomises gravity over [9.0, 10.5] m/s² and friction over
 //! [0.4, 0.6]".
 //!
 //! [`DomainRandomizationSpec`] is the declaration. Producers stamp it
-//! into the [`crate::manifest::RunManifest`] so consumers can know
-//! exactly which randomisation distribution generated the data.
+//! into the
+//! [`RunManifest`](clankers_core::manifest::RunManifest) so consumers
+//! can know exactly which randomisation distribution generated the
+//! data.
 //!
-//! The spec is intentionally narrow today — covers the parameters
-//! we randomise in-tree (gravity, mass, friction, restitution,
-//! joint damping). Adding a parameter is a single struct field
-//! + a serde-default; downstream consumers absorbing the change
-//! get the new field as `None` (= "not randomised") without breaking.
+//! The spec is intentionally narrow today — covers the parameters we
+//! randomise in-tree (gravity, mass, friction, restitution, joint
+//! damping). Adding a parameter is a single struct field + a
+//! `serde-default`; downstream consumers absorbing the change get the
+//! new field as `None` (= "not randomised") without breaking.
+//!
+//! ## Spec vs runtime sampler
+//!
+//! [`SpecRange`] (here) is a small `low, high` struct for *declaring*
+//! a closed interval — it's the wire format. The sibling
+//! [`RandomizationRange`](crate::ranges::RandomizationRange) is the
+//! richer runtime *sampler* enum (Uniform / Gaussian / LogUniform /
+//! Scaling). The two are deliberately separate: the spec stays trivial
+//! to serialise and reason about; the sampler is free to grow new
+//! distributions without churning the on-disk format.
 
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// Range
+// SpecRange
 // ---------------------------------------------------------------------------
 
 /// Closed sampling range `[low, high]`. `low <= high` is enforced by
-/// the [`Range::new`] constructor.
+/// the [`SpecRange::new`] constructor.
+///
+/// Wire-format type used inside [`DomainRandomizationSpec`]. For
+/// runtime sampling use [`crate::ranges::RandomizationRange`].
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Range {
+pub struct SpecRange {
     /// Low (inclusive) end of the range.
     pub low: f32,
     /// High (inclusive) end of the range.
     pub high: f32,
 }
 
-impl Range {
+impl SpecRange {
     /// Build a range, swapping `low` and `high` if the caller supplied
     /// them out of order. Use [`Self::try_new`] to surface the error
     /// instead of silently fixing it.
@@ -78,30 +91,30 @@ impl Range {
 
 /// Per-episode parameter randomisation declaration.
 ///
-/// All fields are `Option<Range>`; `None` means "not randomised — use
-/// the env default". The wire shape stays additive across stack
+/// All fields are `Option<SpecRange>`; `None` means "not randomised —
+/// use the env default". The wire shape stays additive across stack
 /// versions because new fields default to `None`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DomainRandomizationSpec {
     /// Per-axis gravity randomisation in m/s². Typical:
-    /// `Range::new(9.5, 10.2)`.
+    /// `SpecRange::new(9.5, 10.2)`.
     #[serde(default)]
-    pub gravity_z: Option<Range>,
+    pub gravity_z: Option<SpecRange>,
     /// Global mass multiplier applied to every dynamic body.
     #[serde(default)]
-    pub mass_multiplier: Option<Range>,
+    pub mass_multiplier: Option<SpecRange>,
     /// Global friction coefficient range.
     #[serde(default)]
-    pub friction: Option<Range>,
+    pub friction: Option<SpecRange>,
     /// Global restitution (bounciness) range.
     #[serde(default)]
-    pub restitution: Option<Range>,
+    pub restitution: Option<SpecRange>,
     /// Multiplier on joint damping (PD `kd`) per episode.
     #[serde(default)]
-    pub joint_damping_multiplier: Option<Range>,
+    pub joint_damping_multiplier: Option<SpecRange>,
     /// Per-joint per-step actuation noise std (in N or Nm).
     #[serde(default)]
-    pub actuation_noise_std: Option<Range>,
+    pub actuation_noise_std: Option<SpecRange>,
 }
 
 impl DomainRandomizationSpec {
@@ -154,20 +167,20 @@ mod tests {
 
     #[test]
     fn range_new_swaps_inverted_bounds() {
-        let r = Range::new(5.0, 1.0);
+        let r = SpecRange::new(5.0, 1.0);
         assert!((r.low - 1.0).abs() < 1e-6);
         assert!((r.high - 5.0).abs() < 1e-6);
     }
 
     #[test]
     fn range_try_new_rejects_inverted_bounds() {
-        assert!(Range::try_new(5.0, 1.0).is_none());
-        assert!(Range::try_new(1.0, 5.0).is_some());
+        assert!(SpecRange::try_new(5.0, 1.0).is_none());
+        assert!(SpecRange::try_new(1.0, 5.0).is_some());
     }
 
     #[test]
     fn range_centre_and_half_width() {
-        let r = Range::new(0.0, 10.0);
+        let r = SpecRange::new(0.0, 10.0);
         assert!((r.centre() - 5.0).abs() < 1e-6);
         assert!((r.half_width() - 5.0).abs() < 1e-6);
     }
@@ -182,7 +195,7 @@ mod tests {
     #[test]
     fn spec_with_some_field_is_active() {
         let s = DomainRandomizationSpec {
-            gravity_z: Some(Range::new(9.5, 10.2)),
+            gravity_z: Some(SpecRange::new(9.5, 10.2)),
             ..DomainRandomizationSpec::default()
         };
         assert!(s.is_active());
@@ -192,8 +205,8 @@ mod tests {
     #[test]
     fn spec_roundtrips_through_json() {
         let s = DomainRandomizationSpec {
-            gravity_z: Some(Range::new(9.5, 10.2)),
-            friction: Some(Range::new(0.4, 0.6)),
+            gravity_z: Some(SpecRange::new(9.5, 10.2)),
+            friction: Some(SpecRange::new(0.4, 0.6)),
             ..DomainRandomizationSpec::default()
         };
         let json = serde_json::to_string(&s).unwrap();
@@ -205,13 +218,10 @@ mod tests {
     #[test]
     fn spec_with_only_active_fields_serialised() {
         let s = DomainRandomizationSpec {
-            friction: Some(Range::new(0.4, 0.6)),
+            friction: Some(SpecRange::new(0.4, 0.6)),
             ..DomainRandomizationSpec::default()
         };
         let json = serde_json::to_string(&s).unwrap();
-        // Inactive fields are serialised as `null`; new producers can
-        // strip them with `skip_serializing_if = "Option::is_none"`
-        // once we land the manifest stamper.
         assert!(json.contains("\"friction\""));
     }
 }

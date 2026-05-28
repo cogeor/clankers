@@ -1,6 +1,6 @@
 //! Structure-of-Arrays simulation buffers (P3.1).
 //!
-//! CODE_QUALITY_REVIEW § "SoA Simulation Buffers" / P3.1. The hot
+//! `CODE_QUALITY_REVIEW` § "`SoA` Simulation Buffers" / P3.1. The hot
 //! simulation loop currently reads commands and writes state through
 //! Bevy ECS queries. That's ergonomic for systems, but not ideal for
 //! device execution and not cache-friendly even on CPU: per-joint
@@ -47,7 +47,7 @@
 ///
 /// - `target_pos`: NaN means "no position target this step".
 /// - `target_vel`: NaN means "no velocity target this step".
-/// - `max_force`: f32::INFINITY means "no force ceiling".
+/// - `max_force`: `f32::INFINITY` means "no force ceiling".
 ///
 /// The backend ignores NaN slots; this lets sparse commands flow
 /// through the same buffer as dense ones without an extra "is this
@@ -78,13 +78,13 @@ impl JointCommandBuffer {
 
     /// Number of joint slots.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.target_pos.len()
     }
 
     /// Whether the buffer has zero slots.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.target_pos.is_empty()
     }
 
@@ -144,13 +144,13 @@ impl JointStateBuffer {
 
     /// Number of joint slots.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.position.len()
     }
 
     /// Whether the buffer has zero slots.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.position.is_empty()
     }
 
@@ -198,13 +198,13 @@ impl BodyStateBuffer {
 
     /// Number of body slots.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.position_xyz.len()
     }
 
     /// Whether the buffer has zero slots.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.position_xyz.is_empty()
     }
 

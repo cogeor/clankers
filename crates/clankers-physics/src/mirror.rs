@@ -1,8 +1,8 @@
 //! Buffer ↔ ECS mirroring at the physics boundary (P3.3 / P3.4).
 //!
-//! CODE_QUALITY_REVIEW § Phase 3.3 — "mirror buffers to ECS only at
+//! `CODE_QUALITY_REVIEW` § Phase 3.3 — "mirror buffers to ECS only at
 //! boundaries"; § Phase 3.4 — "sensors / protocol / recorder read
-//! buffer views". These helpers convert between the SoA buffers from
+//! buffer views". These helpers convert between the `SoA` buffers from
 //! [`crate::buffers`] and the per-entity ECS components that
 //! observation buffers / sensors / recorders read.
 //!

@@ -1,8 +1,7 @@
-//! Panic-site audit catalogue (G7).
+//! Panic-site audit catalogue.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 7: Errors Aren't Uniform". Several
-//! workspace surfaces still panic where a typed error would be more
-//! appropriate, and several panics are deliberate "broken-contract"
+//! Several workspace surfaces still panic where a typed error would be
+//! more appropriate, and several panics are deliberate "broken-contract"
 //! signals that the user can't recover from. The two need to be
 //! distinguishable, otherwise downstream code can't decide whether to
 //! catch the panic, fix the input, or treat it as a bug.
@@ -18,9 +17,7 @@
 //! - [`PanicCategory::ProgrammerError`] — the panic indicates a
 //!   programmer-side broken invariant. Recovery is impossible because
 //!   the bad state is already in the type system; the panic is the
-//!   appropriate signal. Examples: layout-binding without enough
-//!   entities (the documented contract was broken), unreachable
-//!   match arms.
+//!   appropriate signal.
 //! - [`PanicCategory::FallibleAlternativeExists`] — the panic exists
 //!   for ergonomic legacy callers, but the recommended path is a
 //!   `try_*` method that returns `Result`. Protocol / server / env
@@ -46,7 +43,7 @@ pub enum PanicCategory {
 // AuditedPanic
 // ---------------------------------------------------------------------------
 
-/// One panic site reviewed during the G7 audit.
+/// One panic site reviewed during the audit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditedPanic {
     /// Source path (relative to repo root).
@@ -64,9 +61,9 @@ pub struct AuditedPanic {
     pub fallible_alternative: Option<String>,
 }
 
-/// The audited panic catalogue at G7-landing time.
+/// The audited panic catalogue.
 ///
-/// New panics added after G7 should append to this list; CI lint
+/// New panics added after the audit should append to this list; CI lint
 /// (follow-up) can grep production sources for `panic!` /
 /// `unwrap()` and require a matching entry.
 #[must_use]
@@ -102,7 +99,7 @@ pub fn panic_audit_catalogue() -> Vec<AuditedPanic> {
             "crates/clankers-core/src/layout.rs",
             280,
             "JointLayout::bind_entities() panics in both debug and release if the count is wrong; \
-             callers wanting a Result should use try_bind_entities (P0.4).",
+             callers wanting a Result should use try_bind_entities.",
             FallibleAlternativeExists,
             Some("JointLayout::try_bind_entities"),
         ),
@@ -111,7 +108,7 @@ pub fn panic_audit_catalogue() -> Vec<AuditedPanic> {
             "crates/clankers-env/src/sensors.rs",
             0,
             "Sensor::new(layout) family panics if the layout isn't fully bound; try_new(layout) \
-             returns Result<Self, SensorBuildError> (P0.4).",
+             returns Result<Self, SensorBuildError>.",
             FallibleAlternativeExists,
             Some("Sensor::try_new"),
         ),

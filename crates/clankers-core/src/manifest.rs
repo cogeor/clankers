@@ -1,17 +1,16 @@
-//! Run manifest — stamped metadata for every recorded artifact (G3).
+//! Run manifest — stamped metadata for every recorded artifact.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 3: No Manifest / Provenance Layer".
-//! Currently MCAP traces and CSV baselines have ad-hoc, partial
-//! metadata. Without a single canonical schema, downstream consumers
-//! (Python evaluators, baseline comparators, training reproducibility
-//! tooling) can't validate that the artifact came from the contract
-//! they think it did.
+//! MCAP traces and CSV baselines today carry ad-hoc, partial metadata.
+//! Without a single canonical schema, downstream consumers (Python
+//! evaluators, baseline comparators, training reproducibility tooling)
+//! can't validate that the artifact came from the contract they think
+//! it did.
 //!
-//! [`RunManifest`] is the schema. Every recorded artifact — MCAP trace,
-//! CSV benchmark row, baseline blob — should carry a serialisable
-//! `RunManifest` next to it. CLI surfaces (`clankers inspect`,
-//! `clankers validate`, `clankers compare`) operate on this schema
-//! so callers never reach for the raw protobuf / row format.
+//! [`RunManifest`] is the schema. Every recorded artifact — MCAP
+//! trace, CSV benchmark row, baseline blob — should carry a
+//! serialisable `RunManifest` next to it. CLI surfaces (`clankers
+//! inspect`, `clankers validate`, `clankers compare`) operate on this
+//! schema so callers never reach for the raw protobuf / row format.
 //!
 //! ## Stability
 //!
@@ -23,7 +22,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::env_spec::EnvId;
+use crate::env_spec::TaskId;
 
 /// Major schema version. Bump on breaking field changes; never reuse
 /// an old value. Minor additions / additive enum variants don't bump
@@ -83,8 +82,8 @@ pub struct RunManifest {
     /// Manifest schema version. Always [`MANIFEST_SCHEMA_VERSION`] at
     /// produce time; verified by [`Self::is_compatible`] at read time.
     pub schema_version: u32,
-    /// Stable id of the env / task that produced the run.
-    pub env_id: EnvId,
+    /// Stable id of the task that produced the run.
+    pub task: TaskId,
     /// ISO-8601 UTC timestamp the run started.
     pub started_at: String,
     /// Wall-clock duration in milliseconds.
@@ -155,7 +154,7 @@ impl RunManifest {
 // ---------------------------------------------------------------------------
 
 /// Failure modes for manifest decoding.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ManifestError {
     /// JSON parsing failure.
     #[error("manifest parse error: {0}")]
@@ -177,8 +176,8 @@ pub enum ManifestError {
 /// Result of comparing two manifests.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestComparison {
-    /// Whether the env id matched.
-    pub env_match: bool,
+    /// Whether the task id matched.
+    pub task_match: bool,
     /// Whether the env spec hash matched (false ⇒ silent task drift).
     pub env_spec_match: bool,
     /// Whether the software clankers version matched.
@@ -191,9 +190,13 @@ pub struct ManifestComparison {
 }
 
 /// Produce a [`ManifestComparison`] between two manifests.
+///
+/// Always succeeds — the function reports differences rather than
+/// rejecting them. Schema-version compatibility should be checked via
+/// [`RunManifest::is_compatible`] on each input first.
 #[must_use]
 pub fn compare_manifests(left: &RunManifest, right: &RunManifest) -> ManifestComparison {
-    let env_match = left.env_id == right.env_id;
+    let task_match = left.task == right.task;
     let env_spec_match = left.env_spec_hash == right.env_spec_hash;
     let clankers_version_match = left.software.clankers == right.software.clankers;
 
@@ -216,7 +219,7 @@ pub fn compare_manifests(left: &RunManifest, right: &RunManifest) -> ManifestCom
     asymmetric_metrics.dedup();
 
     ManifestComparison {
-        env_match,
+        task_match,
         env_spec_match,
         clankers_version_match,
         metric_deltas,
@@ -238,7 +241,7 @@ mod tests {
         metrics.insert("mean_episode_length".to_string(), 480.0);
         RunManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
-            env_id: EnvId::new("clankers", "cartpole_v1"),
+            task: TaskId::new("clankers", "cartpole_v1"),
             started_at: "2026-05-28T12:00:00Z".to_string(),
             wall_duration_ms: 60_000,
             num_envs: 8,
@@ -286,10 +289,10 @@ mod tests {
     fn compare_detects_env_drift() {
         let mut left = sample();
         let mut right = sample();
-        right.env_id = EnvId::new("clankers", "cartpole_v2");
+        right.task = TaskId::new("clankers", "cartpole_v2");
         right.env_spec_hash = "beadbeef".to_string();
         let cmp = compare_manifests(&left, &right);
-        assert!(!cmp.env_match);
+        assert!(!cmp.task_match);
         assert!(!cmp.env_spec_match);
         // Same metrics on both sides; deltas should be zero.
         assert!(cmp.metric_deltas.values().all(|d| d.abs() < 1e-9));
@@ -298,7 +301,7 @@ mod tests {
         // Sanity: equal manifests compare equal.
         right = left.clone();
         let cmp_eq = compare_manifests(&left, &right);
-        assert!(cmp_eq.env_match);
+        assert!(cmp_eq.task_match);
         assert!(cmp_eq.env_spec_match);
 
         // Asymmetric metric: only on right.

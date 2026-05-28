@@ -1,19 +1,19 @@
-//! First-class task / environment specification (G1).
+//! First-class task / environment specification.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 1: Task / Environment Authoring Is
-//! Ad-Hoc". Today new tasks land as bespoke example binaries that each
-//! reinvent reward, termination, observation, and scene wiring. The
-//! review's prescribed shape:
+//! New tasks today land as bespoke example binaries that each
+//! reinvent reward, termination, observation, and scene wiring.
+//! [`EnvSpec`] is the canonical shape:
 //!
 //! ```text
 //! EnvSpec { id, scene, action, observation, reset, reward, termination }
 //! ```
 //!
-//! This module defines the data shapes. Wiring (`SceneBuilder::from_env_spec`,
-//! `RewardProvider` resolution, registry integration) is follow-up
-//! work — those changes touch examples and the recorder and are best
-//! handled in dedicated loops. The foundation here is what every
-//! follow-up loop can attach to without re-arguing field names.
+//! This module defines the data shapes. Wiring
+//! (`SceneBuilder::from_env_spec`, [`RewardProvider`] resolution,
+//! registry integration) is follow-up work — those changes touch
+//! examples and the recorder and are best handled in dedicated loops.
+//! The foundation here is what every follow-up loop can attach to
+//! without re-arguing field names.
 
 use std::collections::BTreeMap;
 
@@ -22,26 +22,26 @@ use serde::{Deserialize, Serialize};
 use crate::types::{ActionSpace, ObservationSpace};
 
 // ---------------------------------------------------------------------------
-// EnvId
+// TaskId
 // ---------------------------------------------------------------------------
 
 /// Stable identifier for a task / environment.
 ///
 /// Two-part: registry namespace + task name. Examples:
-/// `EnvId::new("clankers", "quadruped_mpc")`,
-/// `EnvId::new("user", "my_pick_task")`. Stored in
+/// `TaskId::new("clankers", "quadruped_mpc")`,
+/// `TaskId::new("user", "my_pick_task")`. Stored in
 /// [`RunManifest`](crate::manifest::RunManifest) so reruns can resolve
 /// the exact task they were trained against (G3).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct EnvId {
+pub struct TaskId {
     /// Namespace (e.g. "clankers", "user", "examples").
     pub namespace: String,
     /// Task name within the namespace.
     pub name: String,
 }
 
-impl EnvId {
-    /// Construct an `EnvId` from owned strings.
+impl TaskId {
+    /// Construct a `TaskId` from owned strings.
     #[must_use]
     pub fn new(namespace: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
@@ -65,9 +65,9 @@ impl EnvId {
 /// Scene shape declarable in an `EnvSpec`.
 ///
 /// References by path / id keep the spec serialisable. Concrete scene
-/// loading is performed by [`SceneBuilder`](https://docs.rs/clankers-sim)
-/// at task instantiation time.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// loading is performed by `SceneBuilder` (in `clankers-sim`) at task
+/// instantiation time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SceneSpec {
     /// URDF / scene file path or registered id.
     pub robot_id: String,
@@ -133,8 +133,8 @@ pub enum ResetDistribution {
 
 /// Where the reward signal is computed.
 ///
-/// CODE_QUALITY_REVIEW § Gap 12 — make ownership explicit so policies
-/// and evaluators agree on which side of the wire produced the reward.
+/// Ownership is explicit so policies and evaluators agree on which
+/// side of the wire produced the reward.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RewardProvider {
@@ -157,7 +157,7 @@ pub struct RewardContract {
 }
 
 /// Termination conditions for the task.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminationContract {
     /// Hard step limit. `None` means rely on physical terminations only.
     #[serde(default)]
@@ -176,15 +176,15 @@ pub struct TerminationContract {
 ///
 /// A complete `EnvSpec` is enough to:
 ///
-/// - Look up the task in the registry by [`EnvId`].
+/// - Look up the task in the registry by [`TaskId`].
 /// - Build the scene via `SceneBuilder` (G1 follow-up).
 /// - Validate observations / actions on the wire (G2).
 /// - Stamp the run manifest (G3).
 /// - Render docs (G5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvSpec {
-    /// Stable identifier.
-    pub id: EnvId,
+    /// Stable identifier for the task this spec describes.
+    pub id: TaskId,
     /// Scene to build.
     pub scene: SceneSpec,
     /// Action contract.
@@ -209,7 +209,7 @@ mod tests {
 
     fn sample() -> EnvSpec {
         EnvSpec {
-            id: EnvId::new("clankers", "cartpole_v1"),
+            id: TaskId::new("clankers", "cartpole_v1"),
             scene: SceneSpec {
                 robot_id: "cartpole".to_string(),
                 object_ids: vec![],
@@ -242,8 +242,8 @@ mod tests {
     }
 
     #[test]
-    fn env_id_as_path_formats_namespace_slash_name() {
-        let id = EnvId::new("clankers", "quadruped_mpc");
+    fn task_id_as_path_formats_namespace_slash_name() {
+        let id = TaskId::new("clankers", "quadruped_mpc");
         assert_eq!(id.as_path(), "clankers/quadruped_mpc");
     }
 

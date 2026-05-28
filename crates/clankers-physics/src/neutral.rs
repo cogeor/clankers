@@ -1,6 +1,6 @@
 //! Engine-neutral physics handles and readback structs.
 //!
-//! CODE_QUALITY_REVIEW § "Engine-Neutral Physics Boundary" / P2.1.
+//! `CODE_QUALITY_REVIEW` § "Engine-Neutral Physics Boundary" / P2.1.
 //! These types are the cross-process / cross-backend lingua franca for
 //! body / joint identity and per-step readback. They live in
 //! `clankers-physics` rather than a new `clankers-physics-core` crate
@@ -14,7 +14,7 @@
 //!   backend assigns them; consumers never inspect the bits. A future
 //!   GPU / Brax-style backend can produce them just as well as Rapier.
 //! - [`BodyPose`] — position + orientation as plain arrays. Same wire
-//!   shape as MuJoCo `qpos` / Brax `qp.x`, `qp.rot`.
+//!   shape as `MuJoCo` `qpos` / Brax `qp.x`, `qp.rot`.
 //! - [`ContactEvent`] — body-pair + force. Backend-independent because
 //!   force is a vector, not a `rapier::ContactPair`.
 //!
@@ -148,7 +148,7 @@ impl ContactEvent {
     #[must_use]
     pub fn force_magnitude(&self) -> f32 {
         let [x, y, z] = self.force;
-        (x * x + y * y + z * z).sqrt()
+        z.mul_add(z, x.mul_add(x, y * y)).sqrt()
     }
 }
 

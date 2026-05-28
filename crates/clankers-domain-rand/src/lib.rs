@@ -17,6 +17,7 @@
 
 pub mod randomizers;
 pub mod ranges;
+pub mod spec;
 
 use bevy::prelude::*;
 use clankers_actuator::components::Actuator;
@@ -238,6 +239,7 @@ pub mod prelude {
             MassRandomizer, MotorRandomizer, SurfaceFrictionRandomizer, TransmissionRandomizer,
         },
         ranges::{RandomizationRange, RangeError},
+        spec::{DomainRandomizationSpec, SpecRange},
     };
 }
 

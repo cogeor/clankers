@@ -1,6 +1,6 @@
 //! Engine-neutral physics readback (P2.2).
 //!
-//! CODE_QUALITY_REVIEW § Phase 2.2 — "GymEnv no longer reads `RapierContext`
+//! `CODE_QUALITY_REVIEW` § Phase 2.2 — "`GymEnv` no longer reads `RapierContext`
 //! directly". Provides a single backend-dispatching entry point so consumers
 //! (gym, sensors, recorder) collect named body poses + contact events without
 //! importing concrete backend types or poking their internal sets.

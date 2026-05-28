@@ -1,7 +1,6 @@
-//! Packaging / release boundaries (G13).
+//! Packaging / release boundaries.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 13: Packaging Story Is Implicit". The
-//! workspace is published as `clankers-core`, `clankers-physics`,
+//! The workspace is published as `clankers-core`, `clankers-physics`,
 //! `clankers-gym`, ... + the Python `clankers` and `clankers_synthetic`
 //! packages, but there's no committed list of which crates / packages
 //! are released, which are internal-only, and what the release
@@ -23,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub enum ReleaseChannel {
     /// crates.io.
     CratesIo,
-    /// PyPI.
+    /// `PyPI`.
     PyPi,
     /// Internal-only — not published, but referenced by other
     /// workspace crates.
@@ -45,7 +44,7 @@ pub struct ReleaseArtifact {
     pub purpose: String,
 }
 
-/// The canonical list of release artifacts at G13 landing time.
+/// The canonical list of release artifacts.
 ///
 /// CI compares the workspace's actual package list against this; new
 /// crates / Python packages must append here before release. Removals
@@ -153,7 +152,7 @@ pub struct ChecklistStep {
     pub required: bool,
 }
 
-/// The canonical release checklist at G13 landing time.
+/// The canonical release checklist.
 #[must_use]
 pub fn release_checklist() -> Vec<ChecklistStep> {
     let s = |id: &str, description: &str, required| ChecklistStep {

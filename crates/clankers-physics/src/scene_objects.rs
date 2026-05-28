@@ -1,6 +1,6 @@
 //! Engine-neutral scene-object spawning (P2.3).
 //!
-//! CODE_QUALITY_REVIEW § P2.3 — `clankers-sim` builds scenes without
+//! `CODE_QUALITY_REVIEW` § P2.3 — `clankers-sim` builds scenes without
 //! returning Rapier handles in public structs. The shape-to-collider
 //! mapping and the rapier-body insertion live here; the only handle
 //! a consumer ever sees is the opaque [`crate::neutral::BodyHandle`].
@@ -85,7 +85,8 @@ impl RapierContext {
             .insert_with_parent(collider, body, &mut self.rigid_body_set);
 
         self.body_handles.insert(obj.name.clone(), body);
-        let id = self.object_handle_table.len() as u32;
+        let id = u32::try_from(self.object_handle_table.len())
+            .expect("scene object count exceeds u32; the workspace assumes < 2^32 bodies");
         self.object_handle_table.push(body);
         BodyHandle::new(id)
     }

@@ -1,14 +1,14 @@
-//! Baselines registry schema (G4).
+//! Baselines registry schema.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 4: No Baselines Registry". The repo has
-//! benchmark CSVs but no canonical "what good looks like" for any task
-//! — every comparison is recomputed locally. The `baselines/` directory
-//! is the registry; each subdirectory carries a `config.toml`, an
-//! `expected_metrics.json`, and (on recapture) a `RunManifest`.
+//! The repo has benchmark CSVs but no canonical "what good looks like"
+//! for any task — every comparison is recomputed locally. The
+//! `baselines/` directory is the registry; each subdirectory carries
+//! a `config.toml`, an `expected_metrics.json`, and (on recapture) a
+//! [`RunManifest`](crate::manifest::RunManifest).
 //!
-//! This module defines the typed deserialiser for `expected_metrics.json`
-//! so CI / `clankers compare` work against a single schema rather than
-//! ad-hoc JSON parsing.
+//! This module defines the typed deserialiser for
+//! `expected_metrics.json` so CI / `clankers compare` work against a
+//! single schema rather than ad-hoc JSON parsing.
 
 use std::collections::BTreeMap;
 
@@ -79,7 +79,7 @@ impl MetricTarget {
 /// How the baseline is recaptured.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecaptureMetadata {
-    /// Recapture trigger (e.g. "workflow_dispatch:baseline").
+    /// Recapture trigger (e.g. `"workflow_dispatch:baseline"`).
     pub trigger: String,
     /// Recapture frequency ("manual", "nightly", "weekly", ...).
     pub frequency: String,
@@ -97,7 +97,7 @@ pub struct RecaptureMetadata {
 pub struct ExpectedMetrics {
     /// Schema version. Must equal [`BASELINE_SCHEMA_VERSION`].
     pub schema_version: u32,
-    /// Task id ("namespace/name" form — same as `EnvId::as_path`).
+    /// Task id ("namespace/name" form — same as `TaskId::as_path`).
     pub task: String,
     /// Human-readable description.
     #[serde(default)]
@@ -109,7 +109,7 @@ pub struct ExpectedMetrics {
 }
 
 /// Failure modes for [`ExpectedMetrics::from_json`].
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum BaselineError {
     /// JSON parse failure.
     #[error("baseline parse error: {0}")]

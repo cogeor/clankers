@@ -179,10 +179,9 @@ impl Action {
     /// concise with `.values()` and would otherwise require `.unwrap()`
     /// boilerplate.
     ///
-    /// CODE_QUALITY_REVIEW Finding "Action API Still Exposes Panicking
-    /// Aliases" / P1.9 documents the convention: **no protocol / server /
-    /// env code calls `values()`.** Protocol-boundary code routes
-    /// through the fallible variants because a panic crossing the
+    /// **No protocol / server / env code calls `values()`.**
+    /// Protocol-boundary code routes through the fallible variants
+    /// because a panic crossing the
     /// process boundary is a server-side fault, not user-error.
     pub const fn values(&self) -> &[f32] {
         match self.as_continuous() {
@@ -228,9 +227,9 @@ impl Action {
     /// element.
     ///
     /// Returns [`ActionKindError::ExpectedContinuous`] when the action
-    /// is not [`Self::Continuous`] (Discrete / MultiDiscrete). New code
-    /// — especially protocol / server / env code touched by P1.9 —
-    /// should prefer this over the panicking [`Self::scale`].
+    /// is not [`Self::Continuous`] (`Discrete` / `MultiDiscrete`).
+    /// New code — especially protocol / server / env code — should
+    /// prefer this over the panicking [`Self::scale`].
     ///
     /// # Errors
     ///

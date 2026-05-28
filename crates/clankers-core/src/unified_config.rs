@@ -1,10 +1,9 @@
-//! Unified config schema (G9).
+//! Unified config schema.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 9: Config Is Scattered". Today the
-//! workspace has `SimConfig`, `EpisodeConfig`, training-side YAML,
+//! The workspace has `SimConfig`, `EpisodeConfig`, training-side YAML,
 //! and per-binary ad-hoc CLI flags. There's no single document that
 //! captures "the full configuration of a run", which makes
-//! reproducibility (G3 manifest stamping) hard.
+//! reproducibility (manifest stamping) hard.
 //!
 //! [`UnifiedConfig`] is the schema. The CLI's `--config <file>` flag
 //! reads this; the resolved config gets stamped into the
@@ -16,7 +15,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::config::SimConfig;
-use crate::env_spec::EnvId;
+use crate::env_spec::TaskId;
 
 /// Schema-version pin so config files don't silently drift across
 /// stack revisions.
@@ -27,7 +26,7 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 // ---------------------------------------------------------------------------
 
 /// Recorder section of the unified config.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecorderConfig {
     /// Enable recording.
     #[serde(default)]
@@ -59,13 +58,14 @@ impl Default for RecorderConfig {
     }
 }
 
-/// Training-side hyperparams. The training stack is Python-side; the
-/// fields here cover the bits the Rust side needs to know (seed,
-/// num_envs, parallelism mode). Detailed RL hyperparams live in the
-/// `extra` map.
+/// Training-side hyperparams.
+///
+/// The training stack is Python-side; the fields here cover the bits
+/// the Rust side needs to know (seed, `num_envs`, parallelism mode).
+/// Detailed RL hyperparams live in the `extra` map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrainingConfig {
-    /// Master seed for the run (per-env seeds derived via SeedHierarchy).
+    /// Master seed for the run (per-env seeds derived via [`crate::seed::SeedHierarchy`]).
     #[serde(default)]
     pub master_seed: u64,
     /// Number of envs to run in parallel.
@@ -136,8 +136,8 @@ pub struct UnifiedConfig {
     /// Pinned schema version. Must equal [`CONFIG_SCHEMA_VERSION`] at
     /// load time.
     pub schema_version: u32,
-    /// Task / env id (must resolve in the registry).
-    pub env: EnvId,
+    /// Task id (must resolve in the registry).
+    pub task: TaskId,
     /// Physics / simulation timing.
     #[serde(default)]
     pub sim: SimConfig,
@@ -153,7 +153,7 @@ pub struct UnifiedConfig {
 }
 
 /// Failure modes when loading [`UnifiedConfig`].
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UnifiedConfigError {
     /// Parse failure (JSON or TOML).
     #[error("unified config parse error: {0}")]
@@ -227,7 +227,7 @@ mod tests {
     fn sample() -> UnifiedConfig {
         UnifiedConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
-            env: EnvId::new("clankers", "cartpole_v1"),
+            task: TaskId::new("clankers", "cartpole_v1"),
             sim: SimConfig::default(),
             training: TrainingConfig {
                 master_seed: 42,
@@ -267,7 +267,7 @@ mod tests {
     fn from_toml_loads_minimal_doc() {
         let toml = r#"
 schema_version = 1
-env = { namespace = "clankers", name = "cartpole_v1" }
+task = { namespace = "clankers", name = "cartpole_v1" }
 
 [training]
 master_seed = 7
@@ -275,7 +275,7 @@ num_envs = 4
 vec_mode = "sequential"
 "#;
         let cfg = UnifiedConfig::from_toml(toml).unwrap();
-        assert_eq!(cfg.env.name, "cartpole_v1");
+        assert_eq!(cfg.task.name, "cartpole_v1");
         assert_eq!(cfg.training.num_envs, 4);
         // Recorder defaulted because not present.
         assert!(!cfg.recorder.enabled);

@@ -1,10 +1,9 @@
-//! Layered test taxonomy (G8).
+//! Layered test taxonomy.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 8: Tests Aren't Layered". The workspace
-//! has plenty of tests, but they're labelled only by `#[test]` —
-//! there's no signal at the crate level distinguishing happy-path
-//! unit tests from boundary contract tests from golden-fixture
-//! regression tests. This module defines the taxonomy.
+//! The workspace has plenty of tests, but they're labelled only by
+//! `#[test]` — there's no signal at the crate level distinguishing
+//! happy-path unit tests from boundary contract tests from
+//! golden-fixture regression tests. This module defines the taxonomy.
 //!
 //! ## Layers
 //!
@@ -20,14 +19,6 @@
 //!   structure rather than runtime behaviour (e.g. "clankers-core
 //!   does not depend on rapier3d"). These run as `#[test]` but
 //!   examine the cargo graph or module structure.
-//!
-//! Tests today live alongside the code in `#[cfg(test)] mod tests`
-//! blocks; the layer is recorded in the test attribute or via a
-//! naming convention (`contract_*`, `golden_*`, `architecture_*`).
-//! The discovery script that scans for these names is follow-up
-//! work; this module is the taxonomy + a canonical inventory of
-//! known layer-2/3/4 tests so the convention can be enforced going
-//! forward.
 
 use serde::{Deserialize, Serialize};
 
@@ -59,7 +50,7 @@ impl TestLayer {
     }
 
     /// All layers in declaration order.
-    pub const ALL: [TestLayer; 4] = [Self::Unit, Self::Contract, Self::Golden, Self::Architecture];
+    pub const ALL: [Self; 4] = [Self::Unit, Self::Contract, Self::Golden, Self::Architecture];
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +135,7 @@ pub fn layered_test_inventory() -> Vec<LayeredTest> {
         t(
             "crates/clankers-physics/src/rapier/runtime.rs",
             Golden,
-            "JointRuntime struct size pinned ≤ 256 B to flag inflations that would slow the hot \
+            "JointRuntime struct size pinned <= 256 B to flag inflations that would slow the hot \
              path.",
         ),
         // Architecture layer — workspace structure.
@@ -154,12 +145,12 @@ pub fn layered_test_inventory() -> Vec<LayeredTest> {
             "Prelude re-exports compile (no accidental private types in public surface).",
         ),
         t(
-            "crates/clankers-core/src/stability.rs",
+            "xtask/src/audit/stability.rs",
             Architecture,
             "Canonical tier table has no duplicates and covers each tier with at least one entry.",
         ),
         t(
-            "crates/clankers-core/src/panic_audit.rs",
+            "xtask/src/audit/panic_audit.rs",
             Architecture,
             "Every FallibleAlternativeExists entry in the panic audit names an alternative.",
         ),

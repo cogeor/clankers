@@ -1,9 +1,8 @@
-//! Boundary contract validators (G2).
+//! Boundary contract validators.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 2: Contracts Are Not Enforced
-//! Consistently". Promotes documented invariants to runtime validation
-//! at process boundaries. Each validator returns a typed error that
-//! callers (protocol decoders, recorders, evaluators) can match on.
+//! Promotes documented invariants to runtime validation at process
+//! boundaries. Each validator returns a typed error that callers
+//! (protocol decoders, recorders, evaluators) can match on.
 //!
 //! ## What's here
 //!
@@ -19,10 +18,21 @@
 //!
 //! ## What's NOT here
 //!
-//! - Manifest schema validators land with G3.
+//! - Manifest schema validators land separately (see [`crate::manifest`]).
 //! - Protocol framing validators (binary header parity) live in
 //!   `clankers-gym::binary_frame` / `tensor_frame`; this module is the
 //!   semantic layer above the byte layer.
+
+// Discrete validators inspect whether an action / observation component
+// is an integer in `[0, n)`. `v.fract() != 0.0` and `(v as usize) >= *n`
+// are intentionally exact: we *want* "not exactly an integer", and the
+// cast is only reached after a `v >= 0.0` finite check, so neither
+// truncation nor sign-loss can mismatch the validation intent.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use thiserror::Error;
 

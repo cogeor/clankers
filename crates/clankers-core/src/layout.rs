@@ -274,7 +274,7 @@ impl JointLayout {
     /// `debug_assert_eq!`, which let release builds silently bind only
     /// the first `min(entities.len(), self.len())` slots and leave the
     /// remainder unbound — corrupting downstream sensor / action /
-    /// recorder dimensions. See CODE_QUALITY_REVIEW Finding #4.
+    /// recorder dimensions.
     pub fn bind_entities(&mut self, entities: &[Entity]) {
         if let Err(e) = self.try_bind_entities(entities) {
             panic!("{e}");

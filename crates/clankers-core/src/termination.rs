@@ -1,11 +1,9 @@
-//! Termination reason taxonomy (G12).
+//! Termination reason taxonomy.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 12: Reward & Termination Ownership Is
-//! Unclear". `StepResult` carries `terminated: bool` + `truncated:
-//! bool` today, but no signal about *why* — a fallen-pole termination
-//! and a "off the workspace" termination both flatten to `terminated:
-//! true`, and downstream evaluators can't distinguish them in a
-//! recorded trace.
+//! `StepResult` carries `terminated: bool` + `truncated: bool` today,
+//! but no signal about *why* — a fallen-pole termination and a "off
+//! the workspace" termination both flatten to `terminated: true`, and
+//! downstream evaluators can't distinguish them in a recorded trace.
 //!
 //! [`TerminationReason`] adds the missing channel. The Bevy
 //! `Episode` resource takes one of these when ending; the recorder

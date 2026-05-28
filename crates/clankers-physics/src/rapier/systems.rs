@@ -215,8 +215,8 @@ pub fn validate_motor_coverage(
 ///   `rapier_step_system_hashmap` path (no `JointRuntimes` resource).
 /// - `slot_prev`: layout-slot-indexed `Vec<f32>` — used by the dense
 ///   `rapier_step_system_dense` hot path. Sized lazily on first use to
-///   match `runtimes.joints.len()`. **P2.4** / CODE_QUALITY_REVIEW
-///   § Phase 2.4: replaces the per-entity HashMap probe inside the
+///   match `runtimes.joints.len()`. **P2.4** / `CODE_QUALITY_REVIEW`
+///   § Phase 2.4: replaces the per-entity `HashMap` probe inside the
 ///   per-joint loop with an O(1) array read.
 #[derive(Resource)]
 pub struct MotorRateLimits {
@@ -265,10 +265,10 @@ impl MotorRateLimits {
 /// # Storage
 ///
 /// As with [`MotorRateLimits`], the dense path reads `slot_prev` /
-/// `slot_seen` directly; the HashMap remains for the fallback.
+/// `slot_seen` directly; the `HashMap` remains for the fallback.
 #[derive(Resource, Default)]
 pub struct InnerPdState {
-    /// Previous control step's target positions per entity (HashMap fallback).
+    /// Previous control step's target positions per entity (`HashMap` fallback).
     prev_targets: HashMap<Entity, f32>,
     /// Layout-slot-indexed previous-target cache for the dense path.
     pub slot_prev: Vec<f32>,

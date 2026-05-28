@@ -1,10 +1,8 @@
-//! Declared API stability tiers (G6).
+//! Declared API stability tiers.
 //!
-//! CODE_QUALITY_REVIEW § "Gap 6: API Stability Tiers Aren't Declared".
 //! The workspace ships `pub` everywhere with no signal to downstream
 //! about which surfaces are committed-to vs. internal helpers. This
-//! module pins the canonical tiers, and the [`stability_tier!`] macro
-//! lets a crate annotate each module with the tier it's committed to.
+//! module pins the canonical tiers.
 //!
 //! ## Tiers
 //!
@@ -17,18 +15,6 @@
 //!   cross-crate plumbing. Downstream should never depend on these
 //!   symbols directly; we keep them `pub` because Rust's
 //!   `pub(workspace)` doesn't exist yet.
-//!
-//! ## How to annotate
-//!
-//! Add a module-level rustdoc line:
-//!
-//! ```text
-//! //! Stability tier: [`Stable`](crate::stability::StabilityTier::Stable).
-//! ```
-//!
-//! Tools (`clankers inspect --stability`) scan source for this marker
-//! and produce the tier inventory. Today this module just defines the
-//! discriminant; the scanner is follow-up work.
 
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +50,7 @@ impl StabilityTier {
     }
 
     /// All tiers, in declaration order.
-    pub const ALL: [StabilityTier; 3] = [Self::Stable, Self::Experimental, Self::Internal];
+    pub const ALL: [Self; 3] = [Self::Stable, Self::Experimental, Self::Internal];
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +70,11 @@ pub struct ModuleTier {
 // Canonical tier table
 // ---------------------------------------------------------------------------
 
-/// The tiers we currently commit to. Keep this list authoritative —
-/// CI can grep for module paths against this table to detect
-/// undeclared modules. New modules should be added (or marked
-/// `Internal` and revisited later).
+/// The tiers we currently commit to.
+///
+/// Keep this list authoritative — CI can grep for module paths
+/// against this table to detect undeclared modules. New modules
+/// should be added (or marked `Internal` and revisited later).
 #[must_use]
 pub fn canonical_tier_table() -> Vec<ModuleTier> {
     use StabilityTier::{Experimental, Internal, Stable};
@@ -106,7 +93,8 @@ pub fn canonical_tier_table() -> Vec<ModuleTier> {
         t("clankers_core::seed", Stable),
         t("clankers_core::time", Stable),
         t("clankers_core::traits", Stable),
-        t("clankers_core::user_journeys", Stable),
+        t("clankers_core::termination", Experimental),
+        t("clankers_core::unified_config", Experimental),
         t("clankers_core::validators", Stable),
         t("clankers_core::view", Stable),
         t("clankers_core::schema", Stable),
@@ -133,6 +121,10 @@ pub fn canonical_tier_table() -> Vec<ModuleTier> {
         t("clankers_gym::state_machine", Internal),
         t("clankers_gym::tensor_frame", Experimental),
         t("clankers_gym::vec_env", Stable),
+        // clankers-domain-rand -------------------------------------------
+        t("clankers_domain_rand::randomizers", Stable),
+        t("clankers_domain_rand::ranges", Stable),
+        t("clankers_domain_rand::spec", Experimental),
         // clankers-sim ----------------------------------------------------
         t("clankers_sim::builder", Stable),
         t("clankers_sim::scenarios", Stable),
@@ -140,6 +132,12 @@ pub fn canonical_tier_table() -> Vec<ModuleTier> {
         t("clankers_sim::telemetry", Experimental),
         // clankers-record -------------------------------------------------
         t("clankers_record::async_writer", Experimental),
+        // xtask audit -----------------------------------------------------
+        t("xtask::audit::code_quality", Internal),
+        t("xtask::audit::panic_audit", Internal),
+        t("xtask::audit::release", Internal),
+        t("xtask::audit::stability", Internal),
+        t("xtask::audit::test_layers", Internal),
     ]
 }
 
@@ -187,7 +185,6 @@ mod tests {
             };
             counts[idx] += 1;
         }
-        // We expect a meaningful split — not all modules in one tier.
         for (i, c) in counts.iter().enumerate() {
             assert!(*c > 0, "tier idx {i} has zero declared modules");
         }

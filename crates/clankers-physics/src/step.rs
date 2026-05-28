@@ -1,6 +1,6 @@
 //! Buffer-based physics step entry point (P3.2).
 //!
-//! CODE_QUALITY_REVIEW § Phase 3.2 — the physics backend exposes a
+//! `CODE_QUALITY_REVIEW` § Phase 3.2 — the physics backend exposes a
 //! `step(commands, &mut state, &mut body_state)` API that consumes a
 //! [`JointCommandBuffer`] and produces a [`JointStateBuffer`] /
 //! [`BodyStateBuffer`]. The Bevy ECS systems remain in place; this
@@ -82,6 +82,7 @@ pub enum StepError {
 ///    identity values (zeros + unit quat).
 ///
 /// Errors are returned without mutating the buffers.
+#[allow(clippy::too_many_lines)]
 pub fn step_with_buffers(
     ctx: &mut RapierContext,
     runtimes: &JointRuntimes,
@@ -171,10 +172,14 @@ pub fn step_with_buffers(
             let parent_pos = parent.position().translation;
             let child_pos = child.position().translation;
             let rel = child_pos - parent_pos;
-            state.position[slot] = rel.x * info.axis.x + rel.y * info.axis.y + rel.z * info.axis.z;
+            state.position[slot] = rel
+                .z
+                .mul_add(info.axis.z, rel.x.mul_add(info.axis.x, rel.y * info.axis.y));
             let rel_v = child.linvel() - parent.linvel();
-            state.velocity[slot] =
-                rel_v.x * info.axis.x + rel_v.y * info.axis.y + rel_v.z * info.axis.z;
+            state.velocity[slot] = rel_v.z.mul_add(
+                info.axis.z,
+                rel_v.x.mul_add(info.axis.x, rel_v.y * info.axis.y),
+            );
         } else {
             // Project the relative rotation onto the joint axis to get
             // the scalar angle. Matches `rapier_step_system_dense` /
@@ -186,12 +191,16 @@ pub fn step_with_buffers(
             let sin_half_y = rel.y;
             let sin_half_z = rel.z;
             let cos_half = rel.w;
-            let dot =
-                sin_half_x * info.axis.x + sin_half_y * info.axis.y + sin_half_z * info.axis.z;
+            let dot = sin_half_z.mul_add(
+                info.axis.z,
+                sin_half_x.mul_add(info.axis.x, sin_half_y * info.axis.y),
+            );
             state.position[slot] = 2.0 * dot.atan2(cos_half);
             let rel_omega = child.angvel() - parent.angvel();
-            state.velocity[slot] =
-                rel_omega.x * info.axis.x + rel_omega.y * info.axis.y + rel_omega.z * info.axis.z;
+            state.velocity[slot] = rel_omega.z.mul_add(
+                info.axis.z,
+                rel_omega.x.mul_add(info.axis.x, rel_omega.y * info.axis.y),
+            );
         }
     }
 

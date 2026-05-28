@@ -18,6 +18,7 @@
 pub mod builder;
 pub mod scenarios;
 pub mod stats;
+pub mod telemetry;
 
 #[cfg(test)]
 mod headless;
@@ -36,6 +37,7 @@ pub use scenarios::{
     REGISTRY, ScenarioBuilder, ScenarioConfig, ScenarioError, ScenarioHandle, ScenarioRegistry,
 };
 pub use stats::EpisodeStats;
+pub use telemetry::{SimDiagnostics, SimPhase, TelemetryFrame};
 
 // ---------------------------------------------------------------------------
 // ClankersSimPlugin

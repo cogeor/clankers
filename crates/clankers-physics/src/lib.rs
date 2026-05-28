@@ -8,6 +8,7 @@
 pub mod backend;
 pub mod buffers;
 pub mod components;
+pub mod mirror;
 pub mod neutral;
 pub mod plugin;
 pub mod rapier;
@@ -25,6 +26,7 @@ pub mod prelude {
         backend::PhysicsBackend,
         buffers::{BodyStateBuffer, JointCommandBuffer, JointStateBuffer},
         components::{GroundPlane, PhysicsBody, PhysicsJoint},
+        mirror::{MirrorError, mirror_joint_state_to_ecs, snapshot_joint_torque_from_ecs},
         neutral::{BodyHandle, BodyPose, ContactEvent, JointHandle},
         plugin::ClankersPhysicsPlugin,
         readback::{PhysicsReadback, StepReadback, collect_step_readback},

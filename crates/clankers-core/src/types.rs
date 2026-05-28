@@ -306,7 +306,18 @@ impl ObservationSpace {
                         .zip(low.iter().zip(high.iter()))
                         .all(|(v, (l, h))| v >= l && v <= h)
             }
-            Self::Discrete { n } => obs.len() == 1 && (obs[0] as usize) < *n,
+            Self::Discrete { n } => {
+                if obs.len() != 1 {
+                    return false;
+                }
+                let v = obs[0];
+                // NaN / Inf / negative / non-integer values must NOT pass.
+                // Validate semantically before any cast-to-usize: float-to-
+                // int casts can otherwise turn invalid floats (NaN -> 0,
+                // -1.0 -> very large saturating usize on some targets) into
+                // accidentally-valid integers.
+                v.is_finite() && v >= 0.0 && v.fract() == 0.0 && (v as usize) < *n
+            }
             #[allow(clippy::float_cmp)]
             Self::MultiBinary { n } => {
                 obs.len() == *n && obs.as_slice().iter().all(|v| *v == 0.0 || *v == 1.0)
@@ -1349,6 +1360,27 @@ mod tests {
         assert!(!space.contains(&Observation::new(vec![5.0])));
         // wrong length
         assert!(!space.contains(&Observation::new(vec![0.0, 1.0])));
+    }
+
+    #[test]
+    fn obs_space_discrete_rejects_invalid_floats() {
+        // P0.3: invalid float observations must NOT cast-then-pass.
+        let space = ObservationSpace::Discrete { n: 5 };
+        // Negative.
+        assert!(!space.contains(&Observation::new(vec![-1.0])));
+        // Equal to n (boundary).
+        assert!(!space.contains(&Observation::new(vec![5.0])));
+        // Non-integer.
+        assert!(!space.contains(&Observation::new(vec![1.5])));
+        // NaN.
+        assert!(!space.contains(&Observation::new(vec![f32::NAN])));
+        // +Inf.
+        assert!(!space.contains(&Observation::new(vec![f32::INFINITY])));
+        // -Inf.
+        assert!(!space.contains(&Observation::new(vec![f32::NEG_INFINITY])));
+        // Valid edge: 0.0 and n-1 must still pass.
+        assert!(space.contains(&Observation::new(vec![0.0])));
+        assert!(space.contains(&Observation::new(vec![4.0])));
     }
 
     #[test]
